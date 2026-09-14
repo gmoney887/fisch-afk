@@ -1,0 +1,24 @@
+# Build and Release Folders
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+Publish/
+publish/
+
+# Visual Studio / IDE
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln.docstates
+*.userprefs
+
+# Application Specific
+recordings/
+logs/
+scratch/
+*.log
+
+# Temp / OS
+.DS_Store
+Thumbs.db
