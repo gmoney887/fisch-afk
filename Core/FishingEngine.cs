@@ -673,10 +673,10 @@ public class FishingEngine : IDisposable
                 slotNum = Math.Clamp(Config.RodSlot[0] - '0', 1, 9);
             }
 
-            // Exact measured Roblox hotbar center: slot 1 is 0.4198, Y is 0.9704
-            double slotNormX = 0.4098 + ((slotNum - 0.5) / 9.0) * 0.1799;
-            int slotClientX = (int)Math.Round(clientW * slotNormX);
-            int slotClientY = (int)Math.Round(clientH * 0.9704);
+            // Aspect-ratio independent anchor math for hotbar slots (Slot 5 is dead center)
+            double offsetRatio = (slotNum - 5) * 0.03554;
+            int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
+            int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4704);
 
             // Active slot has golden/yellow corner accents: top-right corner is offset (+21, -27)
             int cornerX = slotClientX + (int)Math.Round(clientH * 0.0155);
