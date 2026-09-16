@@ -7,6 +7,7 @@ param (
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $false
 
 $repoRoot = (Resolve-Path "$PSScriptRoot\..\..\..\..").Path
 Set-Location $repoRoot
@@ -120,7 +121,7 @@ if (-not $SkipPush) {
         $notesArg = if ($ReleaseNotes) { @("--notes", $ReleaseNotes) } else { @("--generate-notes") }
         
         # Check if release already exists
-        $releaseExists = & gh release view $tag 2>&1
+        $null = & gh release view $tag 2>$null
         if ($LASTEXITCODE -eq 0) {
             Write-Host "      Updating existing release $tag..." -ForegroundColor Yellow
             & gh release upload $tag "$zipFile#FischMacroCS-v$targetVer-win-x64.zip" --clobber
