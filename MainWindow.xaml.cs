@@ -972,9 +972,78 @@ public partial class MainWindow : Window
         string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow_Loaded start\n"); } catch { }
 
+        _ = CheckForUpdatesAsync();
+
         await System.Threading.Tasks.Task.Delay(2600); // Display startup splash for 2.6s
         DismissSplash();
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow_Loaded splash dismissed\n"); } catch { }
+    }
+
+    private string _latestReleaseUrl = "https://github.com/gmoney887/fisch-afk/releases/latest";
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            using var client = new System.Net.Http.HttpClient();
+            client.Timeout = TimeSpan.FromSeconds(4);
+            client.DefaultRequestHeaders.Add("User-Agent", "FatDadsFischAFK");
+
+            string apiUrl = "https://api.github.com/repos/gmoney887/fisch-afk/releases/latest";
+            var response = await client.GetAsync(apiUrl);
+            if (!response.IsSuccessStatusCode) return;
+
+            string json = await response.Content.ReadAsStringAsync();
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (!root.TryGetProperty("tag_name", out var tagElem)) return;
+            string? tagName = tagElem.GetString()?.Trim();
+            if (string.IsNullOrEmpty(tagName)) return;
+
+            if (root.TryGetProperty("html_url", out var urlElem))
+            {
+                string? htmlUrl = urlElem.GetString();
+                if (!string.IsNullOrEmpty(htmlUrl))
+                    _latestReleaseUrl = htmlUrl;
+            }
+
+            // Parse version strings for semantic comparison
+            string remoteVerClean = tagName.TrimStart('v', 'V').Split('-')[0];
+            var localVer = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+            if (localVer == null) return;
+
+            if (Version.TryParse(remoteVerClean, out var remoteVer))
+            {
+                Version normRemote = new Version(Math.Max(0, remoteVer.Major), Math.Max(0, remoteVer.Minor), Math.Max(0, remoteVer.Build));
+                Version normLocal = new Version(Math.Max(0, localVer.Major), Math.Max(0, localVer.Minor), Math.Max(0, localVer.Build));
+
+                if (normRemote > normLocal)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        TxtUpdateBanner.Text = $"🚀 Update Available: {tagName} — Click to download";
+                        BorderUpdateBanner.Visibility = Visibility.Visible;
+                    });
+                }
+            }
+        }
+        catch
+        {
+            // Silently ignore network / rate-limit failures
+        }
+    }
+
+    private void BorderUpdateBanner_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_latestReleaseUrl)
+            {
+                UseShellExecute = true
+            });
+        }
+        catch { }
     }
 
     private void OverlaySplash_MouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
