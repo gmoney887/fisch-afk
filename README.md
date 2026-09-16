@@ -35,9 +35,13 @@ dotnet run
 ## 🎮 How to Use
 1. Launch Roblox and open the "Fisch" game.
 2. Ensure your Fishing Rod is assigned to slot **1** (or adjust in settings).
-3. Open the **Fisch AFK Pro** app.
-4. Tweak your `Settings` if desired (Rod type, auto-open crates toggle, etc).
-5. Click **Start** or use the Hotkey (`F8`) to begin!
+3. Open the **Fat Dad's Fisch AFK Pro** app.
+4. Tweak your `Settings` if desired (Rod profile, auto-open crates toggle, aquarium claims, etc.).
+5. Hotkeys:
+   - **`[F6]`**: Start / Stop Macro
+   - **`[F7]`**: Re-Equip Fishing Rod
+   - **`[End]`**: Emergency Stop
+   *(Hotkeys are fully rebindable in the Settings panel)*
 
 ---
 *Disclaimer: This is a standalone computer vision tool. It does not inject into Roblox or modify game memory. Use at your own risk in accordance with game rules.*
