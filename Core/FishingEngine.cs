@@ -308,8 +308,14 @@ public class FishingEngine : IDisposable
         // Wait for modal to close
         Thread.Sleep(500);
 
-        // Step 4: Re-equip rod
-        ReEquipRod();
+        // Step 4: Ensure cursor is safely back in the game water
+        int waterX = (int)Math.Round(clientW * 0.50);
+        int waterY = (int)Math.Round(clientH * 0.40);
+        Win32.POINT wPt = new Win32.POINT { X = waterX, Y = waterY };
+        if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+        {
+            Win32.SetCursorPos(wPt.X, wPt.Y);
+        }
 
         // Reset tracking
         _lastAquariumClaimTime = Stopwatch.GetTimestamp();
@@ -608,6 +614,7 @@ public class FishingEngine : IDisposable
     }
 
     private int _catchesSinceLastCrateOpen = 0;
+    private int _consecutiveCastFailures = 0;
     private CancellationTokenSource? _cts;
     private Task? _workerTask;
 
@@ -649,6 +656,7 @@ public class FishingEngine : IDisposable
 
         _cts = new CancellationTokenSource();
         Win32.timeBeginPeriod(1);
+        _consecutiveCastFailures = 0;
         CurrentState = MacroState.Casting;
         _stateStartTime = Stopwatch.GetTimestamp();
         _lastAntiAfkTime = Stopwatch.GetTimestamp();
@@ -678,6 +686,19 @@ public class FishingEngine : IDisposable
         OnTelemetry?.Invoke(telem);
     }
 
+    public void ClickHotbarSlot(IntPtr robloxHwnd, int clientW, int clientH, int slotNum)
+    {
+        slotNum = Math.Clamp(slotNum, 1, 9);
+        double offsetRatio = (slotNum - 5) * 0.05607;
+        int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
+        int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
+        Win32.POINT sPt = new Win32.POINT { X = slotClientX, Y = slotClientY };
+        if (Win32.ClientToScreen(robloxHwnd, ref sPt))
+        {
+            Win32.SendHardwareClick(sPt.X, sPt.Y, slotClientX, slotClientY, robloxHwnd);
+        }
+    }
+
     public bool IsRodEquipped(IntPtr robloxHwnd, int clientW, int clientH)
     {
         try
@@ -689,31 +710,32 @@ public class FishingEngine : IDisposable
             }
 
             // Aspect-ratio independent anchor math for hotbar slots (Slot 5 is dead center)
-            double offsetRatio = (slotNum - 5) * 0.03554;
+            double offsetRatio = (slotNum - 5) * 0.05607;
             int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
-            int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4704);
+            int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
 
-            // Active slot has golden/yellow corner accents: top-right corner is offset (+21, -27)
-            int cornerX = slotClientX + (int)Math.Round(clientH * 0.0155);
-            int cornerY = slotClientY - (int)Math.Round(clientH * 0.020);
+            // In Roblox, an active/equipped tool has a highlighted outline (blue/cyan or white)
+            int boxHalfW = (int)Math.Round(clientH * 0.024);
+            int topBorderY = slotClientY - (int)Math.Round(clientH * 0.033);
 
-            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cornerX - 10), Math.Max(0, cornerY - 10), 20, 20);
+            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, slotClientX - boxHalfW), Math.Max(0, topBorderY - 4), boxHalfW * 2, 8);
             if (snap == null || snap.Empty()) return false;
 
             int rows = snap.Rows;
             int cols = snap.Cols;
-            int yellowCount = 0;
+            int highlightCount = 0;
             for (int r = 0; r < rows; r++)
             {
                 for (int c = 0; c < cols; c++)
                 {
                     Vec4b bgra = snap.At<Vec4b>(r, c);
-                    // BGR: Item0 = B, Item1 = G, Item2 = R
-                    // Bright Golden/Yellow border of active slot: R > 200, G > 175, B < 80
-                    if (bgra.Item2 > 200 && bgra.Item1 > 175 && bgra.Item0 < 80)
+                    // Bright selection border: White (R,G,B > 180) or Blue/Cyan highlight (B > 140 && G > 100 && R < 120)
+                    bool isWhite = bgra.Item2 > 180 && bgra.Item1 > 180 && bgra.Item0 > 180;
+                    bool isCyan = bgra.Item0 > 140 && bgra.Item1 > 100 && bgra.Item2 < 120;
+                    if (isWhite || isCyan)
                     {
-                        yellowCount++;
-                        if (yellowCount >= 3) return true;
+                        highlightCount++;
+                        if (highlightCount >= 4) return true;
                     }
                 }
             }
@@ -722,7 +744,7 @@ public class FishingEngine : IDisposable
         return false;
     }
 
-    public void ReEquipRod(bool clickSlot = true)
+    public void ReEquipRod(bool clickSlot = false)
     {
         IntPtr robloxHwnd = Win32.FindRobloxWindow();
         if (robloxHwnd == IntPtr.Zero || !Win32.GetClientRect(robloxHwnd, out Win32.RECT clientRect) || clientRect.Width <= 0 || clientRect.Height <= 0)
@@ -745,7 +767,7 @@ public class FishingEngine : IDisposable
             slotChar = Config.RodSlot[0];
         }
 
-        // If rod is already equipped, do not toggle it off
+        // If rod is already confirmed equipped, do not toggle it off
         if (IsRodEquipped(robloxHwnd, winW, winH))
         {
             int safeClientX = (int)Math.Round(winW * 0.50);
@@ -758,7 +780,7 @@ public class FishingEngine : IDisposable
             return;
         }
 
-        // Focus Roblox game canvas by clicking safe center area
+        // Focus Roblox game canvas by clicking safe center water area
         int waterX = (int)Math.Round(winW * 0.50);
         int waterY = (int)Math.Round(winH * 0.40);
         Win32.POINT wPt = new Win32.POINT { X = waterX, Y = waterY };
@@ -770,15 +792,22 @@ public class FishingEngine : IDisposable
             Thread.Sleep(100);
         }
 
-        // Send hotkey to equip the rod
-        Win32.SendKeyPress(slotChar);
-        Thread.Sleep(200);
-
-        // If not equipped, retry once
-        if (!IsRodEquipped(robloxHwnd, winW, winH))
+        if (clickSlot)
         {
+            int slotNum = Math.Clamp(slotChar - '0', 1, 9);
+            ClickHotbarSlot(robloxHwnd, winW, winH, slotNum);
+            Thread.Sleep(150);
+        }
+        else
+        {
+            // Send single hotkey to equip the rod (never double-press!)
             Win32.SendKeyPress(slotChar);
-            Thread.Sleep(200);
+            Thread.Sleep(150);
+        }
+
+        if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+        {
+            Win32.SetCursorPos(wPt.X, wPt.Y);
         }
     }
 
@@ -1132,14 +1161,9 @@ public class FishingEngine : IDisposable
                     Thread.Sleep(150);
                 }
 
-                // Ensure rod is physically equipped before casting
-                if (!IsRodEquipped(robloxHwnd, winW, winH))
-                {
-                    ReEquipRod();
-                    Thread.Sleep(150);
-                }
-
                 EnsureCursorInGameView(robloxHwnd, clientRect);
+
+                bool barEverFound = false;
 
                 if (Config.EnableDynamicCastRelease)
                 {
@@ -1154,8 +1178,6 @@ public class FishingEngine : IDisposable
                     int roiY = (int)(winH * 0.25);
                     int roiW = (int)(winW * 0.30);
                     int roiH = (int)(winH * 0.50);
-
-                    bool barEverFound = false;
                     double lastFill = -1.0;
                     double lastFillElapsed = 0.0;
                     double fillRate = 0.135; // Baseline velocity ~0.135% per ms (~740ms 0->100%)
@@ -1268,6 +1290,74 @@ public class FishingEngine : IDisposable
                     SetMouseDown(false);
                 }
 
+                // ==============================================================
+                // CLOSED-LOOP CAST VERIFICATION:
+                // If dynamic casting is enabled and the cast bar was NEVER detected,
+                // the rod is unequipped or focus was lost. DO NOT proceed to Luring!
+                // ==============================================================
+                if (Config.EnableDynamicCastRelease && !barEverFound)
+                {
+                    SetMouseDown(false);
+                    _consecutiveCastFailures++;
+
+                    var failTelem = new TelemetryData
+                    {
+                        State = MacroState.Casting,
+                        Action = $"⚠️ Rod unequipped or cast missed! Auto-recovering rod (attempt {_consecutiveCastFailures})..."
+                    };
+                    PopulateTelemetryStats(failTelem);
+                    OnTelemetry?.Invoke(failTelem);
+
+                    // Re-focus Roblox window
+                    Win32.ForceSetForegroundWindow(robloxHwnd);
+                    Thread.Sleep(120);
+
+                    // Click water to dismiss any accidental UI/chat focus
+                    int waterClientX = (int)Math.Round(winW * 0.50);
+                    int waterClientY = (int)Math.Round(winH * 0.40);
+                    Win32.POINT wPt = new Win32.POINT { X = waterClientX, Y = waterClientY };
+                    if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+                    {
+                        Win32.SetCursorPos(wPt.X, wPt.Y);
+                        Thread.Sleep(50);
+                        Win32.mouse_event((int)(Win32.MOUSEEVENTF_LEFTDOWN | Win32.MOUSEEVENTF_LEFTUP), 0, 0, 0, 0);
+                        Thread.Sleep(100);
+                    }
+
+                    char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
+
+                    // If multiple failures, dismiss any stuck modals with Escape
+                    if (_consecutiveCastFailures >= 2)
+                    {
+                        Win32.SendKeyPress((char)27); // Escape
+                        Thread.Sleep(150);
+                    }
+
+                    if (_consecutiveCastFailures >= 3)
+                    {
+                        // Direct hardware click on the slot icon
+                        ClickHotbarSlot(robloxHwnd, winW, winH, rodKey - '0');
+                        Thread.Sleep(200);
+                    }
+                    else
+                    {
+                        // Single hotkey press to equip rod
+                        Win32.SendKeyPress(rodKey);
+                        Thread.Sleep(200);
+                    }
+
+                    if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+                    {
+                        Win32.SetCursorPos(wPt.X, wPt.Y);
+                    }
+
+                    Thread.Sleep(200);
+                    // Loop back and re-attempt cast immediately
+                    continue;
+                }
+
+                // Verified cast succeeded!
+                _consecutiveCastFailures = 0;
                 Thread.Sleep(GetJitteredMs(Config.PostCastDelayMs, 40));
                 Transition(MacroState.Luring);
                 continue;
@@ -1320,11 +1410,9 @@ public class FishingEngine : IDisposable
 
                 CheckAquariumClaimHeartbeat();
 
-                // Timeout check: re-equip rod if no bite in 45s
+                // Timeout check: re-cast if no bite within LureTimeoutMs
                 if (GetElapsedMs(_stateStartTime) > Config.LureTimeoutMs)
                 {
-                    ReEquipRod();
-                    Thread.Sleep(300);
                     Transition(MacroState.Casting);
                     continue;
                 }
