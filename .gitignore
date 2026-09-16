@@ -2,11 +2,9 @@
 [Bb]in/
 [Oo]bj/
 [Oo]ut/
-Publish/
-publish/
-publish-singlefile/
-publish*/
-dist/
+/[Pp]ublish/
+/[Pp]ublish*/
+/dist/
 
 # Visual Studio / IDE
 .vs/
