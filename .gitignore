@@ -6,6 +6,7 @@ Publish/
 publish/
 publish-singlefile/
 publish*/
+dist/
 
 # Visual Studio / IDE
 .vs/
