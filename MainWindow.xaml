@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Fat Dad's Fisch AFK Pro v1.0" Height="720" Width="470" MinHeight="500" MinWidth="380"
+        Title="Fat Dad's Fisch AFK Pro v1.0.0" Height="720" Width="470" MinHeight="500" MinWidth="380"
         WindowStartupLocation="CenterScreen" Topmost="True"
         Icon="app_icon.ico"
         Background="#0D0F14" Foreground="#E0E0E0"
@@ -271,7 +271,7 @@
                                         <TextBlock Text="FAT DAD'S" FontSize="14.5" FontWeight="Black" Foreground="#00E5FF" Margin="0,0,5,0"/>
                                         <TextBlock Text="FISCH AFK" FontSize="14.5" FontWeight="Black" Foreground="#FFFFFF"/>
                                         <Border Background="#1E293B" CornerRadius="3" Margin="6,0,0,0" Padding="4,1" VerticalAlignment="Center">
-                                            <TextBlock Text="v1.0 PRO" FontSize="9" FontWeight="Black" Foreground="#38BDF8"/>
+                                            <TextBlock x:Name="TxtAppVersionBadge" Text="v1.0.0 PRO" FontSize="9" FontWeight="Black" Foreground="#38BDF8"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock Text="Roblox Fisch Kinetic Angler" FontSize="9.5" Foreground="#64748B"/>
@@ -784,6 +784,9 @@
                                     </ControlTemplate>
                                 </Button.Template>
                             </Button>
+
+                            <!-- Subtle App Version & Build Footer -->
+                            <TextBlock x:Name="TxtFooterVersion" Text="Fat Dad's Fisch AFK Pro v1.0.0" FontSize="9.5" Foreground="#475569" HorizontalAlignment="Center" Margin="0,8,0,2"/>
                         </Grid>
                     </Expander>
                 </Border>
@@ -824,7 +827,7 @@
                         <TextBlock Text="FISCH AFK PRO" FontSize="25" FontWeight="Black" Foreground="#FFFFFF"/>
                     </StackPanel>
 
-                    <TextBlock Text="AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock x:Name="TxtSplashVersion" Text="AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH • v1.0.0" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center" Margin="0,0,0,4"/>
                     <TextBlock Text="Adaptive multi-rod kinetic model &amp; high-frequency vision" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,0,0,14"/>
 
                     <!-- Status & Dismiss hint -->

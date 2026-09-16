@@ -37,6 +37,7 @@ public partial class MainWindow : Window
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Settings.Load OK\n");
 
             InitializeComponent();
+            ApplyAppVersion();
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] InitializeComponent OK\n");
 
             _engine = new FishingEngine(_settings);
@@ -180,6 +181,25 @@ public partial class MainWindow : Window
 
         ChkAlwaysOnTop.IsChecked = _settings.AlwaysOnTop;
         this.Topmost = _settings.AlwaysOnTop;
+    }
+
+    private void ApplyAppVersion()
+    {
+        try
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+            var infoVerAttr = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
+            string rawVer = infoVerAttr?.InformationalVersion?.Split('+')[0] 
+                            ?? asm.GetName().Version?.ToString(3) 
+                            ?? "1.0.0";
+            if (!rawVer.StartsWith("v", StringComparison.OrdinalIgnoreCase)) rawVer = "v" + rawVer;
+
+            Title = $"Fat Dad's Fisch AFK Pro {rawVer}";
+            if (TxtAppVersionBadge != null) TxtAppVersionBadge.Text = $"{rawVer} PRO";
+            if (TxtSplashVersion != null) TxtSplashVersion.Text = $"AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH • {rawVer}";
+            if (TxtFooterVersion != null) TxtFooterVersion.Text = $"Fat Dad's Fisch AFK Pro {rawVer}";
+        }
+        catch { }
     }
 
     private void SelectComboItem(ComboBox combo, string target)
