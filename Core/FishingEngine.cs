@@ -71,6 +71,7 @@ public class FishingEngine : IDisposable
 
     public string? LastCastReplicationDir { get; private set; }
     public string? LastAquariumReplicationDir { get; private set; }
+    public bool IsStopQueued { get; set; } = false;
 
     // Feature 1: Session Analytics & Catch Tracking
     public int TotalCatches { get; private set; } = 0;
@@ -243,9 +244,9 @@ public class FishingEngine : IDisposable
         int clientH = clientRect.Height;
 
         // Step 1: Click "Aquariums" top navigation item
-        // Center-anchored, height-scaled math for cross-ratio robust clicking
-        int aqClientX = (clientW / 2) + (int)Math.Round(clientH * 0.0537);
-        int aqClientY = (int)Math.Round(clientH * 0.0241);
+        // Center-anchored, height-scaled math calibrated for 16:9, 16:10, and 21:9 (+0.0769 clientH)
+        int aqClientX = (clientW / 2) + (int)Math.Round(clientH * 0.0769);
+        int aqClientY = (int)Math.Round(clientH * 0.0251);
         Win32.POINT aqPt = new Win32.POINT { X = aqClientX, Y = aqClientY };
         if (Win32.ClientToScreen(robloxHwnd, ref aqPt))
         {
@@ -275,17 +276,31 @@ public class FishingEngine : IDisposable
         Thread.Sleep(750);
 
         // Step 3: Click red "X" close button (Height-anchored math + CV Auto-Snap)
-        int xBaseX = (clientW / 2) + (int)Math.Round(clientH * 0.3959);
-        int xBaseY = (clientH / 2) - (int)Math.Round(clientH * 0.3692);
+        // Red "X" is located at the top-right corner of the whole modal dialog:
+        // +0.5602 * clientH horizontally, -0.3795 * clientH vertically
+        int xBaseX = (clientW / 2) + (int)Math.Round(clientH * 0.5602);
+        int xBaseY = (clientH / 2) - (int)Math.Round(clientH * 0.3795);
         using (var snap2 = _capture.CaptureClientRegion(robloxHwnd, 0, 0, clientW, clientH))
         {
             if (snap2 != null && !snap2.Empty())
             {
-                var snapped = _vision.DynamicUISnap(snap2, xBaseX, xBaseY, VisionProcessor.UIColorType.RedCloseButton);
-                Win32.POINT xPt = new Win32.POINT { X = snapped.X, Y = snapped.Y };
-                if (Win32.ClientToScreen(robloxHwnd, ref xPt))
+                var (found, snapped) = _vision.DynamicUISnapWithStatus(snap2, xBaseX, xBaseY, VisionProcessor.UIColorType.RedCloseButton, 120);
+                if (found)
                 {
-                    Win32.SendHardwareClick(xPt.X, xPt.Y, snapped.X, snapped.Y, robloxHwnd);
+                    Win32.POINT xPt = new Win32.POINT { X = snapped.X, Y = snapped.Y };
+                    if (Win32.ClientToScreen(robloxHwnd, ref xPt))
+                    {
+                        Win32.SendHardwareClick(xPt.X, xPt.Y, snapped.X, snapped.Y, robloxHwnd);
+                    }
+                }
+                else
+                {
+                    // Safety guard: NEVER click near (2248, 176) which is the "My Aquarium" teleport button!
+                    // Fallback to clicking the top navigation "Aquariums" item to toggle the modal closed safely.
+                    if (Win32.ClientToScreen(robloxHwnd, ref aqPt))
+                    {
+                        Win32.SendHardwareClick(aqPt.X, aqPt.Y, aqClientX, aqClientY, robloxHwnd);
+                    }
                 }
             }
         }
@@ -325,9 +340,9 @@ public class FishingEngine : IDisposable
             {
                 for (int c = 0; c < cols; c++)
                 {
-                    Vec3b bgr = snap.At<Vec3b>(r, c);
+                    Vec4b bgra = snap.At<Vec4b>(r, c);
                     // Vibrant Red: R > 160, G < 70, B < 70
-                    if (bgr.Item2 > 160 && bgr.Item1 < 70 && bgr.Item0 < 70)
+                    if (bgra.Item2 > 160 && bgra.Item1 < 70 && bgra.Item0 < 70)
                         return true;
                 }
             }
@@ -352,9 +367,9 @@ public class FishingEngine : IDisposable
             {
                 for (int c = 0; c < cols; c++)
                 {
-                    Vec3b bgr = snap.At<Vec3b>(r, c);
+                    Vec4b bgra = snap.At<Vec4b>(r, c);
                     // Light green [Yes] text: G > 175 && G > R + 20 && G > B + 20
-                    if (bgr.Item1 > 175 && bgr.Item1 > bgr.Item2 + 20 && bgr.Item1 > bgr.Item0 + 20)
+                    if (bgra.Item1 > 175 && bgra.Item1 > bgra.Item2 + 20 && bgra.Item1 > bgra.Item0 + 20)
                         return true;
                 }
             }
@@ -692,10 +707,10 @@ public class FishingEngine : IDisposable
             {
                 for (int c = 0; c < cols; c++)
                 {
-                    Vec3b bgr = snap.At<Vec3b>(r, c);
+                    Vec4b bgra = snap.At<Vec4b>(r, c);
                     // BGR: Item0 = B, Item1 = G, Item2 = R
                     // Bright Golden/Yellow border of active slot: R > 200, G > 175, B < 80
-                    if (bgr.Item2 > 200 && bgr.Item1 > 175 && bgr.Item0 < 80)
+                    if (bgra.Item2 > 200 && bgra.Item1 > 175 && bgra.Item0 < 80)
                     {
                         yellowCount++;
                         if (yellowCount >= 3) return true;
@@ -825,13 +840,13 @@ public class FishingEngine : IDisposable
         double fillRate = 0.135;
         double leadMs = Config.CastPredictiveLeadMs > 0 ? Config.CastPredictiveLeadMs : 25.0;
 
-        while (GetElapsedMs(startTicks) < maxHoldDuration)
+        while (GetElapsedMs(startTicks) < maxHoldDuration && (_cts == null || !_cts.Token.IsCancellationRequested))
         {
             double elapsed = GetElapsedMs(startTicks);
             var frame = _shakeCapture.CaptureClientRegion(robloxHwnd, roiX, roiY, roiW, roiH);
             if (frame != null && !frame.Empty())
             {
-                var castRes = _vision.DetectCastBarROI(frame, winH, roiX, roiY, Config.ShowVisionPreview);
+                var castRes = _vision.DetectCastBarROI(frame, winH, roiX, roiY, Config.SelectedTheme, Config.ShowVisionPreview);
                 if (recordReplication)
                 {
                     frameBuffer.Add(((long)elapsed, "HOLD", castRes.Found ? castRes.FillPercent : -1, frame.Clone()));
@@ -898,13 +913,13 @@ public class FishingEngine : IDisposable
         if (recordReplication)
         {
             long postReleaseTarget = releaseMs + 450;
-            while (GetElapsedMs(startTicks) < postReleaseTarget)
+            while (GetElapsedMs(startTicks) < postReleaseTarget && (_cts == null || !_cts.Token.IsCancellationRequested))
             {
                 double elapsed = GetElapsedMs(startTicks);
                 var frame = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, 0, winW, winH);
                 if (frame != null && !frame.Empty())
                 {
-                    var castRes = _vision.DetectCastBar(frame, false);
+                    var castRes = _vision.DetectCastBar(frame, Config.SelectedTheme, false);
                     frameBuffer.Add(((long)elapsed, "RELEASED", castRes.Found ? castRes.FillPercent : -1, frame.Clone()));
                     frame.Dispose();
                 }
@@ -1134,10 +1149,11 @@ public class FishingEngine : IDisposable
                     int maxTimeoutMs = Math.Max(1200, Config.CastHoldMs + 250);
 
                     // Precompute ROI coordinates for ultra-fast BitBlt capture (~1-2ms instead of ~50ms full-window)
-                    int roiX = (int)(winW * 0.50);
-                    int roiY = (int)(winH * 0.30);
-                    int roiW = (int)(winW * 0.12);
-                    int roiH = (int)(winH * 0.45);
+                    // Centered around player avatar (35% to 65% horizontally, 25% to 75% vertically - works on 16:9 and 21:9)
+                    int roiX = (int)(winW * 0.35);
+                    int roiY = (int)(winH * 0.25);
+                    int roiW = (int)(winW * 0.30);
+                    int roiH = (int)(winH * 0.50);
 
                     bool barEverFound = false;
                     double lastFill = -1.0;
@@ -1145,7 +1161,7 @@ public class FishingEngine : IDisposable
                     double fillRate = 0.135; // Baseline velocity ~0.135% per ms (~740ms 0->100%)
                     double leadMs = Config.CastPredictiveLeadMs > 0 ? Config.CastPredictiveLeadMs : 25.0;
 
-                    while (GetElapsedMs(castStartTicks) < maxTimeoutMs)
+                    while (GetElapsedMs(castStartTicks) < maxTimeoutMs && !ct.IsCancellationRequested)
                     {
                         double elapsed = GetElapsedMs(castStartTicks);
 
@@ -1155,7 +1171,7 @@ public class FishingEngine : IDisposable
                             using var castRoiFrame = _shakeCapture.CaptureClientRegion(robloxHwnd, roiX, roiY, roiW, roiH);
                             if (castRoiFrame != null && !castRoiFrame.Empty())
                             {
-                                var castResult = _vision.DetectCastBarROI(castRoiFrame, winH, roiX, roiY, Config.ShowVisionPreview);
+                                var castResult = _vision.DetectCastBarROI(castRoiFrame, winH, roiX, roiY, Config.SelectedTheme, Config.ShowVisionPreview);
                                 if (castResult.Found)
                                 {
                                     barEverFound = true;
@@ -1284,7 +1300,7 @@ public class FishingEngine : IDisposable
                     int safeTrackH = Math.Clamp(trackH, 1, winH - safeTrackY1);
 
                     using var trackCrop = new Mat(fullFrame, new Rect(safeTrackX1, safeTrackY1, safeTrackW, safeTrackH));
-                    luringDetect = _vision.ProcessTrack(trackCrop, safeTrackX1, safeTrackY1, scaleFactor, false);
+                    luringDetect = _vision.ProcessTrack(trackCrop, safeTrackX1, safeTrackY1, scaleFactor, Config.SelectedTheme, false);
                 }
 
                 if (luringDetect.BarFound)
@@ -1444,7 +1460,7 @@ public class FishingEngine : IDisposable
             visionSw.Restart();
             using Mat? crop = _capture.CaptureClientRegion(robloxHwnd, trackX1, trackY1, trackW, trackH);
             DetectionResult detect = (crop != null)
-                ? _vision.ProcessTrack(crop, trackX1, trackY1, scaleFactor, shouldGenerateDebug)
+                ? _vision.ProcessTrack(crop, trackX1, trackY1, scaleFactor, Config.SelectedTheme, shouldGenerateDebug)
                 : new DetectionResult();
             visionSw.Stop();
             // ==============================================================
@@ -1666,7 +1682,7 @@ public class FishingEngine : IDisposable
                 }
 
                 // Check lifecycle: terminate reeling if bar disappeared > 1000ms
-                if (GetElapsedMs(_lastBarSeenTime) > 1000 || GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
+                if (GetElapsedMs(_lastBarSeenTime) > 450 || GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
                 {
                     if (GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
                     {
@@ -1758,6 +1774,13 @@ public class FishingEngine : IDisposable
             // ==============================================================
             else if (CurrentState == MacroState.PostCatch)
             {
+                if (IsStopQueued)
+                {
+                    IsStopQueued = false;
+                    Stop();
+                    continue;
+                }
+
                 CheckAntiAfkHeartbeat();
                 CheckAquariumClaimHeartbeat();
 

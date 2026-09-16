@@ -1,5 +1,6 @@
 using System;
 using OpenCvSharp;
+using FischMacroCS.Core;
 
 namespace FischMacroCS.Vision;
 
@@ -40,51 +41,99 @@ public class CastBarResult
 
 public class VisionProcessor
 {
-    public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, bool generateDebug = true)
+    public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
     {
-        var result = new DetectionResult();
-        if (crop == null || crop.Empty())
-            return result;
+        DetectionResult result = new DetectionResult();
+        if (crop == null || crop.Empty()) return result;
+
+        if (theme == MinigameTheme.AutoCalibrate)
+        {
+            Scalar meanColor = Cv2.Mean(crop);
+            double b = meanColor.Val0;
+            double g = meanColor.Val1;
+            double r = meanColor.Val2;
+
+            if (r > g + 20 && r > b + 20)
+            {
+                theme = MinigameTheme.Feline; // Pink
+            }
+            else if (g > r + 10 && g > b + 10)
+            {
+                theme = MinigameTheme.Trident; // Green
+            }
+            else if (r > 100 && g > 100 && b < 80)
+            {
+                theme = MinigameTheme.Golden; // Yellow
+            }
+            else
+            {
+                theme = MinigameTheme.Default;
+            }
+        }
 
         try
         {
             int cropH = crop.Height;
             int cropW = crop.Width;
 
-        // 1. Split BGR channels
+        // 1. Split BGR channels and apply Theme-Specific Masks
         Mat[] bgr = Cv2.Split(crop);
         using var b = bgr[0];
         using var g = bgr[1];
         using var r = bgr[2];
 
-        // Mask 1: White Catch Bar (All channels R, G, B >= 200)
-        using var maskB = new Mat();
-        Cv2.Threshold(b, maskB, 200, 255, ThresholdTypes.Binary);
-        using var maskG = new Mat();
-        Cv2.Threshold(g, maskG, 200, 255, ThresholdTypes.Binary);
-        using var maskR = new Mat();
-        Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
-
-        using var maskBG = new Mat();
-        Cv2.BitwiseAnd(maskB, maskG, maskBG);
-        using var maskWhite = new Mat();
-        Cv2.BitwiseAnd(maskBG, maskR, maskWhite);
-
-        // Mask 2: High Tension Bar (Intense saturated crimson: R >= 180, G <= 90, B <= 90)
-        using var maskRTension = new Mat();
-        Cv2.Threshold(r, maskRTension, 180, 255, ThresholdTypes.Binary);
-        using var maskGLow = new Mat();
-        Cv2.Threshold(g, maskGLow, 90, 255, ThresholdTypes.BinaryInv);
-        using var maskBLow = new Mat();
-        Cv2.Threshold(b, maskBLow, 90, 255, ThresholdTypes.BinaryInv);
-
-        using var maskTensionG = new Mat();
-        Cv2.BitwiseAnd(maskRTension, maskGLow, maskTensionG);
-        using var maskTension = new Mat();
-        Cv2.BitwiseAnd(maskTensionG, maskBLow, maskTension);
-
         using var barMask = new Mat();
-        Cv2.BitwiseOr(maskWhite, maskTension, barMask);
+
+        if (theme == MinigameTheme.Feline)
+        {
+            // Feline (Pink): High R and B, lower G.
+            using var maskR = new Mat();
+            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
+            using var maskB = new Mat();
+            Cv2.Threshold(b, maskB, 180, 255, ThresholdTypes.Binary);
+            Cv2.BitwiseAnd(maskR, maskB, barMask);
+        }
+        else if (theme == MinigameTheme.Trident)
+        {
+            // Trident (Green): High G, low R, low B
+            using var maskG = new Mat();
+            Cv2.Threshold(g, maskG, 200, 255, ThresholdTypes.Binary);
+            using var maskR = new Mat();
+            Cv2.Threshold(r, maskR, 120, 255, ThresholdTypes.BinaryInv);
+            using var maskB = new Mat();
+            Cv2.Threshold(b, maskB, 120, 255, ThresholdTypes.BinaryInv);
+            using var tempG = new Mat();
+            Cv2.BitwiseAnd(maskG, maskR, tempG);
+            Cv2.BitwiseAnd(tempG, maskB, barMask);
+        }
+        else if (theme == MinigameTheme.Golden)
+        {
+            // Golden: High R, High G, low B
+            using var maskR = new Mat();
+            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
+            using var maskG = new Mat();
+            Cv2.Threshold(g, maskG, 180, 255, ThresholdTypes.Binary);
+            using var maskB = new Mat();
+            Cv2.Threshold(b, maskB, 120, 255, ThresholdTypes.BinaryInv);
+            using var tempY = new Mat();
+            Cv2.BitwiseAnd(maskR, maskG, tempY);
+            Cv2.BitwiseAnd(tempY, maskB, barMask);
+        }
+        else
+        {
+            // DEFAULT (Pure White Catch Bar)
+            // Removes false-positive tension red trigger on red wooden dock planks
+            using var maskB = new Mat();
+            Cv2.Threshold(b, maskB, 200, 255, ThresholdTypes.Binary);
+            using var maskG = new Mat();
+            Cv2.Threshold(g, maskG, 200, 255, ThresholdTypes.Binary);
+            using var maskR = new Mat();
+            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
+
+            using var maskBG = new Mat();
+            Cv2.BitwiseAnd(maskB, maskG, maskBG);
+            Cv2.BitwiseAnd(maskBG, maskR, barMask);
+        }
 
         // Morphological CLOSE with horizontal structuring element:
         // Bridges the vertical fish needle cutting through the catch bar, merging it into one complete bar
@@ -168,11 +217,26 @@ public class VisionProcessor
                 Vec3b pixel = crop.Get<Vec3b>(ny, nx);
                 byte pb = pixel.Item0, pg = pixel.Item1, pr = pixel.Item2;
 
-                // Needle Slate Blue: B > R and B > G
-                bool isNeedleColor = (pb >= 70 && pb <= 125) &&
-                                     (pg >= 50 && pg <= 110) &&
-                                     (pr >= 40 && pr <= 100) &&
-                                     (pb >= pr + 10) && (pb >= pg + 5);
+                bool isNeedleColor = false;
+
+                if (theme == MinigameTheme.Feline || theme == MinigameTheme.Golden)
+                {
+                    // Pink / Golden themes use a stark white vertical needle line
+                    isNeedleColor = (pr >= 200 && pg >= 200 && pb >= 200);
+                }
+                else if (theme == MinigameTheme.Trident)
+                {
+                    // Trident (Green) uses a stark black vertical needle line
+                    isNeedleColor = (pr <= 50 && pg <= 50 && pb <= 50);
+                }
+                else
+                {
+                    // Default Slate Blue: B > R and B > G
+                    isNeedleColor = (pb >= 70 && pb <= 125) &&
+                                    (pg >= 50 && pg <= 110) &&
+                                    (pr >= 40 && pr <= 100) &&
+                                    (pb >= pr + 10) && (pb >= pg + 5);
+                }
 
                 if (isNeedleColor)
                     colMatches++;
@@ -567,7 +631,7 @@ public class VisionProcessor
     /// Locates the green target peak line and the rising white power fill.
     /// Computes accurate [0..100%] fill percentage for closed-loop perfect cast release.
     /// </summary>
-    public CastBarResult DetectCastBar(Mat frame, bool generateDebug = true)
+    public CastBarResult DetectCastBar(Mat frame, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
     {
         var res = new CastBarResult();
         if (frame == null || frame.Empty()) return res;
@@ -579,13 +643,13 @@ public class VisionProcessor
         try
         {
             // Focus on center viewport where the player avatar's cast bar appears: 50% to 62% X, 30% to 75% Y
-            int roiX = (int)(frameW * 0.50);
-            int roiY = (int)(frameH * 0.30);
-            int roiW = (int)(frameW * 0.12);
-            int roiH = (int)(frameH * 0.45);
+            int roiX = (int)(frameW * 0.35);
+            int roiY = (int)(frameH * 0.25);
+            int roiW = (int)(frameW * 0.30);
+            int roiH = (int)(frameH * 0.50);
 
             using Mat roi = new Mat(frame, new Rect(roiX, roiY, roiW, roiH));
-            return DetectCastBarROI(roi, frameH, roiX, roiY, generateDebug);
+            return DetectCastBarROI(roi, frameH, roiX, roiY, theme, generateDebug);
         }
         catch
         {
@@ -597,7 +661,7 @@ public class VisionProcessor
     /// High-speed Cast Bar detection directly on a pre-cropped or isolated ROI frame.
     /// Eliminates full-window BitBlt latency (~40-60ms down to ~1-2ms), enabling 150+ FPS real-time power tracking.
     /// </summary>
-    public CastBarResult DetectCastBarROI(Mat roi, int fullClientH = 0, int roiOffsetX = 0, int roiOffsetY = 0, bool generateDebug = true)
+    public CastBarResult DetectCastBarROI(Mat roi, int fullClientH = 0, int roiOffsetX = 0, int roiOffsetY = 0, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
     {
         var res = new CastBarResult();
         if (roi == null || roi.Empty()) return res;
@@ -611,30 +675,37 @@ public class VisionProcessor
             using Mat hsv = new Mat();
             Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
 
-            // HSV Green range for cast bar cap: H in [35..85], S in [60..255], V in [60..255]
-            using var maskGreen = new Mat();
-            Cv2.InRange(hsv, new Scalar(35, 60, 60), new Scalar(85, 255, 255), maskGreen);
+            // Cast bar cap is ALWAYS green in Fisch, regardless of the rod/reeling theme
+            using var mask = new Mat();
+            Cv2.InRange(hsv, new Scalar(35, 60, 60), new Scalar(85, 255, 255), mask); 
 
-            Cv2.FindContours(maskGreen, out Point[][] greenContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
 
-            Rect? bestGreenRect = null;
-            foreach (var c in greenContours)
+            Rect? bestCapRect = null;
+            var validCaps = new List<Rect>();
+            foreach (var c in contours)
             {
                 Rect rBox = Cv2.BoundingRect(c);
-                // Cap is a small horizontal block: Width 10..32px, Height 4..22px, Width >= Height
-                if (rBox.Width >= 10 && rBox.Width <= 32 && rBox.Height >= 4 && rBox.Height <= 22 && rBox.Width >= rBox.Height)
+                // Cap is a small horizontal-ish block
+                // Billboard GUI scales with camera zoom! On 4k zoomed out, it can be as small as 4-5px.
+                if (rBox.Width >= 4 && rBox.Width <= 45 && rBox.Height >= 2 && rBox.Height <= 30)
                 {
                     // Verify sufficient vertical room underneath for the tall bar
                     int checkY = rBox.Y + rBox.Height + 5;
                     if (checkY + 80 < roiH)
                     {
-                        bestGreenRect = rBox;
-                        break;
+                        validCaps.Add(rBox);
                     }
                 }
             }
+            if (validCaps.Count > 0)
+            {
+                // Select top-most cap candidate
+                validCaps.Sort((a, b) => a.Y.CompareTo(b.Y));
+                bestCapRect = validCaps[0];
+            }
 
-            if (!bestGreenRect.HasValue)
+            if (!bestCapRect.HasValue)
             {
                 if (generateDebug)
                 {
@@ -646,16 +717,19 @@ public class VisionProcessor
                 return res;
             }
 
-            var rCap = bestGreenRect.Value;
+            var rCap = bestCapRect.Value;
             res.Found = true;
-            int localGreenY = rCap.Y;
-            int localGreenX = rCap.X + rCap.Width / 2;
-            res.GreenY = roiOffsetY + localGreenY;
+
+            // Target Y is the vertical center of the cap block
+            int localTargetY = rCap.Y + (rCap.Height / 2);
+            int localTargetX = rCap.X + (rCap.Width / 2);
+            res.GreenY = roiOffsetY + localTargetY;
 
             // Bar column extends downwards from beneath the green cap (~25% of full window height, ~340px)
             int expectedBarLen = fullClientH > 0 ? (int)(fullClientH * 0.25) : (int)(roiH * (0.25 / 0.45));
-            int barTopY = rCap.Y + rCap.Height;
-            int barBottomY = Math.Min(roiH - 1, barTopY + expectedBarLen);
+            int searchYStart = rCap.Y + rCap.Height;
+            int barTopY = rCap.Y + rCap.Height; // Approximate highest point the white fill can reach (just under the cap)
+            int barBottomY = roiH - 1;
             int barHeight = barBottomY - barTopY;
             if (barHeight <= 50) return res;
 
@@ -669,8 +743,16 @@ public class VisionProcessor
             using Mat whiteMask = new Mat();
             Cv2.Threshold(gray, whiteMask, 200, 255, ThresholdTypes.Binary);
 
-            // Scan rows from top to bottom to find the top edge of the rising white fill
-            int firstWhiteRow = -1;
+            // Largest White Run Algorithm:
+            // Finds the tallest continuous vertical block of white pixels.
+            // Floating text (e.g. "Tunaaaaa") is only ~12-15px tall.
+            // Glowing bubble lens flare is separated or short.
+            // The true cast bar fill is the largest continuous solid white column.
+            int bestRunStart = -1;
+            int bestRunLength = 0;
+            int currentRunStart = -1;
+            int currentRunLength = 0;
+
             for (int y = 0; y < barHeight; y++)
             {
                 int whiteCount = 0;
@@ -678,12 +760,31 @@ public class VisionProcessor
                 {
                     if (whiteMask.At<byte>(y, x) > 0) whiteCount++;
                 }
-                if (whiteCount >= scanW / 2)
+
+                if (whiteCount >= Math.Max(1, scanW / 2))
                 {
-                    firstWhiteRow = y;
-                    break;
+                    if (currentRunStart < 0) currentRunStart = y;
+                    currentRunLength++;
+                }
+                else
+                {
+                    if (currentRunLength > bestRunLength)
+                    {
+                        bestRunLength = currentRunLength;
+                        bestRunStart = currentRunStart;
+                    }
+                    currentRunStart = -1;
+                    currentRunLength = 0;
                 }
             }
+
+            if (currentRunLength > bestRunLength)
+            {
+                bestRunLength = currentRunLength;
+                bestRunStart = currentRunStart;
+            }
+
+            int firstWhiteRow = (bestRunLength >= 6) ? bestRunStart : -1;
 
             if (firstWhiteRow >= 0)
             {
@@ -702,19 +803,19 @@ public class VisionProcessor
             if (generateDebug)
             {
                 Mat dbg = roi.Clone();
-                int drawGreenY = localGreenY;
-                int drawGreenX = localGreenX;
+                int drawTargetY = localTargetY;
+                int drawTargetX = localTargetX;
 
-                // Draw Green Target Line & Cap
+                // Draw Target Line & Cap
                 Cv2.Rectangle(dbg, new Rect(rCap.X, rCap.Y, rCap.Width, rCap.Height), Scalar.FromRgb(0, 255, 128), 2);
-                Cv2.Line(dbg, new Point(drawGreenX - 35, drawGreenY), new Point(drawGreenX + 35, drawGreenY), Scalar.FromRgb(0, 255, 128), 3);
-                Cv2.PutText(dbg, "TARGET 100%", new Point(drawGreenX + 40, drawGreenY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
+                Cv2.Line(dbg, new Point(drawTargetX - 35, drawTargetY), new Point(drawTargetX + 35, drawTargetY), Scalar.FromRgb(0, 255, 128), 3);
+                Cv2.PutText(dbg, "TARGET 100%", new Point(drawTargetX + 40, drawTargetY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
 
                 // If white fill detected, draw fill line
                 if (firstWhiteRow >= 0)
                 {
                     int whiteY = barTopY + firstWhiteRow;
-                    Cv2.Line(dbg, new Point(drawGreenX - 25, whiteY), new Point(drawGreenX + 25, whiteY), Scalar.FromRgb(0, 229, 255), 2);
+                    Cv2.Line(dbg, new Point(drawTargetX - 25, whiteY), new Point(drawTargetX + 25, whiteY), Scalar.FromRgb(0, 229, 255), 2);
                 }
 
                 // Power percentage badge
@@ -739,7 +840,7 @@ public class VisionProcessor
         RedCloseButton
     }
 
-    public Point DynamicUISnap(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
+    public (bool Found, Point Pt) DynamicUISnapWithStatus(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
     {
         try
         {
@@ -748,7 +849,7 @@ public class VisionProcessor
             int roiW = Math.Min(fullFrame.Width - roiX, searchRadius * 2);
             int roiH = Math.Min(fullFrame.Height - roiY, searchRadius * 2);
 
-            if (roiW <= 0 || roiH <= 0) return new Point(expectedX, expectedY);
+            if (roiW <= 0 || roiH <= 0) return (false, new Point(expectedX, expectedY));
 
             using Mat roi = new Mat(fullFrame, new Rect(roiX, roiY, roiW, roiH));
             
@@ -792,7 +893,7 @@ public class VisionProcessor
             foreach (var cnt in contours)
             {
                 double area = Cv2.ContourArea(cnt);
-                if (area > 30 && area > maxArea)
+                if (area > 20 && area > maxArea)
                 {
                     maxArea = area;
                     bestRect = Cv2.BoundingRect(cnt);
@@ -803,12 +904,17 @@ public class VisionProcessor
             {
                 int localCx = bestRect.Value.X + (bestRect.Value.Width / 2);
                 int localCy = bestRect.Value.Y + (bestRect.Value.Height / 2);
-                return new Point(roiX + localCx, roiY + localCy);
+                return (true, new Point(roiX + localCx, roiY + localCy));
             }
         }
         catch { }
 
-        return new Point(expectedX, expectedY);
+        return (false, new Point(expectedX, expectedY));
+    }
+
+    public Point DynamicUISnap(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
+    {
+        return DynamicUISnapWithStatus(fullFrame, expectedX, expectedY, targetType, searchRadius).Pt;
     }
 }
 

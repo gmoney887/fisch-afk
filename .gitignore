@@ -4,6 +4,8 @@
 [Oo]ut/
 Publish/
 publish/
+publish-singlefile/
+publish*/
 
 # Visual Studio / IDE
 .vs/
@@ -22,3 +24,4 @@ scratch/
 # Temp / OS
 .DS_Store
 Thumbs.db
+/screenshots

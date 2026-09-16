@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Fat Dad's Fisch AFK Pro" Height="720" Width="470" MinHeight="500" MinWidth="380"
+        Title="Fat Dad's Fisch AFK Pro v1.0" Height="720" Width="470" MinHeight="500" MinWidth="380"
         WindowStartupLocation="CenterScreen" Topmost="True"
         Icon="app_icon.ico"
         Background="#0D0F14" Foreground="#E0E0E0"
@@ -271,7 +271,7 @@
                                         <TextBlock Text="FAT DAD'S" FontSize="14.5" FontWeight="Black" Foreground="#00E5FF" Margin="0,0,5,0"/>
                                         <TextBlock Text="FISCH AFK" FontSize="14.5" FontWeight="Black" Foreground="#FFFFFF"/>
                                         <Border Background="#1E293B" CornerRadius="3" Margin="6,0,0,0" Padding="4,1" VerticalAlignment="Center">
-                                            <TextBlock Text="v2.2 PRO" FontSize="9" FontWeight="Black" Foreground="#38BDF8"/>
+                                            <TextBlock Text="v1.0 PRO" FontSize="9" FontWeight="Black" Foreground="#38BDF8"/>
                                         </Border>
                                     </StackPanel>
                                     <TextBlock Text="Roblox Fisch Kinetic Angler" FontSize="9.5" Foreground="#64748B"/>
@@ -609,9 +609,10 @@
                             <!-- ROW 0: ROD & CAST SETTINGS -->
                             <Grid Grid.Row="0" Margin="0,0,0,8">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="55"/>
+                                    <ColumnDefinition Width="100"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="105"/>
+                                    <ColumnDefinition Width="100"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Rod Slot -->
@@ -620,18 +621,26 @@
                                     <TextBox x:Name="TxtRodSlot" Text="1" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
 
-                                <!-- Dynamic Perfect Cast Vision Badge -->
+                                <!-- Predictive Lead -->
                                 <StackPanel Grid.Column="1" Margin="0,0,8,0">
-                                    <TextBlock Text="CAST MODE" Style="{StaticResource MetricLabel}"/>
-                                    <Border Height="30" Background="#0A241E" BorderBrush="#059669" BorderThickness="1" CornerRadius="5" Margin="0,2,0,0" Padding="8,0">
-                                        <DockPanel VerticalAlignment="Center">
-                                            <TextBlock Text="🎯 100% Dynamic Vision Auto-Cast" FontSize="10.5" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center"/>
-                                        </DockPanel>
-                                    </Border>
+                                    <TextBlock Text="CAST LEAD (MS)" Style="{StaticResource MetricLabel}" ToolTip="Adjust the auto-cast predictive release delay. 25ms is default. Tuning this helps hit 100% perfects."/>
+                                    <TextBox x:Name="TxtCastLead" Text="25" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0" ToolTip="Adjust the auto-cast predictive release delay. 25ms is default. Tuning this helps hit 100% perfects."/>
+                                </StackPanel>
+
+                                <!-- Minigame Theme -->
+                                <StackPanel Grid.Column="2" Margin="0,0,8,0">
+                                    <TextBlock Text="MINIGAME THEME" Style="{StaticResource MetricLabel}"/>
+                                    <ComboBox x:Name="CmbMinigameTheme" SelectionChanged="CmbMinigameTheme_SelectionChanged" Height="30" FontSize="11" Margin="0,2,0,0">
+                                        <ComboBoxItem Content="Auto-Calibrate (Default)" IsSelected="True"/>
+                                        <ComboBoxItem Content="Default (White/Slate Blue)"/>
+                                        <ComboBoxItem Content="Feline (Pink)"/>
+                                        <ComboBoxItem Content="Trident (Green)"/>
+                                        <ComboBoxItem Content="Golden"/>
+                                    </ComboBox>
                                 </StackPanel>
 
                                 <!-- Post-Catch Delay -->
-                                <StackPanel Grid.Column="2">
+                                <StackPanel Grid.Column="3">
                                     <TextBlock Text="POST-CATCH (MS)" Style="{StaticResource MetricLabel}"/>
                                     <TextBox x:Name="TxtPostCatch" Text="1500" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>

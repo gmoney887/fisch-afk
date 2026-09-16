@@ -137,6 +137,7 @@ public partial class MainWindow : Window
     {
         TxtRodSlot.Text = _settings.RodSlot;
         TxtPostCatch.Text = _settings.PostCatchDelayMs.ToString();
+        TxtCastLead.Text = _settings.CastPredictiveLeadMs.ToString();
 
         SelectComboItem(CmbToggleKey, _settings.ToggleHotkey);
         SelectComboItem(CmbReEquipKey, _settings.ReEquipHotkey);
@@ -163,6 +164,7 @@ public partial class MainWindow : Window
         // Aquarium Auto-Claim
         ChkAutoClaimAquarium.IsChecked = _settings.EnableAutoClaimAquarium;
         TxtAquariumInterval.Text = _settings.AquariumClaimIntervalMinutes.ToString();
+        CmbMinigameTheme.SelectedIndex = (int)_settings.SelectedTheme;
 
         // Auto-Open Crates ('g' Inventory)
         ChkAutoOpenCrates.IsChecked = _settings.EnableAutoOpenCrates;
@@ -199,12 +201,51 @@ public partial class MainWindow : Window
         }
     }
 
+    private bool _isStopping = false;
+
     private void ToggleMacro()
     {
+        if (_isStopping) return; // Prevent double-clicks while shutting down
+
         if (_engine.IsRunning)
         {
-            _engine.Stop();
-            UpdateUIState(false);
+            // Graceful Queued Stop: If reeling and not already queued, wait until catch finishes
+            if (_engine.CurrentState == MacroState.Reeling && !_engine.IsStopQueued)
+            {
+                _engine.IsStopQueued = true;
+                Dispatcher.Invoke(() =>
+                {
+                    if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
+                        border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+                    if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
+                        txt.Text = "QUEUED STOP";
+                    if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
+                        subTxt.Text = "Stopping after catch (F6 force)";
+                });
+                return;
+            }
+
+            _isStopping = true;
+            _engine.IsStopQueued = false;
+            
+            // Instantly transition UI to "STOPPING..." state
+            Dispatcher.Invoke(() =>
+            {
+                if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
+                    border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+                if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
+                    txt.Text = "STOPPING...";
+                if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
+                    subTxt.Text = "Please wait";
+            });
+
+            // Queue actual shutdown asynchronously so UI thread doesn't hang
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                _engine.Stop();
+                _isStopping = false;
+                Dispatcher.Invoke(() => UpdateUIState(false));
+            });
         }
         else
         {
@@ -308,6 +349,10 @@ public partial class MainWindow : Window
             {
                 // Update State Badge
                 TxtState.Text = t.State.ToString().ToUpper();
+                if (t.State == MacroState.Stopped && !_isStopping)
+                {
+                    UpdateUIState(false);
+                }
                 BadgeState.Background = t.State switch
                 {
                     MacroState.Reeling => new SolidColorBrush(Color.FromRgb(16, 185, 129)), // Emerald
@@ -570,6 +615,12 @@ public partial class MainWindow : Window
             _engine.Config.PostCatchDelayMs = pc;
         }
 
+        if (int.TryParse(TxtCastLead.Text, out int cl))
+        {
+            _settings.CastPredictiveLeadMs = cl;
+            _engine.Config.CastPredictiveLeadMs = cl;
+        }
+
         if (CmbToggleKey.SelectedItem is ComboBoxItem toggleItem && toggleItem.Content != null)
             _settings.ToggleHotkey = toggleItem.Content.ToString()!;
 
@@ -638,10 +689,23 @@ public partial class MainWindow : Window
             _engine.Recorder.MaxRecordingsToKeep = mr;
         }
 
+        if (CmbMinigameTheme.SelectedItem is ComboBoxItem themeItem)
+        {
+            _settings.SelectedTheme = (MinigameTheme)CmbMinigameTheme.SelectedIndex;
+            _engine.Config.SelectedTheme = _settings.SelectedTheme;
+        }
+
         _settings.Save();
         RegisterHotkeys();
 
-        MessageBox.Show($"Configuration saved!\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"Configuration saved!\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void CmbMinigameTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || CmbMinigameTheme == null || _settings == null || _engine == null) return;
+        _settings.SelectedTheme = (MinigameTheme)CmbMinigameTheme.SelectedIndex;
+        _engine.Config.SelectedTheme = _settings.SelectedTheme;
     }
 
     private void BtnResetStats_Click(object sender, RoutedEventArgs e)

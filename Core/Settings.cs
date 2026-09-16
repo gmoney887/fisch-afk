@@ -4,6 +4,15 @@ using System.Text.Json;
 
 namespace FischMacroCS.Core;
 
+public enum MinigameTheme
+{
+    AutoCalibrate,
+    Default,
+    Feline,
+    Trident,
+    Golden
+}
+
 public class Settings
 {
     public string RodSlot { get; set; } = "1";
@@ -32,6 +41,7 @@ public class Settings
     public bool ShowVisionPreview { get; set; } = true;
     public bool EnableRecording { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = true;
+    public MinigameTheme SelectedTheme { get; set; } = MinigameTheme.Default;
     public int MaxRecordingsToKeep { get; set; } = 25;
 
     // Advanced AFK & Humanization
@@ -44,7 +54,7 @@ public class Settings
 
     // Aquarium Auto-Claim
     public bool EnableAutoClaimAquarium { get; set; } = true;
-    public int AquariumClaimIntervalMinutes { get; set; } = 60;
+    public int AquariumClaimIntervalMinutes { get; set; } = 55;
     public DateTime LastAquariumClaimUtc { get; set; } = DateTime.MinValue;
 
     // Auto Crate Opener ('G' Equipment Menu)
