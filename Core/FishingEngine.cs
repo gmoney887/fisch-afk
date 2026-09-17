@@ -46,6 +46,10 @@ public class TelemetryData : IDisposable
     public double WinRate { get; set; }
     public int AntiAfkCount { get; set; }
 
+    // Tool & Rod Vision Status
+    public bool IsRodEquipped { get; set; } = true;
+    public string RodStatusText { get; set; } = "ROD: EQUIPPED";
+
     public void Dispose()
     {
         AnnotatedFrame?.Dispose();
@@ -78,6 +82,8 @@ public class FishingEngine : IDisposable
     public int TotalFails { get; private set; } = 0;
     public int CurrentStreak { get; private set; } = 0;
     private readonly Stopwatch _sessionStopwatch = new();
+    private bool _lastKnownRodEquipped = true;
+    private string _lastKnownRodStatus = "ROD: EQUIPPED";
 
     public double SessionUptimeSeconds => _sessionStopwatch.Elapsed.TotalSeconds;
     public double CatchesPerHour => (SessionUptimeSeconds > 5) ? (TotalCatches * 3600.0 / SessionUptimeSeconds) : 0.0;
@@ -166,6 +172,8 @@ public class FishingEngine : IDisposable
         telem.CatchesPerHour = CatchesPerHour;
         telem.WinRate = WinRate;
         telem.AntiAfkCount = _antiAfkCount;
+        telem.IsRodEquipped = _lastKnownRodEquipped;
+        telem.RodStatusText = _lastKnownRodStatus;
     }
 
     private void CheckAntiAfkHeartbeat()
@@ -334,24 +342,22 @@ public class FishingEngine : IDisposable
     {
         try
         {
-            // Aspect-ratio independent anchor math for red [X] button
+            // Center-anchored height-scaled search point for red [X] button
             int cx = (clientW / 2) + (int)Math.Round(clientH * 0.1522);
             int cy = (clientH / 2) + (int)Math.Round(clientH * 0.172);
-            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cx - 6), Math.Max(0, cy - 6), 13, 13);
+            int searchRadius = Math.Max(25, (int)Math.Round(clientH * 0.045));
+
+            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cx - searchRadius), Math.Max(0, cy - searchRadius), searchRadius * 2, searchRadius * 2);
             if (snap == null || snap.Empty()) return false;
 
-            int rows = snap.Rows;
-            int cols = snap.Cols;
-            for (int r = 0; r < rows; r++)
-            {
-                for (int c = 0; c < cols; c++)
-                {
-                    Vec4b bgra = snap.At<Vec4b>(r, c);
-                    // Vibrant Red: R > 160, G < 70, B < 70
-                    if (bgra.Item2 > 160 && bgra.Item1 < 70 && bgra.Item0 < 70)
-                        return true;
-                }
-            }
+            using var bgr = new Mat();
+            if (snap.Channels() == 4)
+                Cv2.CvtColor(snap, bgr, ColorConversionCodes.BGRA2BGR);
+            else
+                snap.CopyTo(bgr);
+
+            var (found, _) = _vision.DynamicUISnapWithStatus(bgr, searchRadius, searchRadius, VisionProcessor.UIColorType.RedCloseButton, searchRadius);
+            return found;
         }
         catch { }
         return false;
@@ -361,24 +367,22 @@ public class FishingEngine : IDisposable
     {
         try
         {
-            // Aspect-ratio independent anchor math for [Yes] button
+            // Center-anchored height-scaled search point for [Yes] button
             int cx = (clientW / 2) - (int)Math.Round(clientH * 0.1173);
             int cy = (clientH / 2) + (int)Math.Round(clientH * 0.071);
-            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cx - 8), Math.Max(0, cy - 8), 17, 17);
+            int searchRadius = Math.Max(25, (int)Math.Round(clientH * 0.045));
+
+            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cx - searchRadius), Math.Max(0, cy - searchRadius), searchRadius * 2, searchRadius * 2);
             if (snap == null || snap.Empty()) return false;
 
-            int rows = snap.Rows;
-            int cols = snap.Cols;
-            for (int r = 0; r < rows; r++)
-            {
-                for (int c = 0; c < cols; c++)
-                {
-                    Vec4b bgra = snap.At<Vec4b>(r, c);
-                    // Light green [Yes] text: G > 175 && G > R + 20 && G > B + 20
-                    if (bgra.Item1 > 175 && bgra.Item1 > bgra.Item2 + 20 && bgra.Item1 > bgra.Item0 + 20)
-                        return true;
-                }
-            }
+            using var bgr = new Mat();
+            if (snap.Channels() == 4)
+                Cv2.CvtColor(snap, bgr, ColorConversionCodes.BGRA2BGR);
+            else
+                snap.CopyTo(bgr);
+
+            var (found, _) = _vision.DynamicUISnapWithStatus(bgr, searchRadius, searchRadius, VisionProcessor.UIColorType.GreenButton, searchRadius);
+            return found;
         }
         catch { }
         return false;
@@ -414,12 +418,14 @@ public class FishingEngine : IDisposable
 
         if (ct.IsCancellationRequested) return false;
 
-        // 1. Unequip the fishing rod so clicks don't start casting
-        onProgress?.Invoke("📦 Unequipping fishing rod...");
-        char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && Config.RodSlot.Length >= 1) ? Config.RodSlot[0] : '1';
-        Win32.SendKeyPress(rodKey); // Toggle unequip tool with hardware scan code
-        Thread.Sleep(350);
-
+        // 1. Unequip the fishing rod ONLY if it is currently equipped in hand
+        if (IsRodEquipped(robloxHwnd, clientW, clientH))
+        {
+            onProgress?.Invoke("📦 Unequipping fishing rod...");
+            char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && Config.RodSlot.Length >= 1) ? Config.RodSlot[0] : '1';
+            Win32.SendKeyPress(rodKey);
+            Thread.Sleep(350);
+        }
 
         if (ct.IsCancellationRequested) return false;
 
@@ -441,11 +447,10 @@ public class FishingEngine : IDisposable
             }
         }
 
-
         if (ct.IsCancellationRequested)
         {
             if (IsBagOpen(robloxHwnd, clientW, clientH)) Win32.SendKeyPress('g');
-            ReEquipRod();
+            EnsureRodEquipped(robloxHwnd, clientW, clientH);
             return false;
         }
 
@@ -689,12 +694,44 @@ public class FishingEngine : IDisposable
     public void ClickHotbarSlot(IntPtr robloxHwnd, int clientW, int clientH, int slotNum)
     {
         slotNum = Math.Clamp(slotNum, 1, 9);
-        double offsetRatio = (slotNum - 5) * 0.05607;
-        int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
-        int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
+        int slotClientX = -1;
+        int slotClientY = -1;
+
+        // Use OpenCV dynamic hotbar locator to target slot with sub-pixel precision
+        try
+        {
+            int bottomH = Math.Max(50, (int)Math.Round(clientH * 0.25));
+            int bottomY = clientH - bottomH;
+            using var bottomSnap = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+            if (bottomSnap != null && !bottomSnap.Empty())
+            {
+                using var bgr = new Mat();
+                if (bottomSnap.Channels() == 4)
+                    Cv2.CvtColor(bottomSnap, bgr, ColorConversionCodes.BGRA2BGR);
+                else
+                    bottomSnap.CopyTo(bgr);
+
+                var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false);
+                if (rodRes.HotbarFound)
+                {
+                    slotClientX = rodRes.SlotCenter.X;
+                    slotClientY = bottomY + rodRes.SlotCenter.Y;
+                }
+            }
+        }
+        catch { }
+
+        // Fallback to center-anchored proportions if vision capture failed
+        if (slotClientX < 0 || slotClientY < 0)
+        {
+            double offsetRatio = (slotNum - 5) * 0.05607;
+            slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
+            slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
+        }
+
         if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClientX, slotClientY, out int safeX, out int safeY, out int sX, out int sY))
         {
-            SessionLogger.Instance.Log("ROD", $"ClickHotbarSlot {slotNum}: Client=({safeX}, {safeY}) -> Screen=({sX}, {sY})");
+            SessionLogger.Instance.Log("ROD", $"ClickHotbarSlot {slotNum}: Dynamic Client=({safeX}, {safeY}) -> Screen=({sX}, {sY})");
             Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
         }
     }
@@ -709,42 +746,27 @@ public class FishingEngine : IDisposable
                 slotNum = Math.Clamp(Config.RodSlot[0] - '0', 1, 9);
             }
 
-            // Aspect-ratio independent anchor math for hotbar slots (Slot 5 is dead center)
-            double offsetRatio = (slotNum - 5) * 0.05607;
-            int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
-            int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
+            // Capture the bottom ~25% of Roblox window for dynamic hotbar detection
+            int bottomH = Math.Max(50, (int)Math.Round(clientH * 0.25));
+            int bottomY = clientH - bottomH;
+            using var bottomSnap = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+            if (bottomSnap == null || bottomSnap.Empty()) return true;
 
-            // Sample the upper interior of the slot box just below the top divider
-            int boxHalfW = (int)Math.Round(clientH * 0.015);
-            int topBorderY = slotClientY - (int)Math.Round(clientH * 0.033);
-            int sampleH = (int)Math.Max(4, Math.Round(clientH * 0.018));
+            using var bgr = new Mat();
+            if (bottomSnap.Channels() == 4)
+                Cv2.CvtColor(bottomSnap, bgr, ColorConversionCodes.BGRA2BGR);
+            else
+                bottomSnap.CopyTo(bgr);
 
-            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, slotClientX - boxHalfW), Math.Max(0, topBorderY + 1), boxHalfW * 2, sampleH);
-            if (snap == null || snap.Empty()) return true; // Safe fallback: assume equipped so we never toggle it off
-
-            int rows = snap.Rows;
-            int cols = snap.Cols;
-            int selectionCount = 0;
-            for (int r = 0; r < rows; r++)
-            {
-                for (int c = 0; c < cols; c++)
-                {
-                    Vec4b bgra = snap.At<Vec4b>(r, c);
-                    // Blue selection: Item0(B) > 130 && Item0(B) > Item2(R) + 25
-                    // White selection: Item0(B) > 175 && Item1(G) > 175 && Item2(R) > 175
-                    bool isBlue = bgra.Item0 > 130 && bgra.Item0 > bgra.Item2 + 25;
-                    bool isWhite = bgra.Item0 > 175 && bgra.Item1 > 175 && bgra.Item2 > 175;
-                    if (isBlue || isWhite)
-                    {
-                        selectionCount++;
-                    }
-                }
-            }
-
-            return selectionCount >= 12;
+            var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false);
+            _lastKnownRodEquipped = rodRes.IsEquipped;
+            _lastKnownRodStatus = rodRes.IsEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
+            return rodRes.IsEquipped;
         }
-        catch { }
-        return true;
+        catch 
+        {
+            return true;
+        }
     }
 
     public void EnsureRodEquipped(IntPtr robloxHwnd, int clientW, int clientH)
@@ -762,7 +784,7 @@ public class FishingEngine : IDisposable
 
         // Send hotkey once
         Win32.SendKeyPress(rodKey);
-        Thread.Sleep(150);
+        Thread.Sleep(180);
 
         if (IsRodEquipped(robloxHwnd, clientW, clientH))
         {
@@ -771,9 +793,14 @@ public class FishingEngine : IDisposable
         }
 
         // If hotkey was ignored (e.g. chat focus active), click the slot directly
-        SessionLogger.Instance.Log("ROD", $"EnsureRodEquipped: Keypress did not equip. Clicking hotbar slot {slotNum}...");
+        SessionLogger.Instance.Log("ROD", $"EnsureRodEquipped: Keypress did not equip. Clicking hotbar slot {slotNum} dynamically...");
         ClickHotbarSlot(robloxHwnd, clientW, clientH, slotNum);
-        Thread.Sleep(150);
+        Thread.Sleep(180);
+
+        if (IsRodEquipped(robloxHwnd, clientW, clientH))
+        {
+            SessionLogger.Instance.Log("ROD", "EnsureRodEquipped: Rod successfully equipped via hardware click.");
+        }
 
         // Return cursor to safe water
         int waterClientX = clientW / 2;
@@ -1118,7 +1145,7 @@ public class FishingEngine : IDisposable
             int trackX1 = Math.Max(0, (winW / 2) - halfW);
             int trackX2 = Math.Min(winW, (winW / 2) + halfW);
             int trackY1 = (int)(winH * 0.74);
-            int trackY2 = (int)(winH * 0.94);
+            int trackY2 = (int)(winH * 0.91); // Clamped to strictly avoid overlapping hotbar container
             int trackW = trackX2 - trackX1;
             int trackH = trackY2 - trackY1;
 
@@ -1127,15 +1154,27 @@ public class FishingEngine : IDisposable
             // ==============================================================
             if (CurrentState == MacroState.Casting)
             {
-                // Capture initial game preview frame so camera monitor is instantly live
+                // Capture initial game preview frame so camera monitor is instantly live with dynamic rod vision
                 Mat? castFrame = null;
                 if (Config.ShowVisionPreview)
                 {
                     castFrame = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, 0, winW, winH);
                     if (castFrame != null && !castFrame.Empty())
                     {
-                        Cv2.PutText(castFrame, "CASTING ROD...", new Point(14, 24),
-                            HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 229, 255), 1);
+                        using var bgr = new Mat();
+                        if (castFrame.Channels() == 4)
+                            Cv2.CvtColor(castFrame, bgr, ColorConversionCodes.BGRA2BGR);
+                        else
+                            castFrame.CopyTo(bgr);
+
+                        char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
+                        int slotNum = Math.Clamp(rodKey - '0', 1, 9);
+                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+                        if (rodRes.AnnotatedFrame != null)
+                        {
+                            castFrame.Dispose();
+                            castFrame = rodRes.AnnotatedFrame;
+                        }
                     }
                 }
 
@@ -1838,10 +1877,34 @@ public class FishingEngine : IDisposable
                     Thread.Sleep(400);
                 }
 
+                Mat? postCatchFrame = null;
+                if (Config.ShowVisionPreview && shouldGenerateDebug)
+                {
+                    postCatchFrame = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, 0, winW, winH);
+                    if (postCatchFrame != null && !postCatchFrame.Empty())
+                    {
+                        using var bgr = new Mat();
+                        if (postCatchFrame.Channels() == 4)
+                            Cv2.CvtColor(postCatchFrame, bgr, ColorConversionCodes.BGRA2BGR);
+                        else
+                            postCatchFrame.CopyTo(bgr);
+
+                        char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
+                        int slotNum = Math.Clamp(rodKey - '0', 1, 9);
+                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+                        if (rodRes.AnnotatedFrame != null)
+                        {
+                            postCatchFrame.Dispose();
+                            postCatchFrame = rodRes.AnnotatedFrame;
+                        }
+                    }
+                }
+
                 var telem = new TelemetryData
                 {
                     State = MacroState.PostCatch,
-                    Action = "Catch Completed! Resting..."
+                    Action = "Catch Completed! Resting...",
+                    AnnotatedFrame = postCatchFrame
                 };
                 PopulateTelemetryStats(telem);
                 OnTelemetry?.Invoke(telem);

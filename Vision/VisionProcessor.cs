@@ -39,6 +39,17 @@ public class CastBarResult
     public Mat? AnnotatedFrame { get; set; }
 }
 
+public class RodDetectionResult
+{
+    public bool IsEquipped { get; set; }
+    public bool HotbarFound { get; set; }
+    public Rect HotbarBounds { get; set; }
+    public Rect SlotBounds { get; set; }
+    public Point SlotCenter { get; set; }
+    public int ActivePixels { get; set; }
+    public Mat? AnnotatedFrame { get; set; }
+}
+
 public class VisionProcessor
 {
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
@@ -922,6 +933,133 @@ public class VisionProcessor
     public Point DynamicUISnap(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
     {
         return DynamicUISnapWithStatus(fullFrame, expectedX, expectedY, targetType, searchRadius).Pt;
+    }
+
+    public RodDetectionResult DetectRodEquipped(Mat frame, int slotNum = 1, bool generateDebug = false)
+    {
+        var result = new RodDetectionResult();
+        if (frame == null || frame.Empty()) return result;
+
+        slotNum = Math.Clamp(slotNum, 1, 9);
+        int w = frame.Width;
+        int h = frame.Height;
+        int midX = w / 2;
+
+        // Scan bottom of frame to find hotbar vertical bounds
+        int scanTop = (h >= 200) ? (int)(h * 0.75) : 0;
+        int scanBottom = h - 2;
+
+        int hotbarTop = -1;
+        int hotbarBottom = -1;
+
+        // Find the top border of the hotbar by finding where a central slice is dark container
+        for (int y = scanTop; y <= scanBottom; y++)
+        {
+            int darkAtMid = 0;
+            for (int dx = -20; dx <= 20; dx += 5)
+            {
+                var p = frame.At<Vec3b>(y, midX + dx);
+                if (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80) darkAtMid++;
+            }
+            if (darkAtMid >= 7)
+            {
+                if (hotbarTop == -1) hotbarTop = y;
+                hotbarBottom = y;
+            }
+        }
+
+        if (hotbarTop == -1 || hotbarBottom - hotbarTop < 8)
+        {
+            int fallbackH = (int)Math.Max(24, Math.Round(h * 0.055));
+            hotbarBottom = h - 4;
+            hotbarTop = hotbarBottom - fallbackH;
+        }
+
+        // Scan row just inside top margin (hotbarTop + 2) where no item text or icons appear
+        int scanY = Math.Min(hotbarBottom, hotbarTop + 2);
+        int hotbarLeft = -1;
+        int hotbarRight = -1;
+
+        int searchMinX = Math.Max(0, midX - (int)(h * 0.6));
+        int searchMaxX = Math.Min(w - 1, midX + (int)(h * 0.6));
+
+        for (int x = searchMinX; x <= searchMaxX; x++)
+        {
+            var p = frame.At<Vec3b>(scanY, x);
+            bool isDark = (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80);
+            if (isDark && hotbarLeft == -1) hotbarLeft = x;
+            if (isDark) hotbarRight = x;
+        }
+
+        int totalW = (hotbarLeft >= 0 && hotbarRight > hotbarLeft) ? (hotbarRight - hotbarLeft + 1) : 0;
+        bool found = totalW >= 60;
+
+        if (!found)
+        {
+            int estSlotW = (int)Math.Max(20, Math.Round(h * 0.056));
+            totalW = estSlotW * 9;
+            hotbarLeft = midX - (totalW / 2);
+            hotbarRight = hotbarLeft + totalW - 1;
+        }
+
+        Rect hotbarRect = new Rect(hotbarLeft, hotbarTop, totalW, hotbarBottom - hotbarTop + 1);
+        double slotW = totalW / 9.0;
+        int sLeft = hotbarLeft + (int)Math.Round((slotNum - 1) * slotW);
+        int sRight = hotbarLeft + (int)Math.Round(slotNum * slotW);
+        Rect slotRect = new Rect(sLeft, hotbarTop, Math.Max(1, sRight - sLeft), hotbarRect.Height);
+        Point center = new Point((sLeft + sRight) / 2, (hotbarTop + hotbarBottom) / 2);
+
+        // Sample interior of the slot (inset by 15% to strictly avoid borders and background water)
+        int insetX = Math.Max(2, (int)(slotRect.Width * 0.15));
+        int insetY = Math.Max(2, (int)(slotRect.Height * 0.15));
+        int sampleX1 = slotRect.X + insetX;
+        int sampleX2 = slotRect.Right - insetX;
+        int sampleY1 = slotRect.Y + insetY;
+        int sampleY2 = slotRect.Bottom - insetY;
+
+        int activePx = 0;
+        for (int y = sampleY1; y <= sampleY2; y++)
+        {
+            for (int x = sampleX1; x <= sampleX2; x++)
+            {
+                var p = frame.At<Vec3b>(y, x);
+                // Active cyan/blue selection
+                bool isBlue = (p.Item0 > 130 && p.Item0 > p.Item2 + 25 && p.Item0 > p.Item1 + 15);
+                // Active white selection border/glow
+                bool isWhite = (p.Item0 > 185 && p.Item1 > 185 && p.Item2 > 185);
+                if (isBlue || isWhite) activePx++;
+            }
+        }
+
+        bool isEquipped = activePx >= 10;
+
+        result.HotbarFound = found;
+        result.HotbarBounds = hotbarRect;
+        result.SlotBounds = slotRect;
+        result.SlotCenter = center;
+        result.ActivePixels = activePx;
+        result.IsEquipped = isEquipped;
+
+        if (generateDebug)
+        {
+            Mat annotated = frame.Clone();
+            // Draw hotbar container
+            Cv2.Rectangle(annotated, hotbarRect, Scalar.FromRgb(40, 50, 70), 1);
+
+            // Draw slot box: Green if equipped, Red if unequipped
+            Scalar slotColor = isEquipped ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(255, 82, 82);
+            Cv2.Rectangle(annotated, slotRect, slotColor, 2);
+
+            // Draw status banner over slot
+            string statusTag = isEquipped ? $"ROD #{slotNum}: EQUIPPED" : $"ROD #{slotNum}: UNEQUIPPED";
+            int textY = Math.Max(20, hotbarTop - 8);
+            int textX = Math.Max(5, center.X - 65);
+            Cv2.PutText(annotated, statusTag, new Point(textX, textY), HersheyFonts.HersheySimplex, 0.50, slotColor, 2);
+
+            result.AnnotatedFrame = annotated;
+        }
+
+        return result;
     }
 }
 

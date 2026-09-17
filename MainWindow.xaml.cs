@@ -382,6 +382,21 @@ public partial class MainWindow : Window
                     _ => new SolidColorBrush(Color.FromRgb(55, 65, 81))
                 };
 
+                // Update Rod Vision Status Badge
+                bool isRodEquipped = t.IsRodEquipped;
+                TxtRodState.Text = isRodEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
+                TxtRodState.Foreground = isRodEquipped ? new SolidColorBrush(Color.FromRgb(52, 211, 153)) : new SolidColorBrush(Color.FromRgb(248, 113, 113));
+                BadgeRodState.Background = isRodEquipped ? new SolidColorBrush(Color.FromRgb(12, 46, 36)) : new SolidColorBrush(Color.FromRgb(69, 26, 26));
+                BadgeRodState.BorderBrush = isRodEquipped ? new SolidColorBrush(Color.FromRgb(16, 185, 129)) : new SolidColorBrush(Color.FromRgb(239, 68, 68));
+
+                if (TxtMonitorRod != null && MonitorRodBadge != null)
+                {
+                    TxtMonitorRod.Text = isRodEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
+                    TxtMonitorRod.Foreground = isRodEquipped ? new SolidColorBrush(Color.FromRgb(52, 211, 153)) : new SolidColorBrush(Color.FromRgb(248, 113, 113));
+                    MonitorRodBadge.Background = isRodEquipped ? new SolidColorBrush(Color.FromRgb(22, 43, 32)) : new SolidColorBrush(Color.FromRgb(55, 20, 20));
+                    MonitorRodBadge.BorderBrush = isRodEquipped ? new SolidColorBrush(Color.FromRgb(16, 185, 129)) : new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                }
+
                 // Update Action
                 TxtAction.Text = string.IsNullOrEmpty(t.Action) ? "Tracking..." : t.Action;
 

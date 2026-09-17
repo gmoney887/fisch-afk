@@ -75,6 +75,13 @@ Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundCol
 Write-Host "[3/7] Compiling Standalone Portable Executable..." -ForegroundColor Green
 $publishDir = Join-Path $repoRoot "publish-singlefile"
 
+# If a previous instance is currently running, close it to release file lock
+Get-Process FischMacroCS -ErrorAction SilentlyContinue | ForEach-Object {
+    Write-Host "      Stopping running FischMacroCS process (PID $($_.Id)) to allow binary replacement..." -ForegroundColor Yellow
+    Stop-Process -Id $_.Id -Force
+    Start-Sleep -Milliseconds 500
+}
+
 & $dotnet publish FischMacroCS.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $publishDir
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"

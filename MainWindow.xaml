@@ -510,12 +510,17 @@
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
 
-                            <!-- State Badge -->
+                            <!-- State Badge & Rod Vision Badge -->
                             <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,6,6">
                                 <TextBlock Text="STATUS" Style="{StaticResource MetricLabel}"/>
-                                <Border x:Name="BadgeState" Background="#374151" CornerRadius="4" Padding="6,2" HorizontalAlignment="Left">
-                                    <TextBlock x:Name="TxtState" Text="READY" FontSize="11" FontWeight="Bold" Foreground="#9CA3AF"/>
-                                </Border>
+                                <WrapPanel Orientation="Horizontal">
+                                    <Border x:Name="BadgeState" Background="#374151" CornerRadius="4" Padding="6,2" Margin="0,0,4,0" HorizontalAlignment="Left">
+                                        <TextBlock x:Name="TxtState" Text="READY" FontSize="11" FontWeight="Bold" Foreground="#9CA3AF"/>
+                                    </Border>
+                                    <Border x:Name="BadgeRodState" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="5,2" HorizontalAlignment="Left" ToolTip="Live Computer Vision status of fishing rod in hand">
+                                        <TextBlock x:Name="TxtRodState" Text="ROD: EQUIPPED" FontSize="9" FontWeight="Bold" Foreground="#34D399"/>
+                                    </Border>
+                                </WrapPanel>
                             </StackPanel>
 
                             <!-- Action Text -->
@@ -556,6 +561,9 @@
                         <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
                                 <TextBlock Text="LIVE CV MONITOR" FontSize="10" FontWeight="Bold" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                                <Border x:Name="MonitorRodBadge" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtMonitorRod" Text="ROD: EQUIPPED" FontSize="8.5" FontWeight="Black" Foreground="#34D399"/>
+                                </Border>
                                 <TextBlock x:Name="TxtRecordingIndicator" Text="● REC" FontSize="10" FontWeight="Black" Foreground="#EF4444" Margin="6,0,0,0" Visibility="Collapsed" VerticalAlignment="Center"/>
                             </StackPanel>
 
