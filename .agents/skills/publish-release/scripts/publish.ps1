@@ -142,7 +142,11 @@ if (-not $SkipPush) {
             & gh release upload $tag "$zipFile#FischMacroCS-v$targetVer-win-x64.zip" --clobber
         } else {
             Write-Host "      Creating new release $tag..." -ForegroundColor Green
-            & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" @notesArg
+            if ($ReleaseNotes) {
+                & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" --notes $ReleaseNotes
+            } else {
+                & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" --generate-notes
+            }
         }
         
         if ($LASTEXITCODE -eq 0) {
