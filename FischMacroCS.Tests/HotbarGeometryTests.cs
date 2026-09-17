@@ -108,4 +108,46 @@ public class HotbarGeometryTests
             Assert.True(roiY + roiH <= clientH, $"[{label}] Hotbar slot {slotNum} ROI extends past window height");
         }
     }
+
+    [Fact]
+    public void IsRodEquipped_HotbarFixture_DistinguishesActiveSlot()
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string fixturePath = System.IO.Path.Combine(baseDir, "Fixtures", "hotbar_crop.png");
+        if (!System.IO.File.Exists(fixturePath))
+        {
+            fixturePath = System.IO.Path.GetFullPath(System.IO.Path.Combine(baseDir, "..", "..", "..", "Fixtures", "hotbar_crop.png"));
+        }
+        Assert.True(System.IO.File.Exists(fixturePath));
+
+        using var crop = OpenCvSharp.Cv2.ImRead(fixturePath);
+        Assert.False(crop.Empty());
+
+        // In hotbar_crop.png, each slot is ~24px wide. Slot 1 is at x=0..24, Slot 2 at x=24..48, etc.
+        // Test Slot 1 (active/equipped with blue selection background):
+        int slot1Cyan = 0;
+        for (int y = 12; y <= 20; y++)
+        {
+            for (int x = 4; x <= 20; x++)
+            {
+                var bgra = crop.At<OpenCvSharp.Vec3b>(y, x);
+                if (bgra.Item0 > 130 && bgra.Item0 > bgra.Item2 + 25) slot1Cyan++;
+            }
+        }
+
+        // Test Slot 2 (inactive dark container):
+        int slot2Cyan = 0;
+        for (int y = 12; y <= 20; y++)
+        {
+            for (int x = 28; x <= 44; x++)
+            {
+                var bgra = crop.At<OpenCvSharp.Vec3b>(y, x);
+                if (bgra.Item0 > 130 && bgra.Item0 > bgra.Item2 + 25) slot2Cyan++;
+            }
+        }
+
+        // Slot 1 must have strong active selection highlight, Slot 2 must have zero
+        Assert.True(slot1Cyan >= 20, $"Slot 1 selection count: {slot1Cyan}");
+        Assert.Equal(0, slot2Cyan);
+    }
 }

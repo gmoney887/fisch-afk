@@ -572,23 +572,17 @@ public static partial class Win32
 
     public static IntPtr FindRobloxWindow()
     {
-        string logFile = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "find_roblox.log");
-        void Log(string msg) { try { System.IO.File.AppendAllText(logFile, $"[{DateTime.Now:HH:mm:ss.fff}] {msg}\n"); } catch { } }
-
         // 1. Try standard class name
         IntPtr hwnd = FindWindow("WINDOWSCLIENT", null);
-        Log($"Step 1 FindWindow(WINDOWSCLIENT): {hwnd}, Vis={IsWindowVisible(hwnd)}");
         if (hwnd != IntPtr.Zero && IsWindowVisible(hwnd))
             return hwnd;
 
         // 2. Try window title
         hwnd = FindWindow(null, "Roblox");
-        Log($"Step 2 FindWindow(Roblox): {hwnd}, Vis={IsWindowVisible(hwnd)}");
         if (hwnd != IntPtr.Zero && IsWindowVisible(hwnd))
             return hwnd;
 
         hwnd = FindWindow(null, "Roblox Player");
-        Log($"Step 2b FindWindow(Roblox Player): {hwnd}, Vis={IsWindowVisible(hwnd)}");
         if (hwnd != IntPtr.Zero && IsWindowVisible(hwnd))
             return hwnd;
 
@@ -596,15 +590,13 @@ public static partial class Win32
         try
         {
             var procs = Process.GetProcessesByName("RobloxPlayerBeta");
-            Log($"Step 3 procs count: {procs.Length}");
             foreach (var p in procs)
             {
-                Log($"Proc {p.Id}: MainHwnd={p.MainWindowHandle}, Vis={IsWindowVisible(p.MainWindowHandle)}");
                 if (p.MainWindowHandle != IntPtr.Zero && IsWindowVisible(p.MainWindowHandle))
                     return p.MainWindowHandle;
             }
         }
-        catch (Exception ex) { Log($"Step 3 ex: {ex.Message}"); }
+        catch { }
 
         // 3b. Check thread windows of RobloxPlayerBeta processes
         IntPtr candidate = IntPtr.Zero;
@@ -622,7 +614,6 @@ public static partial class Win32
                         var sbClass = new StringBuilder(256);
                         GetClassName(h, sbClass, 256);
                         bool vis = IsWindowVisible(h);
-                        Log($"ThreadWindow on Thread {t.Id}: HWND={h}, Class='{sbClass}', Title='{sbTitle}', Vis={vis}");
                         if (candidate == IntPtr.Zero && (sbClass.ToString() == "WINDOWSCLIENT" || sbTitle.ToString().Contains("Roblox") || vis))
                         {
                             candidate = h;
@@ -633,11 +624,10 @@ public static partial class Win32
             }
             if (candidate != IntPtr.Zero)
             {
-                Log($"Found candidate from thread windows: {candidate}");
                 return candidate;
             }
         }
-        catch (Exception ex) { Log($"Step 3b ex: {ex.Message}"); }
+        catch { }
 
         // 4. Fallback enumeration with process verification
         try
@@ -661,8 +651,6 @@ public static partial class Win32
                 GetClassName(h, sbClass, 256);
                 string cls = sbClass.ToString();
 
-                Log($"Enum candidate: HWND={h}, PID={pid}, Class='{cls}', Title='{title}'");
-
                 if (title.Equals("Roblox", StringComparison.OrdinalIgnoreCase) ||
                     cls.Equals("WINDOWSCLIENT", StringComparison.OrdinalIgnoreCase))
                 {
@@ -677,9 +665,8 @@ public static partial class Win32
                 return true;
             }, IntPtr.Zero);
         }
-        catch (Exception ex) { Log($"Step 4 ex: {ex.Message}"); }
+        catch { }
 
-        Log($"Final candidate: {candidate}");
         return candidate;
     }
 
