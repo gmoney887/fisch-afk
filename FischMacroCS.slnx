@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="FischMacroCS.csproj" />
+  <Project Path="FischMacroCS.Tests/FischMacroCS.Tests.csproj" />
+</Solution>

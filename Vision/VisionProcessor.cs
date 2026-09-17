@@ -861,11 +861,14 @@ public class VisionProcessor
             mask.Create(roi.Size(), MatType.CV_8UC1);
             mask.SetTo(Scalar.All(0));
 
+            int roiRows = roi.Rows;
+            int roiCols = roi.Cols;
+
             if (targetType == UIColorType.GreenButton)
             {
-                for (int r = 0; r < roi.Rows; r++)
+                for (int r = 0; r < roiRows; r++)
                 {
-                    for (int c = 0; c < roi.Cols; c++)
+                    for (int c = 0; c < roiCols; c++)
                     {
                         Vec3b bgr = roi.At<Vec3b>(r, c);
                         if (bgr.Item1 > 160 && bgr.Item1 > bgr.Item2 + 25 && bgr.Item1 > bgr.Item0 + 25)
@@ -875,9 +878,9 @@ public class VisionProcessor
             }
             else if (targetType == UIColorType.RedCloseButton)
             {
-                for (int r = 0; r < roi.Rows; r++)
+                for (int r = 0; r < roiRows; r++)
                 {
-                    for (int c = 0; c < roi.Cols; c++)
+                    for (int c = 0; c < roiCols; c++)
                     {
                         Vec3b bgr = roi.At<Vec3b>(r, c);
                         if (bgr.Item2 > 150 && bgr.Item1 < 85 && bgr.Item0 < 85)

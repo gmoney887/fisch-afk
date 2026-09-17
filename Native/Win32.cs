@@ -330,6 +330,73 @@ public static partial class Win32
     }
 
     /// <summary>
+    /// Safe coordinate mapping from client to screen without mutating input structs.
+    /// </summary>
+    public static bool SafeClientToScreen(IntPtr hwnd, int clientX, int clientY, out int screenX, out int screenY)
+    {
+        POINT pt = new POINT { X = clientX, Y = clientY };
+        if (ClientToScreen(hwnd, ref pt))
+        {
+            screenX = pt.X;
+            screenY = pt.Y;
+            return true;
+        }
+        screenX = clientX;
+        screenY = clientY;
+        return false;
+    }
+
+    /// <summary>
+    /// Strict coordinate boundary sanitizer. Ensures client coordinates are strictly within
+    /// the target window's client bounds and maps safely to virtual desktop screen coordinates.
+    /// </summary>
+    public static bool SanitizeGameCoordinate(IntPtr hwnd, int clientX, int clientY, out int safeClientX, out int safeClientY, out int safeScreenX, out int safeScreenY, int inset = 5)
+    {
+        safeClientX = clientX;
+        safeClientY = clientY;
+        safeScreenX = clientX;
+        safeScreenY = clientY;
+
+        if (hwnd == IntPtr.Zero) return false;
+
+        if (!GetClientRect(hwnd, out RECT rc) || rc.Width <= 0 || rc.Height <= 0)
+        {
+            return false;
+        }
+
+        int minX = inset;
+        int maxX = Math.Max(inset, rc.Width - inset);
+        int minY = inset;
+        int maxY = Math.Max(inset, rc.Height - inset);
+
+        int clampedX = Math.Clamp(clientX, minX, maxX);
+        int clampedY = Math.Clamp(clientY, minY, maxY);
+
+        if (clampedX != clientX || clampedY != clientY)
+        {
+            FischMacroCS.Core.SessionLogger.Instance.LogSafety(
+                $"Coordinate clamped from ({clientX}, {clientY}) to ({clampedX}, {clampedY}) for window bounds {rc.Width}x{rc.Height}");
+        }
+
+        safeClientX = clampedX;
+        safeClientY = clampedY;
+
+        if (SafeClientToScreen(hwnd, clampedX, clampedY, out int sx, out int sy))
+        {
+            int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+            int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+            int vWidth = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+            int vHeight = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+            safeScreenX = Math.Clamp(sx, vLeft, vLeft + vWidth - 1);
+            safeScreenY = Math.Clamp(sy, vTop, vTop + vHeight - 1);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Send a high-reliability hardware-emulated click that satisfies DirectInput, RawInput,
     /// Win32 cursor positioning, relative motion listeners (Roblox GuiService raycaster),
     /// and direct window messaging.
@@ -347,14 +414,19 @@ public static partial class Win32
             }
         }
 
-        // 1. Position OS Cursor
-        SetCursorPos(screenX, screenY);
-
-        // 2. Compute normalized virtual desktop coordinates for RawInput hardware emulation
+        // Clamp screen coordinates to virtual desktop bounds to prevent off-screen throws
         int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
         int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
         int vWidth = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
         int vHeight = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+        screenX = Math.Clamp(screenX, vLeft, vLeft + vWidth - 1);
+        screenY = Math.Clamp(screenY, vTop, vTop + vHeight - 1);
+
+        FischMacroCS.Core.SessionLogger.Instance.LogInput("HardwareClick", screenX, screenY, clientX, clientY);
+
+        // 1. Position OS Cursor
+        SetCursorPos(screenX, screenY);
 
         int normX = (int)Math.Round(((screenX - vLeft) * 65535.0) / (vWidth - 1));
         int normY = (int)Math.Round(((screenY - vTop) * 65535.0) / (vHeight - 1));

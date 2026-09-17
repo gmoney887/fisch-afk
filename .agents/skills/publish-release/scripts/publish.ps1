@@ -52,7 +52,7 @@ if ($Version -ne "") {
     $targetVer = "$major.$minor.$patch"
 }
 
-Write-Host "[1/6] Target Version: v$targetVer" -ForegroundColor Green
+Write-Host "[1/7] Target Version: v$targetVer" -ForegroundColor Green
 
 if ($targetVer -ne $currentVerStr) {
     Write-Host "      Updating FischMacroCS.csproj to $targetVer..." -ForegroundColor Yellow
@@ -63,17 +63,25 @@ if ($targetVer -ne $currentVerStr) {
     Set-Content -Path $csprojPath -Value $csprojContent -NoNewline
 }
 
-# 3. Publish Single-File Standalone Portable Executable
-Write-Host "[2/6] Compiling Standalone Portable Executable..." -ForegroundColor Green
+# 3. Mandatory Pre-Flight Automated Regression Tests Gate
+Write-Host "[2/7] Running Automated Regression & Vision Tests..." -ForegroundColor Green
+& $dotnet test FischMacroCS.slnx -c Release
+if ($LASTEXITCODE -ne 0) {
+    throw "Automated tests failed! Release aborted to prevent regressions from reaching users."
+}
+Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundColor Cyan
+
+# 4. Publish Single-File Standalone Portable Executable
+Write-Host "[3/7] Compiling Standalone Portable Executable..." -ForegroundColor Green
 $publishDir = Join-Path $repoRoot "publish-singlefile"
 
-& $dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $publishDir
+& $dotnet publish FischMacroCS.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $publishDir
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
 }
 
-# 4. Create Dist Staging & Zip Package
-Write-Host "[3/6] Packaging Standalone Zero-Dependency ZIP..." -ForegroundColor Green
+# 5. Create Dist Staging & Zip Package
+Write-Host "[4/7] Packaging Standalone Zero-Dependency ZIP..." -ForegroundColor Green
 $distDir = Join-Path $repoRoot "dist"
 $pkgName = "FischMacroCS-v$targetVer-win-x64"
 $stagingDir = Join-Path $distDir $pkgName
@@ -94,8 +102,8 @@ $zipInfo = Get-Item $zipFile
 $zipSizeMb = [math]::Round($zipInfo.Length / 1MB, 1)
 Write-Host "      Created package: $zipFile ($zipSizeMb MB)" -ForegroundColor Cyan
 
-# 5. Git Commit & Tag
-Write-Host "[4/6] Committing & Tagging in Git..." -ForegroundColor Green
+# 6. Git Commit & Tag
+Write-Host "[5/7] Committing & Tagging in Git..." -ForegroundColor Green
 $tag = "v$targetVer"
 
 # Check if working copy has changes
@@ -108,15 +116,15 @@ if ($status) {
 # Update or create annotated tag
 git tag -f -a $tag -m "Fat Dad's Fisch AFK Pro $tag"
 
-# 6. Push & GitHub Release
+# 7. Push & GitHub Release
 if (-not $SkipPush) {
-    Write-Host "[5/6] Pushing to GitHub (main branch & tags)..." -ForegroundColor Green
+    Write-Host "[6/7] Pushing to GitHub (main branch & tags)..." -ForegroundColor Green
     git push origin main --tags -f
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "Git push returned a non-zero exit code. Please check your GitHub remote credentials."
     }
 
-    Write-Host "[6/6] Publishing Release on GitHub..." -ForegroundColor Green
+    Write-Host "[7/7] Publishing Release on GitHub..." -ForegroundColor Green
     if (Get-Command gh -ErrorAction SilentlyContinue) {
         $notesArg = if ($ReleaseNotes) { @("--notes", $ReleaseNotes) } else { @("--generate-notes") }
         
@@ -142,7 +150,7 @@ if (-not $SkipPush) {
     
     Write-Warning "gh CLI is not authenticated or encountered an error. Release zip is ready in dist/ for manual upload."
 } else {
-    Write-Host "[5/6] SkipPush specified: Skipping git push & GitHub release." -ForegroundColor Yellow
+    Write-Host "[6/7] SkipPush specified: Skipping git push & GitHub release." -ForegroundColor Yellow
 }
 
 Write-Host ""

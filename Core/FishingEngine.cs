@@ -657,6 +657,7 @@ public class FishingEngine : IDisposable
         _cts = new CancellationTokenSource();
         Win32.timeBeginPeriod(1);
         _consecutiveCastFailures = 0;
+        SessionLogger.Instance.LogState(CurrentState, MacroState.Casting, "User Started Macro");
         CurrentState = MacroState.Casting;
         _stateStartTime = Stopwatch.GetTimestamp();
         _lastAntiAfkTime = Stopwatch.GetTimestamp();
@@ -675,6 +676,7 @@ public class FishingEngine : IDisposable
         SetMouseDown(false);
         Win32.timeEndPeriod(1);
         _sessionStopwatch.Stop();
+        SessionLogger.Instance.LogState(CurrentState, MacroState.Stopped, "User Stopped Macro");
         CurrentState = MacroState.Stopped;
 
         var telem = new TelemetryData
@@ -692,10 +694,10 @@ public class FishingEngine : IDisposable
         double offsetRatio = (slotNum - 5) * 0.05607;
         int slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
         int slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
-        Win32.POINT sPt = new Win32.POINT { X = slotClientX, Y = slotClientY };
-        if (Win32.ClientToScreen(robloxHwnd, ref sPt))
+        if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClientX, slotClientY, out int safeX, out int safeY, out int sX, out int sY))
         {
-            Win32.SendHardwareClick(sPt.X, sPt.Y, slotClientX, slotClientY, robloxHwnd);
+            SessionLogger.Instance.Log("ROD", $"ClickHotbarSlot {slotNum}: Client=({safeX}, {safeY}) -> Screen=({sX}, {sY})");
+            Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
         }
     }
 
@@ -766,6 +768,8 @@ public class FishingEngine : IDisposable
         {
             slotChar = Config.RodSlot[0];
         }
+
+        SessionLogger.Instance.Log("ROD", $"ReEquipRod initiated: Slot={slotChar}, ClickSlot={clickSlot}, Window={winW}x{winH}");
 
         // Focus Roblox game canvas by clicking safe center water area
         int waterX = (int)Math.Round(winW * 0.50);
@@ -984,16 +988,21 @@ public class FishingEngine : IDisposable
         if (_isMouseDown != down)
         {
             _isMouseDown = down;
+            SessionLogger.Instance.LogInput(down ? "MouseDown" : "MouseUp", -1, -1);
             Win32.mouse_event(down ? Win32.MOUSEEVENTF_LEFTDOWN : Win32.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
         }
     }
 
-    private void Transition(MacroState newState)
+    private void Transition(MacroState newState, string reason = "")
     {
-        if (CurrentState == MacroState.Reeling && newState != MacroState.Reeling)
+        MacroState oldState = CurrentState;
+        if (oldState == MacroState.Reeling && newState != MacroState.Reeling)
         {
             _recorder.StopSession(newState.ToString());
         }
+
+        double elapsed = (_stateStartTime > 0) ? GetElapsedMs(_stateStartTime) : 0;
+        SessionLogger.Instance.LogState(oldState, newState, $"{reason} (Elapsed in {oldState}: {elapsed:F0}ms)");
 
         SetMouseDown(false);
         CurrentState = newState;
@@ -1336,8 +1345,9 @@ public class FishingEngine : IDisposable
 
                 // Verified cast succeeded!
                 _consecutiveCastFailures = 0;
+                SessionLogger.Instance.Log("CAST", $"Cast verified (Hold elapsed: {GetElapsedMs(_stateStartTime):F0}ms). Transitioning to Luring.");
                 Thread.Sleep(GetJitteredMs(Config.PostCastDelayMs, 40));
-                Transition(MacroState.Luring);
+                Transition(MacroState.Luring, "Cast verified");
                 continue;
             }
 
@@ -1377,7 +1387,7 @@ public class FishingEngine : IDisposable
                     if (_luringConfirmCount >= 2)
                     {
                         EnsureCursorInGameView(robloxHwnd, clientRect);
-                        Transition(MacroState.Reeling);
+                        Transition(MacroState.Reeling, "Reel minigame bar detected");
                         continue;
                     }
                 }
@@ -1391,7 +1401,7 @@ public class FishingEngine : IDisposable
                 // Timeout check: re-cast if no bite within LureTimeoutMs
                 if (GetElapsedMs(_stateStartTime) > Config.LureTimeoutMs)
                 {
-                    Transition(MacroState.Casting);
+                    Transition(MacroState.Casting, $"Lure timeout ({Config.LureTimeoutMs}ms reached)");
                     continue;
                 }
 
@@ -1762,7 +1772,7 @@ public class FishingEngine : IDisposable
                         _catchesSinceLastCrateOpen++;
                     }
 
-                    Transition(MacroState.PostCatch);
+                    Transition(MacroState.PostCatch, "Minigame ended (Bar disappeared)");
                     detect.AnnotatedFrame?.Dispose();
                     continue;
                 }
@@ -1895,7 +1905,7 @@ public class FishingEngine : IDisposable
 
                 if (GetElapsedMs(_stateStartTime) > GetJitteredMs(Config.PostCatchDelayMs, 60))
                 {
-                    Transition(MacroState.Casting);
+                    Transition(MacroState.Casting, "PostCatch delay elapsed");
                     continue;
                 }
             }
@@ -1911,6 +1921,7 @@ public class FishingEngine : IDisposable
             }
             catch (Exception ex)
             {
+                SessionLogger.Instance.LogError("WorkerLoop Error", ex);
                 try
                 {
                     string errPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "engine_error.log");
@@ -1923,7 +1934,7 @@ public class FishingEngine : IDisposable
                 Thread.Sleep(500);
                 if (!ct.IsCancellationRequested)
                 {
-                    Transition(MacroState.Casting);
+                    Transition(MacroState.Casting, "Error recovery");
                 }
             }
         }
