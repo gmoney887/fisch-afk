@@ -121,8 +121,8 @@ if (-not $SkipPush) {
         $notesArg = if ($ReleaseNotes) { @("--notes", $ReleaseNotes) } else { @("--generate-notes") }
         
         # Check if release already exists
-        $null = & gh release view $tag 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        $existing = (& gh release list --limit 50 | Select-String -Pattern "^\s*$tag\b")
+        if ($existing) {
             Write-Host "      Updating existing release $tag..." -ForegroundColor Yellow
             & gh release upload $tag "$zipFile#FischMacroCS-v$targetVer-win-x64.zip" --clobber
         } else {
