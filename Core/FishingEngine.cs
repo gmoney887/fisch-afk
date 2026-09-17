@@ -267,11 +267,12 @@ public class FishingEngine : IDisposable
         // Step 2: Click "Claim" button (Height-anchored math + CV Auto-Snap)
         int clmBaseX = (clientW / 2) - (int)Math.Round(clientH * 0.184);
         int clmBaseY = (clientH / 2) + (int)Math.Round(clientH * 0.0257);
+        int claimRadius = Math.Max(30, (int)Math.Round(clientH * 0.070));
         using (var snap = _capture.CaptureClientRegion(robloxHwnd, 0, 0, clientW, clientH))
         {
             if (snap != null && !snap.Empty())
             {
-                var snapped = _vision.DynamicUISnap(snap, clmBaseX, clmBaseY, VisionProcessor.UIColorType.GreenButton);
+                var snapped = _vision.DynamicUISnap(snap, clmBaseX, clmBaseY, VisionProcessor.UIColorType.GreenButton, claimRadius);
                 Win32.POINT clmPt = new Win32.POINT { X = snapped.X, Y = snapped.Y };
                 if (Win32.ClientToScreen(robloxHwnd, ref clmPt))
                 {
@@ -288,11 +289,12 @@ public class FishingEngine : IDisposable
         // +0.5602 * clientH horizontally, -0.3795 * clientH vertically
         int xBaseX = (clientW / 2) + (int)Math.Round(clientH * 0.5602);
         int xBaseY = (clientH / 2) - (int)Math.Round(clientH * 0.3795);
+        int xRadius = Math.Max(40, (int)Math.Round(clientH * 0.110));
         using (var snap2 = _capture.CaptureClientRegion(robloxHwnd, 0, 0, clientW, clientH))
         {
             if (snap2 != null && !snap2.Empty())
             {
-                var (found, snapped) = _vision.DynamicUISnapWithStatus(snap2, xBaseX, xBaseY, VisionProcessor.UIColorType.RedCloseButton, 120);
+                var (found, snapped) = _vision.DynamicUISnapWithStatus(snap2, xBaseX, xBaseY, VisionProcessor.UIColorType.RedCloseButton, xRadius);
                 if (found)
                 {
                     Win32.POINT xPt = new Win32.POINT { X = snapped.X, Y = snapped.Y };
@@ -574,11 +576,12 @@ public class FishingEngine : IDisposable
             if (ct.IsCancellationRequested) break;
 
             // D. Click [Yes] to open all crates of this type (with Auto-Snap)
+            int yesRadius = Math.Max(30, (int)Math.Round(clientH * 0.070));
             using (var snap = _capture.CaptureClientRegion(robloxHwnd, 0, 0, clientW, clientH))
             {
                 if (snap != null && !snap.Empty())
                 {
-                    var snapped = _vision.DynamicUISnap(snap, yesBaseX, yesBaseY, VisionProcessor.UIColorType.GreenButton);
+                    var snapped = _vision.DynamicUISnap(snap, yesBaseX, yesBaseY, VisionProcessor.UIColorType.GreenButton, yesRadius);
                     Win32.POINT yPt = new Win32.POINT { X = snapped.X, Y = snapped.Y };
                     if (Win32.ClientToScreen(robloxHwnd, ref yPt))
                     {
@@ -888,10 +891,13 @@ public class FishingEngine : IDisposable
         int calibratedMs = -1;
         int maxHoldDuration = Math.Max(1150, Config.CastHoldMs + 250);
 
-        int roiX = (int)(winW * 0.50);
-        int roiY = (int)(winH * 0.30);
-        int roiW = (int)(winW * 0.12);
-        int roiH = (int)(winH * 0.45);
+        // Center-anchored height-scaled ROI for ultra-fast BitBlt capture (~1-2ms instead of ~50ms full-window)
+        // Works identically on 16:9, 16:10, 21:9 Ultrawide, and 32:9 Super Ultrawide
+        int roiHalfW = (int)Math.Round(winH * 0.28);
+        int roiX = Math.Max(0, (winW / 2) - roiHalfW);
+        int roiW = Math.Min(winW - roiX, roiHalfW * 2);
+        int roiY = (int)Math.Round(winH * 0.25);
+        int roiH = (int)Math.Round(winH * 0.50);
 
         double lastFill = -1.0;
         double lastFillElapsed = 0.0;
@@ -1208,11 +1214,12 @@ public class FishingEngine : IDisposable
                     int maxTimeoutMs = Math.Max(1200, Config.CastHoldMs + 250);
 
                     // Precompute ROI coordinates for ultra-fast BitBlt capture (~1-2ms instead of ~50ms full-window)
-                    // Centered around player avatar (35% to 65% horizontally, 25% to 75% vertically - works on 16:9 and 21:9)
-                    int roiX = (int)(winW * 0.35);
-                    int roiY = (int)(winH * 0.25);
-                    int roiW = (int)(winW * 0.30);
-                    int roiH = (int)(winH * 0.50);
+                    // Center-anchored height-scaled around player avatar (works on 16:9, 16:10, 21:9, and 32:9 Super Ultrawide)
+                    int roiHalfW = (int)Math.Round(winH * 0.28);
+                    int roiX = Math.Max(0, (winW / 2) - roiHalfW);
+                    int roiW = Math.Min(winW - roiX, roiHalfW * 2);
+                    int roiY = (int)Math.Round(winH * 0.25);
+                    int roiH = (int)Math.Round(winH * 0.50);
                     double lastFill = -1.0;
                     double lastFillElapsed = 0.0;
                     double fillRate = 0.135; // Baseline velocity ~0.135% per ms (~740ms 0->100%)

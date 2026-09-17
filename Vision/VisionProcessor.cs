@@ -47,6 +47,7 @@ public class RodDetectionResult
     public Rect SlotBounds { get; set; }
     public Point SlotCenter { get; set; }
     public int ActivePixels { get; set; }
+    public double ActiveDensity { get; set; }
     public Mat? AnnotatedFrame { get; set; }
 }
 
@@ -258,16 +259,19 @@ public class VisionProcessor
         // Peak Prominence & Narrow Width Isolation:
         // A true fish needle in Fisch is a sharp vertical silhouette (8px to 25px wide).
         // Background ocean water and dock planks form wide, continuous fields (>40px wide).
-        // By evaluating peak prominence relative to baseline shoulders (±25px) and contiguity,
-        // we completely eliminate false detections on ocean water.
+        // By evaluating peak prominence relative to baseline shoulders (scaled with scaleFactor) and contiguity,
+        // we completely eliminate false detections on ocean water across all resolutions.
         int bestNeedleX = -1;
         double bestNeedleScore = 0;
+
+        int shoulderDist = Math.Max(15, (int)Math.Round(25 * scaleFactor));
+        int maxNeedleWidth = Math.Max(20, (int)Math.Round(32 * scaleFactor));
 
         for (int nx = trackSearchX1 + 5; nx <= trackSearchX2 - 5; nx++)
         {
             if (colHist[nx] >= minNeedleHeight)
             {
-                int baseline = Math.Max(colHist[Math.Max(0, nx - 25)], colHist[Math.Min(cropW - 1, nx + 25)]);
+                int baseline = Math.Max(colHist[Math.Max(0, nx - shoulderDist)], colHist[Math.Min(cropW - 1, nx + shoulderDist)]);
                 int prominence = colHist[nx] - baseline;
 
                 // Check contiguous width of matches around nx
@@ -277,8 +281,8 @@ public class VisionProcessor
                 while (rightEdge < trackSearchX2 && colHist[rightEdge] >= (minNeedleHeight / 2)) rightEdge++;
                 int peakWidth = rightEdge - leftEdge - 1;
 
-                // Needle must be narrow (<= 30px) and have significant localized prominence
-                if (peakWidth <= 30 && prominence >= Math.Max(10, (int)(minNeedleHeight * 0.35)))
+                // Needle must be narrow (<= maxNeedleWidth) and have significant localized prominence
+                if (peakWidth <= maxNeedleWidth && prominence >= Math.Max(10, (int)(minNeedleHeight * 0.35)))
                 {
                     double score = (prominence * 1.6) + colHist[nx];
                     if (score > bestNeedleScore)
@@ -300,7 +304,7 @@ public class VisionProcessor
                 {
                     int leftScan = nx; while (leftScan > trackSearchX1 && colHist[leftScan] >= (minNeedleHeight / 2)) leftScan--;
                     int rightScan = nx; while (rightScan < trackSearchX2 && colHist[rightScan] >= (minNeedleHeight / 2)) rightScan++;
-                    if ((rightScan - leftScan - 1) <= 32)
+                    if ((rightScan - leftScan - 1) <= maxNeedleWidth)
                     {
                         fallbackMax = colHist[nx];
                         bestNeedleX = nx;
@@ -311,9 +315,10 @@ public class VisionProcessor
 
         if (bestNeedleX >= 0)
         {
-            // Sub-pixel centroid around the peak needle column (±6px window)
-            int winStart = Math.Max(0, bestNeedleX - 6);
-            int winEnd = Math.Min(cropW - 1, bestNeedleX + 6);
+            // Sub-pixel centroid around the peak needle column (scaled radius window)
+            int winRadius = Math.Max(4, (int)Math.Round(6 * scaleFactor));
+            int winStart = Math.Max(0, bestNeedleX - winRadius);
+            int winEnd = Math.Min(cropW - 1, bestNeedleX + winRadius);
             long weightedSum = 0;
             int totalWeight = 0;
 
@@ -437,11 +442,13 @@ public class VisionProcessor
             Point bestCenter = default;
             double bestConfidence = 0;
 
-            // Active interactive search zone: central 84% of Roblox client area (excludes topbar and inventory hotbar)
-            int searchX1 = (int)(cropW * 0.08);
-            int searchY1 = (int)(cropH * 0.08);
-            int searchW = Math.Max(100, (int)(cropW * 0.84));
-            int searchH = Math.Max(100, (int)(cropH * 0.82));
+            // Active interactive search zone: center-anchored height-scaled to cover active gameplay area
+            // Eliminates black bars and outer margins on 21:9 and 32:9 Super Ultrawide screens
+            int maxHalfW = (int)Math.Round(cropH * 0.85);
+            int searchX1 = Math.Max(0, (cropW / 2) - maxHalfW);
+            int searchW = Math.Min(cropW - searchX1, maxHalfW * 2);
+            int searchY1 = (int)Math.Round(cropH * 0.08);
+            int searchH = Math.Max(100, (int)Math.Round(cropH * 0.82));
             using var searchZone = new Mat(crop, new Rect(searchX1, searchY1, searchW, searchH));
 
             // =========================================================================
@@ -653,11 +660,12 @@ public class VisionProcessor
 
         try
         {
-            // Focus on center viewport where the player avatar's cast bar appears: 50% to 62% X, 30% to 75% Y
-            int roiX = (int)(frameW * 0.35);
-            int roiY = (int)(frameH * 0.25);
-            int roiW = (int)(frameW * 0.30);
-            int roiH = (int)(frameH * 0.50);
+            // Center-anchored height-scaled ROI for avatar's overhead cast bar (aspect-ratio invariant for 16:9, 16:10, 21:9, 32:9)
+            int roiHalfW = (int)Math.Round(frameH * 0.28);
+            int roiX = Math.Max(0, (frameW / 2) - roiHalfW);
+            int roiW = Math.Min(frameW - roiX, roiHalfW * 2);
+            int roiY = (int)Math.Round(frameH * 0.25);
+            int roiH = (int)Math.Round(frameH * 0.50);
 
             using Mat roi = new Mat(frame, new Rect(roiX, roiY, roiW, roiH));
             return DetectCastBarROI(roi, frameH, roiX, roiY, theme, generateDebug);
@@ -692,6 +700,15 @@ public class VisionProcessor
 
             Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
 
+            double scale = fullClientH > 0 ? (fullClientH / 1080.0) : (roiH / 540.0);
+            scale = Math.Clamp(scale, 0.35, 3.5);
+
+            int minCapW = Math.Max(3, (int)Math.Round(4 * scale));
+            int maxCapW = Math.Max(40, (int)Math.Round(65 * scale));
+            int minCapH = Math.Max(2, (int)Math.Round(2 * scale));
+            int maxCapH = Math.Max(20, (int)Math.Round(35 * scale));
+            int minRoomUnder = Math.Max(30, (int)Math.Round(80 * scale));
+
             Rect? bestCapRect = null;
             var validCaps = new List<Rect>();
             foreach (var c in contours)
@@ -699,11 +716,11 @@ public class VisionProcessor
                 Rect rBox = Cv2.BoundingRect(c);
                 // Cap is a small horizontal-ish block
                 // Billboard GUI scales with camera zoom! On 4k zoomed out, it can be as small as 4-5px.
-                if (rBox.Width >= 4 && rBox.Width <= 45 && rBox.Height >= 2 && rBox.Height <= 30)
+                if (rBox.Width >= minCapW && rBox.Width <= maxCapW && rBox.Height >= minCapH && rBox.Height <= maxCapH)
                 {
                     // Verify sufficient vertical room underneath for the tall bar
                     int checkY = rBox.Y + rBox.Height + 5;
-                    if (checkY + 80 < roiH)
+                    if (checkY + minRoomUnder < roiH)
                     {
                         validCaps.Add(rBox);
                     }
@@ -741,7 +758,7 @@ public class VisionProcessor
             int barTopY = rCap.Y + rCap.Height; // Approximate highest point the white fill can reach (just under the cap)
             int barBottomY = roiH - 1;
             int barHeight = barBottomY - barTopY;
-            if (barHeight <= 50) return res;
+            if (barHeight <= Math.Max(25, (int)Math.Round(50 * scale))) return res;
 
             int capCenterX = rCap.X + rCap.Width / 2;
             int scanW = Math.Max(4, rCap.Width - 4);
@@ -794,7 +811,8 @@ public class VisionProcessor
                 bestRunStart = currentRunStart;
             }
 
-            int firstWhiteRow = (bestRunLength >= 6) ? bestRunStart : -1;
+            int minRunLength = Math.Max(3, (int)Math.Round(6 * scale));
+            int firstWhiteRow = (bestRunLength >= minRunLength) ? bestRunStart : -1;
 
             if (firstWhiteRow >= 0)
             {
@@ -855,14 +873,18 @@ public class VisionProcessor
         RedCloseButton
     }
 
-    public (bool Found, Point Pt) DynamicUISnapWithStatus(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
+    public (bool Found, Point Pt) DynamicUISnapWithStatus(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 0)
     {
         try
         {
-            int roiX = Math.Max(0, expectedX - searchRadius);
-            int roiY = Math.Max(0, expectedY - searchRadius);
-            int roiW = Math.Min(fullFrame.Width - roiX, searchRadius * 2);
-            int roiH = Math.Min(fullFrame.Height - roiY, searchRadius * 2);
+            int effectiveRadius = searchRadius > 0 
+                ? searchRadius 
+                : Math.Max(25, (int)Math.Round(fullFrame.Height * 0.070));
+
+            int roiX = Math.Max(0, expectedX - effectiveRadius);
+            int roiY = Math.Max(0, expectedY - effectiveRadius);
+            int roiW = Math.Min(fullFrame.Width - roiX, effectiveRadius * 2);
+            int roiH = Math.Min(fullFrame.Height - roiY, effectiveRadius * 2);
 
             if (roiW <= 0 || roiH <= 0) return (false, new Point(expectedX, expectedY));
 
@@ -908,10 +930,13 @@ public class VisionProcessor
             
             Rect? bestRect = null;
             double maxArea = 0;
+            // Area threshold scales with viewport height relative to 1080p base
+            double minArea = Math.Max(10.0, 20.0 * Math.Pow(fullFrame.Height / 1080.0, 2));
+
             foreach (var cnt in contours)
             {
                 double area = Cv2.ContourArea(cnt);
-                if (area > 20 && area > maxArea)
+                if (area >= minArea && area > maxArea)
                 {
                     maxArea = area;
                     bestRect = Cv2.BoundingRect(cnt);
@@ -930,7 +955,7 @@ public class VisionProcessor
         return (false, new Point(expectedX, expectedY));
     }
 
-    public Point DynamicUISnap(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 75)
+    public Point DynamicUISnap(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 0)
     {
         return DynamicUISnapWithStatus(fullFrame, expectedX, expectedY, targetType, searchRadius).Pt;
     }
@@ -953,35 +978,45 @@ public class VisionProcessor
         int hotbarBottom = -1;
 
         // Find the top border of the hotbar by finding where a central slice is dark container
+        // Height-scaled slice radius & sampling step to guarantee resolution invariance
+        int sliceRadius = Math.Max(8, (int)Math.Round(h * 0.018));
+        int step = Math.Max(2, (int)Math.Round(h * 0.004));
+
         for (int y = scanTop; y <= scanBottom; y++)
         {
+            int totalSliceSamples = 0;
             int darkAtMid = 0;
-            for (int dx = -20; dx <= 20; dx += 5)
+            for (int dx = -sliceRadius; dx <= sliceRadius; dx += step)
             {
+                totalSliceSamples++;
                 var p = frame.At<Vec3b>(y, midX + dx);
                 if (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80) darkAtMid++;
             }
-            if (darkAtMid >= 7)
+            if (totalSliceSamples > 0 && ((double)darkAtMid / totalSliceSamples) >= 0.65)
             {
                 if (hotbarTop == -1) hotbarTop = y;
                 hotbarBottom = y;
             }
         }
 
-        if (hotbarTop == -1 || hotbarBottom - hotbarTop < 8)
+        int minHotbarH = Math.Max(12, (int)Math.Round(h * 0.030));
+        if (hotbarTop == -1 || (hotbarBottom - hotbarTop) < minHotbarH)
         {
-            int fallbackH = (int)Math.Max(24, Math.Round(h * 0.055));
-            hotbarBottom = h - 4;
+            int fallbackH = (int)Math.Max(24, Math.Round(h * 0.056));
+            int bottomMargin = Math.Max(2, (int)Math.Round(h * 0.007));
+            hotbarBottom = h - bottomMargin;
             hotbarTop = hotbarBottom - fallbackH;
         }
 
-        // Scan row just inside top margin (hotbarTop + 2) where no item text or icons appear
-        int scanY = Math.Min(hotbarBottom, hotbarTop + 2);
+        // Scan row just inside top margin where no item text or icons appear
+        int topMargin = Math.Max(2, (int)Math.Round((hotbarBottom - hotbarTop) * 0.12));
+        int scanY = Math.Clamp(hotbarTop + topMargin, hotbarTop, hotbarBottom);
         int hotbarLeft = -1;
         int hotbarRight = -1;
 
-        int searchMinX = Math.Max(0, midX - (int)(h * 0.6));
-        int searchMaxX = Math.Min(w - 1, midX + (int)(h * 0.6));
+        // Center-Anchored Height-Scaled search span: never uses horizontal width percentages
+        int searchMinX = Math.Max(0, midX - (int)(h * 0.60));
+        int searchMaxX = Math.Min(w - 1, midX + (int)(h * 0.60));
 
         for (int x = searchMinX; x <= searchMaxX; x++)
         {
@@ -992,7 +1027,8 @@ public class VisionProcessor
         }
 
         int totalW = (hotbarLeft >= 0 && hotbarRight > hotbarLeft) ? (hotbarRight - hotbarLeft + 1) : 0;
-        bool found = totalW >= 60;
+        int minHotbarW = Math.Max(50, (int)Math.Round(h * 0.20));
+        bool found = totalW >= minHotbarW;
 
         if (!found)
         {
@@ -1010,13 +1046,14 @@ public class VisionProcessor
         Point center = new Point((sLeft + sRight) / 2, (hotbarTop + hotbarBottom) / 2);
 
         // Sample interior of the slot (inset by 15% to strictly avoid borders and background water)
-        int insetX = Math.Max(2, (int)(slotRect.Width * 0.15));
-        int insetY = Math.Max(2, (int)(slotRect.Height * 0.15));
+        int insetX = Math.Max(2, (int)Math.Round(slotRect.Width * 0.15));
+        int insetY = Math.Max(2, (int)Math.Round(slotRect.Height * 0.15));
         int sampleX1 = slotRect.X + insetX;
         int sampleX2 = slotRect.Right - insetX;
         int sampleY1 = slotRect.Y + insetY;
         int sampleY2 = slotRect.Bottom - insetY;
 
+        int totalSampleArea = Math.Max(1, (sampleX2 - sampleX1 + 1) * (sampleY2 - sampleY1 + 1));
         int activePx = 0;
         for (int y = sampleY1; y <= sampleY2; y++)
         {
@@ -1031,13 +1068,18 @@ public class VisionProcessor
             }
         }
 
-        bool isEquipped = activePx >= 10;
+        // Density-based detection: active pixels must cover at least 4.5% of the sampled interior
+        // with a scaled noise floor (for tiny window scales)
+        double activeDensity = (double)activePx / totalSampleArea;
+        int minActivePxFloor = Math.Max(4, (int)Math.Round(6 * (h / 1080.0)));
+        bool isEquipped = activeDensity >= 0.045 && activePx >= minActivePxFloor;
 
         result.HotbarFound = found;
         result.HotbarBounds = hotbarRect;
         result.SlotBounds = slotRect;
         result.SlotCenter = center;
         result.ActivePixels = activePx;
+        result.ActiveDensity = activeDensity;
         result.IsEquipped = isEquipped;
 
         if (generateDebug)
@@ -1051,7 +1093,9 @@ public class VisionProcessor
             Cv2.Rectangle(annotated, slotRect, slotColor, 2);
 
             // Draw status banner over slot
-            string statusTag = isEquipped ? $"ROD #{slotNum}: EQUIPPED" : $"ROD #{slotNum}: UNEQUIPPED";
+            string statusTag = isEquipped 
+                ? $"ROD #{slotNum}: EQUIPPED ({activeDensity * 100:F0}%)" 
+                : $"ROD #{slotNum}: UNEQUIPPED";
             int textY = Math.Max(20, hotbarTop - 8);
             int textX = Math.Max(5, center.X - 65);
             Cv2.PutText(annotated, statusTag, new Point(textX, textY), HersheyFonts.HersheySimplex, 0.50, slotColor, 2);

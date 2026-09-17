@@ -32,7 +32,7 @@ public class RodDetectorTests
         Assert.InRange(result.SlotCenter.X, 428, 435);
         Assert.InRange(result.SlotCenter.Y, 400, 415);
         Assert.False(result.IsEquipped, "Rod MUST be detected as NOT equipped in user screenshot!");
-        Assert.True(result.ActivePixels < 10, $"Active pixels should be low, got {result.ActivePixels}");
+        Assert.True(result.ActiveDensity < 0.045, $"Active density should be low (<4.5%), got {result.ActiveDensity:P2}");
         Assert.NotNull(result.AnnotatedFrame);
     }
 
@@ -65,7 +65,7 @@ public class RodDetectorTests
 
         Assert.True(result.HotbarFound);
         Assert.True(result.IsEquipped, "Illuminated slot must be detected as EQUIPPED!");
-        Assert.True(result.ActivePixels >= 10, $"Active pixels should be >= 10, got {result.ActivePixels}");
+        Assert.True(result.ActiveDensity >= 0.045, $"Active density should be >= 4.5%, got {result.ActiveDensity:P2}");
         Assert.NotNull(result.AnnotatedFrame);
     }
 
