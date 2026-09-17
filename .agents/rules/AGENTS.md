@@ -19,3 +19,8 @@ When assisting with this repository, strictly adhere to the following architectu
 
 ## Physics & Timing
 - The casting mechanism uses a dynamic predictive lead (e.g. 25ms) based on the velocity of the bar. Maintain this logic to guarantee "Perfect Casts". Do not revert to static timers.
+
+## Release Cadence & Development Policy
+- **Do NOT cut a release on every change**: Do not bump versions (`1.0.x`), create Git tags, or publish GitHub releases during active development, iteration, and debugging.
+- **Local Verification First**: Iterate using local builds (`dotnet build`) and automated test suites (`dotnet test`).
+- **Explicit Release Only**: Only invoke `publish-release` to tag and publish to GitHub when the user explicitly requests a release (e.g. "publish", "release", "ship build") or when an agreed-upon milestone is thoroughly verified and approved for release.

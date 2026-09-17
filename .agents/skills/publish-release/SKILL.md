@@ -10,6 +10,9 @@ description: >-
 
 This skill handles the end-to-end automated release lifecycle for **Fat Dad's Fisch AFK Pro**. It guarantees zero manual calibration or manual packaging steps.
 
+> [!IMPORTANT]
+> **Release Cadence**: Do NOT invoke this skill on internal developmental iterations or bugfix cycles. Only publish a release when the user explicitly instructs to cut a release, ship, or publish to GitHub.
+
 ## Automated Release Workflow
 
 When the user asks to release or publish:
