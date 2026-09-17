@@ -767,19 +767,6 @@ public class FishingEngine : IDisposable
             slotChar = Config.RodSlot[0];
         }
 
-        // If rod is already confirmed equipped, do not toggle it off
-        if (IsRodEquipped(robloxHwnd, winW, winH))
-        {
-            int safeClientX = (int)Math.Round(winW * 0.50);
-            int safeClientY = (int)Math.Round(winH * 0.40);
-            Win32.POINT safePt = new Win32.POINT { X = safeClientX, Y = safeClientY };
-            if (Win32.ClientToScreen(robloxHwnd, ref safePt))
-            {
-                Win32.SetCursorPos(safePt.X, safePt.Y);
-            }
-            return;
-        }
-
         // Focus Roblox game canvas by clicking safe center water area
         int waterX = (int)Math.Round(winW * 0.50);
         int waterY = (int)Math.Round(winH * 0.40);
@@ -805,9 +792,11 @@ public class FishingEngine : IDisposable
             Thread.Sleep(150);
         }
 
-        if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+        // Return cursor to safe water
+        Win32.POINT resetPt = new Win32.POINT { X = waterX, Y = waterY };
+        if (Win32.ClientToScreen(robloxHwnd, ref resetPt))
         {
-            Win32.SetCursorPos(wPt.X, wPt.Y);
+            Win32.SetCursorPos(resetPt.X, resetPt.Y);
         }
     }
 
@@ -1047,12 +1036,13 @@ public class FishingEngine : IDisposable
                 uint macroPid = (uint)Environment.ProcessId;
                 bool isCoveredByMacro = (curPid == macroPid);
 
-                bool isInsideRoblox = (mousePt.X >= screenLeft + 40 && mousePt.X <= screenRight - 40 &&
-                                       mousePt.Y >= screenTop + 40 && mousePt.Y <= screenBottom - 40);
+                int hotbarMargin = (int)Math.Max(clientRect.Height * 0.14, 85);
+                bool isInsideRoblox = (mousePt.X >= screenLeft + 60 && mousePt.X <= screenRight - 60 &&
+                                       mousePt.Y >= screenTop + 60 && mousePt.Y <= screenBottom - hotbarMargin);
 
                 if (isInsideRoblox && !isCoveredByMacro)
                 {
-                    // Cursor is already safely inside the Roblox game area. Do not move it!
+                    // Cursor is already safely inside the open Roblox water area. Do not move it!
                     return;
                 }
 
@@ -1077,21 +1067,7 @@ public class FishingEngine : IDisposable
         Stopwatch loopSw = new Stopwatch();
         Stopwatch visionSw = new Stopwatch();
 
-        // Ensure fishing rod is physically equipped in hand immediately when fishing starts
-        try
-        {
-            var telemStart = new TelemetryData
-            {
-                State = MacroState.Casting,
-                Action = "🎣 Equipping Rod..."
-            };
-            PopulateTelemetryStats(telemStart);
-            OnTelemetry?.Invoke(telemStart);
 
-            ReEquipRod(clickSlot: true);
-            Thread.Sleep(250);
-        }
-        catch { }
 
         while (!ct.IsCancellationRequested)
         {
@@ -1194,7 +1170,7 @@ public class FishingEngine : IDisposable
                             if (castRoiFrame != null && !castRoiFrame.Empty())
                             {
                                 var castResult = _vision.DetectCastBarROI(castRoiFrame, winH, roiX, roiY, Config.SelectedTheme, Config.ShowVisionPreview);
-                                if (castResult.Found)
+                                if (castResult.Found && castResult.FillPercent > 0.0)
                                 {
                                     barEverFound = true;
                                     double currentFill = castResult.FillPercent;
@@ -1292,10 +1268,10 @@ public class FishingEngine : IDisposable
 
                 // ==============================================================
                 // CLOSED-LOOP CAST VERIFICATION:
-                // If dynamic casting is enabled and the cast bar was NEVER detected,
+                // If the cast bar was NEVER detected rising,
                 // the rod is unequipped or focus was lost. DO NOT proceed to Luring!
                 // ==============================================================
-                if (Config.EnableDynamicCastRelease && !barEverFound)
+                if (!barEverFound)
                 {
                     SetMouseDown(false);
                     _consecutiveCastFailures++;
@@ -1303,25 +1279,25 @@ public class FishingEngine : IDisposable
                     var failTelem = new TelemetryData
                     {
                         State = MacroState.Casting,
-                        Action = $"⚠️ Rod unequipped or cast missed! Auto-recovering rod (attempt {_consecutiveCastFailures})..."
+                        Action = $"⚠️ Rod unequipped or cast missed! Equipping rod (attempt {_consecutiveCastFailures})..."
                     };
                     PopulateTelemetryStats(failTelem);
                     OnTelemetry?.Invoke(failTelem);
 
                     // Re-focus Roblox window
                     Win32.ForceSetForegroundWindow(robloxHwnd);
-                    Thread.Sleep(120);
+                    Thread.Sleep(100);
 
                     // Click water to dismiss any accidental UI/chat focus
                     int waterClientX = (int)Math.Round(winW * 0.50);
-                    int waterClientY = (int)Math.Round(winH * 0.40);
+                    int waterClientY = (int)Math.Round(winH * 0.38);
                     Win32.POINT wPt = new Win32.POINT { X = waterClientX, Y = waterClientY };
                     if (Win32.ClientToScreen(robloxHwnd, ref wPt))
                     {
                         Win32.SetCursorPos(wPt.X, wPt.Y);
                         Thread.Sleep(50);
                         Win32.mouse_event((int)(Win32.MOUSEEVENTF_LEFTDOWN | Win32.MOUSEEVENTF_LEFTUP), 0, 0, 0, 0);
-                        Thread.Sleep(100);
+                        Thread.Sleep(80);
                     }
 
                     char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
@@ -1330,28 +1306,30 @@ public class FishingEngine : IDisposable
                     if (_consecutiveCastFailures >= 2)
                     {
                         Win32.SendKeyPress((char)27); // Escape
-                        Thread.Sleep(150);
+                        Thread.Sleep(120);
                     }
 
                     if (_consecutiveCastFailures >= 3)
                     {
                         // Direct hardware click on the slot icon
                         ClickHotbarSlot(robloxHwnd, winW, winH, rodKey - '0');
-                        Thread.Sleep(200);
+                        Thread.Sleep(150);
                     }
                     else
                     {
                         // Single hotkey press to equip rod
                         Win32.SendKeyPress(rodKey);
-                        Thread.Sleep(200);
+                        Thread.Sleep(150);
                     }
 
-                    if (Win32.ClientToScreen(robloxHwnd, ref wPt))
+                    // Always return cursor to safe water
+                    Win32.POINT resetPt = new Win32.POINT { X = waterClientX, Y = waterClientY };
+                    if (Win32.ClientToScreen(robloxHwnd, ref resetPt))
                     {
-                        Win32.SetCursorPos(wPt.X, wPt.Y);
+                        Win32.SetCursorPos(resetPt.X, resetPt.Y);
                     }
 
-                    Thread.Sleep(200);
+                    Thread.Sleep(150);
                     // Loop back and re-attempt cast immediately
                     continue;
                 }

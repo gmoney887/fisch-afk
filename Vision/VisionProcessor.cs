@@ -718,7 +718,6 @@ public class VisionProcessor
             }
 
             var rCap = bestCapRect.Value;
-            res.Found = true;
 
             // Target Y is the vertical center of the cap block
             int localTargetY = rCap.Y + (rCap.Height / 2);
@@ -788,6 +787,7 @@ public class VisionProcessor
 
             if (firstWhiteRow >= 0)
             {
+                res.Found = true;
                 res.WhiteTop = roiOffsetY + barTopY + firstWhiteRow;
                 res.WhiteBottom = roiOffsetY + barBottomY;
                 int fillHeight = barHeight - firstWhiteRow;
@@ -795,6 +795,7 @@ public class VisionProcessor
             }
             else
             {
+                res.Found = false;
                 res.FillPercent = 0.0;
             }
 
@@ -803,26 +804,29 @@ public class VisionProcessor
             if (generateDebug)
             {
                 Mat dbg = roi.Clone();
-                int drawTargetY = localTargetY;
-                int drawTargetX = localTargetX;
-
-                // Draw Target Line & Cap
-                Cv2.Rectangle(dbg, new Rect(rCap.X, rCap.Y, rCap.Width, rCap.Height), Scalar.FromRgb(0, 255, 128), 2);
-                Cv2.Line(dbg, new Point(drawTargetX - 35, drawTargetY), new Point(drawTargetX + 35, drawTargetY), Scalar.FromRgb(0, 255, 128), 3);
-                Cv2.PutText(dbg, "TARGET 100%", new Point(drawTargetX + 40, drawTargetY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
-
-                // If white fill detected, draw fill line
-                if (firstWhiteRow >= 0)
+                if (res.Found)
                 {
+                    int drawTargetY = localTargetY;
+                    int drawTargetX = localTargetX;
+
+                    // Draw Target Line & Cap
+                    Cv2.Rectangle(dbg, new Rect(rCap.X, rCap.Y, rCap.Width, rCap.Height), Scalar.FromRgb(0, 255, 128), 2);
+                    Cv2.Line(dbg, new Point(drawTargetX - 35, drawTargetY), new Point(drawTargetX + 35, drawTargetY), Scalar.FromRgb(0, 255, 128), 3);
+                    Cv2.PutText(dbg, "TARGET 100%", new Point(drawTargetX + 40, drawTargetY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
+
                     int whiteY = barTopY + firstWhiteRow;
                     Cv2.Line(dbg, new Point(drawTargetX - 25, whiteY), new Point(drawTargetX + 25, whiteY), Scalar.FromRgb(0, 229, 255), 2);
+
+                    // Power percentage badge
+                    Scalar badgeColor = res.FillPercent >= 95.0 ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(0, 229, 255);
+                    string text = $"⚡ CAST POWER: {res.FillPercent:F0}% {(res.FillPercent >= 95.0 ? "[PERFECT!]" : "")}";
+                    Cv2.PutText(dbg, text, new Point(10, 25), HersheyFonts.HersheySimplex, 0.55, badgeColor, 2);
                 }
-
-                // Power percentage badge
-                Scalar badgeColor = res.FillPercent >= 95.0 ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(0, 229, 255);
-                string text = $"⚡ CAST POWER: {res.FillPercent:F0}% {(res.FillPercent >= 95.0 ? "[PERFECT!]" : "")}";
-                Cv2.PutText(dbg, text, new Point(10, 25), HersheyFonts.HersheySimplex, 0.55, badgeColor, 2);
-
+                else
+                {
+                    Cv2.PutText(dbg, "SEARCHING FOR CAST POWER BAR...", new Point(10, 25),
+                        HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(148, 163, 184), 1);
+                }
                 res.AnnotatedFrame = dbg;
             }
 
