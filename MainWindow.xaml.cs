@@ -8,6 +8,7 @@ using System.Windows.Media.Imaging;
 using FischMacroCS.Core;
 using FischMacroCS.Native;
 using OpenCvSharp.WpfExtensions;
+using Mat = OpenCvSharp.Mat;
 
 namespace FischMacroCS;
 
@@ -169,6 +170,7 @@ public partial class MainWindow : Window
 
         // Auto-Open Crates ('g' Inventory)
         ChkAutoOpenCrates.IsChecked = _settings.EnableAutoOpenCrates;
+        ChkAutoPreFlight.IsChecked = _settings.AutoRunPreFlightOnStart;
         TxtCrateInterval.Text = _settings.CrateIntervalCatches.ToString();
         TxtCrateMaxTypes.Text = _settings.CrateMaxTypes.ToString();
 
@@ -225,7 +227,7 @@ public partial class MainWindow : Window
 
     private void ToggleMacro()
     {
-        if (_isStopping) return; // Prevent double-clicks while shutting down
+        if (_isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
 
         if (_engine.IsRunning)
         {
@@ -269,6 +271,28 @@ public partial class MainWindow : Window
         }
         else
         {
+            if (_settings.AutoRunPreFlightOnStart)
+            {
+                _ = Task.Run(async () =>
+                {
+                    bool passed = false;
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        passed = await RunPreFlightDiagnosticAsync();
+                    });
+
+                    if (passed)
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            _engine.Start();
+                            UpdateUIState(true);
+                        });
+                    }
+                });
+                return;
+            }
+
             _engine.Start();
             UpdateUIState(true);
         }
@@ -459,55 +483,7 @@ public partial class MainWindow : Window
                 // Update Live Camera Preview with ZERO heap allocation (reusing single D3D WriteableBitmap backbuffer)
                 if (ChkShowPreview.IsChecked == true && t.AnnotatedFrame != null && !t.AnnotatedFrame.Empty())
                 {
-                    try
-                    {
-                        var frame = t.AnnotatedFrame;
-                        int fw = frame.Width;
-                        int fh = frame.Height;
-
-                        if (_previewBitmap == null || _previewBitmap.PixelWidth != fw || _previewBitmap.PixelHeight != fh)
-                        {
-                            _previewBitmap = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Bgr24, null);
-                            ImgPreview.Source = _previewBitmap;
-                        }
-
-                        if (TxtPreviewPlaceholder.Visibility != Visibility.Collapsed)
-                        {
-                            TxtPreviewPlaceholder.Visibility = Visibility.Collapsed;
-                        }
-
-                        _previewBitmap.Lock();
-                        try
-                        {
-                            unsafe
-                            {
-                                int srcStride = (int)frame.Step();
-                                int dstStride = _previewBitmap.BackBufferStride;
-                                byte* pSrc = (byte*)frame.Data;
-                                byte* pDst = (byte*)_previewBitmap.BackBuffer;
-
-                                if (srcStride == dstStride)
-                                {
-                                    long totalBytes = (long)dstStride * fh;
-                                    Buffer.MemoryCopy(pSrc, pDst, totalBytes, totalBytes);
-                                }
-                                else
-                                {
-                                    int bytesPerRow = Math.Min(srcStride, dstStride);
-                                    for (int r = 0; r < fh; r++)
-                                    {
-                                        Buffer.MemoryCopy(pSrc + (r * srcStride), pDst + (r * dstStride), bytesPerRow, bytesPerRow);
-                                    }
-                                }
-                            }
-                            _previewBitmap.AddDirtyRect(new Int32Rect(0, 0, fw, fh));
-                        }
-                        finally
-                        {
-                            _previewBitmap.Unlock();
-                        }
-                    }
-                    catch { }
+                    RenderPreviewFrame(t.AnnotatedFrame);
                 }
             }
             finally
@@ -706,6 +682,8 @@ public partial class MainWindow : Window
         _settings.EnableAutoOpenCrates = ChkAutoOpenCrates.IsChecked == true;
         _engine.Config.EnableAutoOpenCrates = _settings.EnableAutoOpenCrates;
 
+        _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
+
         if (int.TryParse(TxtCrateInterval.Text, out int ci) && ci >= 1)
         {
             _settings.CrateIntervalCatches = ci;
@@ -843,6 +821,228 @@ public partial class MainWindow : Window
                 : "";
             MessageBox.Show($"🏆 Aquarium profit successfully claimed! Modal closed and rod re-equipped.{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
         }
+    }
+
+    private void ChkAutoPreFlight_Changed(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || _settings == null) return;
+        _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
+        _settings.Save();
+    }
+
+    private void BtnClosePreFlight_Click(object sender, RoutedEventArgs e)
+    {
+        BorderPreFlightResults.Visibility = Visibility.Collapsed;
+    }
+
+    private bool _isDiagnosticRunning = false;
+
+    private async void BtnPreFlight_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.IsRunning || _isDiagnosticRunning) return;
+        await RunPreFlightDiagnosticAsync();
+    }
+
+    private async Task<bool> RunPreFlightDiagnosticAsync()
+    {
+        if (_isDiagnosticRunning) return false;
+        _isDiagnosticRunning = true;
+
+        BtnPreFlight.IsEnabled = false;
+        BtnPreFlight.Opacity = 0.5;
+        BtnToggle.IsEnabled = false;
+        BtnToggle.Opacity = 0.5;
+
+        BorderPreFlightResults.Visibility = Visibility.Visible;
+        TxtPreFlightDuration.Text = "(Running...)";
+
+        // Reset Verdict Banner to Running Blue
+        BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(15, 56, 84));
+        BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
+        TxtPreFlightVerdictIcon.Text = "⏳";
+        TxtPreFlightVerdict.Text = "RUNNING IN-GAME PRE-FLIGHT DIAGNOSTIC...";
+        TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+
+        // Reset step items to pending
+        ResetStepUI(StepItemWindow, IconStepWindow, MetricStepWindow, DescStepWindow, "Checking for active Roblox client...");
+        ResetStepUI(StepItemCapture, IconStepCapture, MetricStepCapture, DescStepCapture, "Measuring BitBlt latency (target sub-3ms)...");
+        ResetStepUI(StepItemHotbar, IconStepHotbar, MetricStepHotbar, DescStepHotbar, "Locating CoreGui hotbar container...");
+        ResetStepUI(StepItemToggle, IconStepToggle, MetricStepToggle, DescStepToggle, "Sending momentary '1' keypress and verifying CV detection...");
+        ResetStepUI(StepItemSafety, IconStepSafety, MetricStepSafety, DescStepSafety, "Auditing water target, slot click, and dialog coordinates...");
+
+        using var diag = new PreFlightDiagnostic(_settings);
+
+        PreFlightReport report = await Task.Run(async () =>
+        {
+            return await diag.RunDiagnosticAsync(step =>
+            {
+                Dispatcher.Invoke(() => UpdateStepUI(step));
+            });
+        });
+
+        // Update overall verdict
+        TxtPreFlightDuration.Text = $"({report.TotalDurationMs / 1000.0:F1}s)";
+
+        if (report.OverallPass)
+        {
+            BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
+            BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+            TxtPreFlightVerdictIcon.Text = "✅";
+            TxtPreFlightVerdict.Text = "ALL SYSTEMS NOMINAL — READY FOR UNATTENDED AFK 🎣";
+            TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+        }
+        else
+        {
+            BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(69, 26, 26));
+            BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+            TxtPreFlightVerdictIcon.Text = "⚠️";
+            TxtPreFlightVerdict.Text = "ATTENTION: " + report.Summary;
+            TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+        }
+
+        // Render annotated snapshot on live preview monitor if available
+        if (report.AnnotatedSnapshot != null && !report.AnnotatedSnapshot.Empty())
+        {
+            RenderPreviewFrame(report.AnnotatedSnapshot);
+            report.AnnotatedSnapshot.Dispose();
+        }
+
+        BtnPreFlight.IsEnabled = true;
+        BtnPreFlight.Opacity = 1.0;
+        BtnToggle.IsEnabled = true;
+        BtnToggle.Opacity = 1.0;
+        _isDiagnosticRunning = false;
+
+        return report.OverallPass;
+    }
+
+    private void ResetStepUI(Border item, TextBlock icon, TextBlock metric, TextBlock desc, string defaultDesc)
+    {
+        item.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
+        item.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+        icon.Text = "⏳";
+        metric.Text = "Pending...";
+        metric.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
+        desc.Text = defaultDesc;
+    }
+
+    private void UpdateStepUI(DiagnosticStep step)
+    {
+        Border item;
+        TextBlock icon;
+        TextBlock metric;
+        TextBlock desc;
+
+        switch (step.Id)
+        {
+            case "window":
+                item = StepItemWindow; icon = IconStepWindow; metric = MetricStepWindow; desc = DescStepWindow;
+                break;
+            case "capture":
+                item = StepItemCapture; icon = IconStepCapture; metric = MetricStepCapture; desc = DescStepCapture;
+                break;
+            case "hotbar":
+                item = StepItemHotbar; icon = IconStepHotbar; metric = MetricStepHotbar; desc = DescStepHotbar;
+                break;
+            case "tool_toggle":
+                item = StepItemToggle; icon = IconStepToggle; metric = MetricStepToggle; desc = DescStepToggle;
+                break;
+            case "coordinates":
+                item = StepItemSafety; icon = IconStepSafety; metric = MetricStepSafety; desc = DescStepSafety;
+                break;
+            default:
+                return;
+        }
+
+        if (step.Status == DiagnosticStatus.Running)
+        {
+            item.Background = new SolidColorBrush(Color.FromRgb(15, 31, 46));
+            item.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
+            icon.Text = "⏳";
+            metric.Text = "Testing...";
+            metric.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+        }
+        else if (step.Status == DiagnosticStatus.Pass)
+        {
+            item.Background = new SolidColorBrush(Color.FromRgb(10, 31, 24));
+            item.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+            icon.Text = "✅";
+            metric.Text = step.Metric;
+            metric.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+            desc.Text = step.Details;
+        }
+        else if (step.Status == DiagnosticStatus.Warning)
+        {
+            item.Background = new SolidColorBrush(Color.FromRgb(36, 26, 10));
+            item.BorderBrush = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+            icon.Text = "⚠️";
+            metric.Text = step.Metric;
+            metric.Foreground = new SolidColorBrush(Color.FromRgb(251, 191, 36));
+            desc.Text = step.Details;
+        }
+        else if (step.Status == DiagnosticStatus.Fail)
+        {
+            item.Background = new SolidColorBrush(Color.FromRgb(46, 16, 16));
+            item.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+            icon.Text = "❌";
+            metric.Text = step.Metric;
+            metric.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+            desc.Text = step.Details;
+        }
+    }
+
+    private void RenderPreviewFrame(Mat? frame)
+    {
+        if (frame == null || frame.Empty()) return;
+
+        try
+        {
+            int fw = frame.Width;
+            int fh = frame.Height;
+
+            if (_previewBitmap == null || _previewBitmap.PixelWidth != fw || _previewBitmap.PixelHeight != fh)
+            {
+                _previewBitmap = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Bgr24, null);
+                ImgPreview.Source = _previewBitmap;
+            }
+
+            if (TxtPreviewPlaceholder.Visibility != Visibility.Collapsed)
+            {
+                TxtPreviewPlaceholder.Visibility = Visibility.Collapsed;
+            }
+
+            _previewBitmap.Lock();
+            try
+            {
+                unsafe
+                {
+                    int srcStride = (int)frame.Step();
+                    int dstStride = _previewBitmap.BackBufferStride;
+                    byte* pSrc = (byte*)frame.Data;
+                    byte* pDst = (byte*)_previewBitmap.BackBuffer;
+
+                    if (srcStride == dstStride)
+                    {
+                        long totalBytes = (long)dstStride * fh;
+                        Buffer.MemoryCopy(pSrc, pDst, totalBytes, totalBytes);
+                    }
+                    else
+                    {
+                        int bytesPerRow = Math.Min(srcStride, dstStride);
+                        for (int r = 0; r < fh; r++)
+                        {
+                            Buffer.MemoryCopy(pSrc + (r * srcStride), pDst + (r * dstStride), bytesPerRow, bytesPerRow);
+                        }
+                    }
+                }
+                _previewBitmap.AddDirtyRect(new Int32Rect(0, 0, fw, fh));
+            }
+            finally
+            {
+                _previewBitmap.Unlock();
+            }
+        }
+        catch { }
     }
 
     private CancellationTokenSource? _crateCts;

@@ -43,6 +43,7 @@ public class Settings
     public bool AlwaysOnTop { get; set; } = true;
     public MinigameTheme SelectedTheme { get; set; } = MinigameTheme.Default;
     public int MaxRecordingsToKeep { get; set; } = 25;
+    public bool AutoRunPreFlightOnStart { get; set; } = true;
 
     // Advanced AFK & Humanization
     public string RodProfile { get; set; } = "Standard";

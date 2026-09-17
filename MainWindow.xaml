@@ -253,8 +253,9 @@
                     <RowDefinition Height="Auto"/> <!-- Row 0: Header -->
                     <RowDefinition Height="Auto"/> <!-- Row 1: Session Analytics HUD -->
                     <RowDefinition Height="Auto"/> <!-- Row 2: Status & Main Control -->
-                    <RowDefinition Height="Auto"/> <!-- Row 3: Vision Camera Preview -->
-                    <RowDefinition Height="Auto"/> <!-- Row 4: Settings & Footer -->
+                    <RowDefinition Height="Auto"/> <!-- Row 3: Pre-Flight Diagnostic Results -->
+                    <RowDefinition Height="Auto"/> <!-- Row 4: Vision Camera Preview -->
+                    <RowDefinition Height="Auto"/> <!-- Row 5: Settings & Footer -->
                 </Grid.RowDefinitions>
 
                 <!-- 1. HEADER -->
@@ -475,22 +476,48 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Primary Action: Start / Stop Fishing -->
+                        <!-- Primary Action: Start / Stop Fishing & Pre-Flight -->
                         <Grid Grid.Column="0" Margin="0,0,8,0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
                             <!-- Big Start/Stop Fishing Button (Automatically equips rod upon start) -->
-                            <Button x:Name="BtnToggle" Click="BtnToggle_Click" Cursor="Hand"
+                            <Button Grid.Row="0" x:Name="BtnToggle" Click="BtnToggle_Click" Cursor="Hand"
                                     ToolTip="Starts or stops automated fishing loop. Automatically ensures fishing rod is equipped and active in hand. [F6]">
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
-                                        <Border x:Name="btnBorder" Background="#10B981" CornerRadius="6" Padding="6,10">
+                                        <Border x:Name="btnBorder" Background="#10B981" CornerRadius="6" Padding="6,8">
                                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                <TextBlock x:Name="txtBtnState" Text="START FISHING" FontSize="13" FontWeight="Black" Foreground="#FFFFFF" HorizontalAlignment="Center" TextAlignment="Center"/>
-                                                <TextBlock x:Name="txtBtnSub" Text="Press F6" FontSize="10" FontWeight="SemiBold" Foreground="#D1FAE5" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                                <TextBlock x:Name="txtBtnState" Text="START FISHING" FontSize="12.5" FontWeight="Black" Foreground="#FFFFFF" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                                <TextBlock x:Name="txtBtnSub" Text="Press F6" FontSize="9.5" FontWeight="SemiBold" Foreground="#D1FAE5" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                         </Border>
                                         <ControlTemplate.Triggers>
                                             <Trigger Property="IsMouseOver" Value="True">
                                                 <Setter TargetName="btnBorder" Property="Opacity" Value="0.9"/>
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </Button.Template>
+                            </Button>
+
+                            <!-- Pre-Flight Diagnostic Button -->
+                            <Button Grid.Row="1" x:Name="BtnPreFlight" Click="BtnPreFlight_Click" Margin="0,5,0,0" Cursor="Hand"
+                                    ToolTip="Runs rapid 4-second pre-flight diagnostic: verifies Roblox window, capture latency, hotbar OpenCV vision, and performs live tool toggle probe">
+                                <Button.Template>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border x:Name="preBorder" Background="#0C1F2E" BorderBrush="#0284C7" BorderThickness="1" CornerRadius="5" Padding="4,5">
+                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <TextBlock Text="🩺" FontSize="10" Margin="0,0,4,0" VerticalAlignment="Center"/>
+                                                <TextBlock Text="PRE-FLIGHT TEST" FontSize="9" FontWeight="Black" Foreground="#38BDF8" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="preBorder" Property="Background" Value="#0F3854"/>
+                                                <Setter TargetName="preBorder" Property="BorderBrush" Value="#00E5FF"/>
                                             </Trigger>
                                         </ControlTemplate.Triggers>
                                     </ControlTemplate>
@@ -549,8 +576,100 @@
                     </Grid>
                 </Border>
 
-                <!-- 3. LIVE OPENCV VISION CAMERA FEED (COMPACT MONITOR - ZERO WASTED SPACE) -->
-                <Border Grid.Row="3" Style="{StaticResource CardBorder}">
+                <!-- PRE-FLIGHT DIAGNOSTIC RESULTS CARD (Collapsible, shown during/after diagnostic) -->
+                <Border Grid.Row="3" x:Name="BorderPreFlightResults" Visibility="Collapsed" Background="#0C101A" BorderBrush="#1C273C" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Header Row with Dismiss/Close Button -->
+                        <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
+                                <TextBlock Text="🩺 PRE-FLIGHT DIAGNOSTIC" FontSize="10" FontWeight="Black" Foreground="#38BDF8"/>
+                                <TextBlock x:Name="TxtPreFlightDuration" Text="(3.2s)" FontSize="9" FontWeight="SemiBold" Foreground="#64748B" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <Button x:Name="BtnClosePreFlight" Click="BtnClosePreFlight_Click" Content="✕" DockPanel.Dock="Right"
+                                    Background="Transparent" Foreground="#94A3B8" BorderThickness="0" FontSize="11" FontWeight="Bold" Padding="4,0" Cursor="Hand" ToolTip="Dismiss diagnostic report"/>
+                        </DockPanel>
+
+                        <!-- Overall Verdict Banner -->
+                        <Border Grid.Row="1" x:Name="BannerPreFlightVerdict" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="5" Padding="8,5" Margin="0,0,0,6">
+                            <DockPanel LastChildFill="True">
+                                <TextBlock x:Name="TxtPreFlightVerdictIcon" Text="✅" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                <TextBlock x:Name="TxtPreFlightVerdict" Text="ALL SYSTEMS NOMINAL — READY FOR AFK 🎣" FontSize="10.5" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                            </DockPanel>
+                        </Border>
+
+                        <!-- 5 Steps Checklist -->
+                        <StackPanel Grid.Row="2" x:Name="PanelPreFlightSteps">
+                            <!-- Step 1: Window -->
+                            <Border x:Name="StepItemWindow" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4" Margin="0,0,0,4">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock x:Name="IconStepWindow" Text="⏳" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="MetricStepWindow" Text="Pending..." FontSize="9.5" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Roblox Window &amp; Resolution" FontSize="10" FontWeight="SemiBold" Foreground="#F1F5F9"/>
+                                        <TextBlock x:Name="DescStepWindow" Text="Checking for active Roblox client..." FontSize="8.5" Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Step 2: Capture -->
+                            <Border x:Name="StepItemCapture" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4" Margin="0,0,0,4">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock x:Name="IconStepCapture" Text="⏳" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="MetricStepCapture" Text="Pending..." FontSize="9.5" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Screen Capture Latency Benchmark" FontSize="10" FontWeight="SemiBold" Foreground="#F1F5F9"/>
+                                        <TextBlock x:Name="DescStepCapture" Text="Measuring BitBlt latency (target sub-3ms)..." FontSize="8.5" Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Step 3: Hotbar -->
+                            <Border x:Name="StepItemHotbar" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4" Margin="0,0,0,4">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock x:Name="IconStepHotbar" Text="⏳" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="MetricStepHotbar" Text="Pending..." FontSize="9.5" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Dynamic Hotbar &amp; Slot Discovery" FontSize="10" FontWeight="SemiBold" Foreground="#F1F5F9"/>
+                                        <TextBlock x:Name="DescStepHotbar" Text="Locating CoreGui hotbar container..." FontSize="8.5" Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Step 4: Tool Toggle Probe -->
+                            <Border x:Name="StepItemToggle" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4" Margin="0,0,0,4">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock x:Name="IconStepToggle" Text="⏳" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="MetricStepToggle" Text="Pending..." FontSize="9.5" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Live Momentary Tool Toggle Probe" FontSize="10" FontWeight="SemiBold" Foreground="#F1F5F9"/>
+                                        <TextBlock x:Name="DescStepToggle" Text="Sending momentary '1' keypress and verifying CV detection..." FontSize="8.5" Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+
+                            <!-- Step 5: Coordinate Safety Audit -->
+                            <Border x:Name="StepItemSafety" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4">
+                                <DockPanel LastChildFill="True">
+                                    <TextBlock x:Name="IconStepSafety" Text="⏳" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                    <TextBlock x:Name="MetricStepSafety" Text="Pending..." FontSize="9.5" FontWeight="Bold" Foreground="#38BDF8" VerticalAlignment="Center" DockPanel.Dock="Right"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Coordinate Boundary &amp; Safety Audit" FontSize="10" FontWeight="SemiBold" Foreground="#F1F5F9"/>
+                                        <TextBlock x:Name="DescStepSafety" Text="Auditing water target, slot click, and dialog coordinates..." FontSize="8.5" Foreground="#64748B" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- 4. LIVE OPENCV VISION CAMERA FEED (COMPACT MONITOR - ZERO WASTED SPACE) -->
+                <Border Grid.Row="4" Style="{StaticResource CardBorder}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -605,8 +724,8 @@
                     </Grid>
                 </Border>
 
-                <!-- 4. SETTINGS & FOOTER -->
-                <Border Grid.Row="4" Background="#171A23" BorderBrush="#252A38" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <!-- 5. SETTINGS & FOOTER -->
+                <Border Grid.Row="5" Background="#171A23" BorderBrush="#252A38" BorderThickness="1" CornerRadius="8" Padding="10,8">
                     <Expander x:Name="ExpanderSettings" Background="Transparent" BorderThickness="0" IsExpanded="False"
                               Expanded="ExpanderSettings_Expanded" Collapsed="ExpanderSettings_Collapsed">
                         <Expander.Header>
@@ -685,22 +804,31 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Anti-AFK Kick -->
-                                <Border Grid.Column="0" Background="#0F121A" CornerRadius="6" Padding="8,6" Margin="0,0,4,0" BorderBrush="#1F2535" BorderThickness="1">
-                                    <CheckBox x:Name="ChkAntiAfk" Content="🛡️ Anti-AFK Kick" IsChecked="True"
+                                <Border Grid.Column="0" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="0,0,3,0" BorderBrush="#1F2535" BorderThickness="1">
+                                    <CheckBox x:Name="ChkAntiAfk" Content="🛡️ Anti-AFK" IsChecked="True"
                                               Checked="ChkAntiAfk_Changed" Unchecked="ChkAntiAfk_Changed"
-                                              Foreground="#CBD5E1" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
                                               ToolTip="Micro-resets Roblox's 20-minute idle disconnect timer without moving your camera"/>
                                 </Border>
 
                                 <!-- Human Jitter -->
-                                <Border Grid.Column="1" Background="#0F121A" CornerRadius="6" Padding="8,6" Margin="4,0,0,0" BorderBrush="#1F2535" BorderThickness="1">
-                                    <CheckBox x:Name="ChkJitter" Content="🎲 Human Jitter" IsChecked="True"
+                                <Border Grid.Column="1" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="2,0,2,0" BorderBrush="#1F2535" BorderThickness="1">
+                                    <CheckBox x:Name="ChkJitter" Content="🎲 Jitter" IsChecked="True"
                                               Checked="ChkJitter_Changed" Unchecked="ChkJitter_Changed"
-                                              Foreground="#CBD5E1" FontSize="10" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
-                                              ToolTip="Adds realistic ±8ms micro-variance to cast hold and click timings to prevent detection"/>
+                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              ToolTip="Adds realistic micro-variance to cast hold and click timings to prevent detection"/>
+                                </Border>
+
+                                <!-- Auto Pre-Flight -->
+                                <Border Grid.Column="2" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="3,0,0,0" BorderBrush="#1F2535" BorderThickness="1">
+                                    <CheckBox x:Name="ChkAutoPreFlight" Content="🩺 Pre-Flight" IsChecked="True"
+                                              Checked="ChkAutoPreFlight_Changed" Unchecked="ChkAutoPreFlight_Changed"
+                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              ToolTip="Automatically runs 3-second Pre-Flight health check when Start Fishing is clicked"/>
                                 </Border>
                             </Grid>
 
