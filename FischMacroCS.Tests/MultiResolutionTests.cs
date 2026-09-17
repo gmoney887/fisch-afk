@@ -94,6 +94,7 @@ public class MultiResolutionTests
     [InlineData(1920, 1200, "16:10 WUXGA")]
     [InlineData(2560, 1080, "21:9 Ultrawide")]
     [InlineData(3440, 1440, "21:9 UWQHD")]
+    [InlineData(3424, 1353, "21:9 Ultrawide 3424x1353")]
     [InlineData(5120, 1440, "32:9 Super Ultrawide")]
     public void DetectRodEquipped_MultiResolution_UnequippedStateCorrectlyIdentified(int width, int height, string label)
     {
@@ -119,6 +120,7 @@ public class MultiResolutionTests
     [InlineData(3840, 2160, "4K UHD 16:9")]
     [InlineData(1920, 1200, "16:10 WUXGA")]
     [InlineData(2560, 1080, "21:9 Ultrawide")]
+    [InlineData(3424, 1353, "21:9 Ultrawide 3424x1353")]
     [InlineData(5120, 1440, "32:9 Super Ultrawide")]
     public void DetectRodEquipped_MultiResolution_EquippedStateCorrectlyIdentified(int width, int height, string label)
     {
@@ -130,6 +132,29 @@ public class MultiResolutionTests
         Assert.True(result.IsEquipped, $"Rod MUST be detected as EQUIPPED when illuminated on {label} ({width}x{height})");
         Assert.True(result.ActiveDensity >= 0.045, $"Active density must be >= 4.5% on {label}, got {result.ActiveDensity:P2}");
         Assert.NotNull(result.AnnotatedFrame);
+    }
+
+    [Fact]
+    public void DetectRodEquipped_SandSceneryOcclusion_FallsBackToCenterAnchoredGeometry()
+    {
+        // Simulate user's exact conditions: 3424x1353 with bright sand behind slots 1-3 and dark rock behind slots 4-9
+        int width = 3424;
+        int height = 1353;
+        using var canvas = new Mat(new Size(width, height), MatType.CV_8UC3, new Scalar(30, 30, 30));
+
+        // Draw bright tan/pink sand on left half of screen behind slots 1, 2, 3
+        Cv2.Rectangle(canvas, new Rect(0, (int)(height * 0.70), width / 2, (int)(height * 0.30)), new Scalar(138, 161, 224), -1);
+
+        // Call DetectRodEquipped for Slot 1
+        var result = _vision.DetectRodEquipped(canvas, slotNum: 1, generateDebug: true, fullViewportHeight: height);
+
+        Assert.True(result.HotbarFound);
+        // Container must be approximately 589px wide (not collapsed to 215px!)
+        Assert.InRange(result.HotbarBounds.Width, 570, 610);
+        // Slot 1 center must be around X=1450 (not shifted to X=1645!)
+        Assert.InRange(result.SlotCenter.X, 1440, 1460);
+        Assert.InRange(result.SlotBounds.X, 1410, 1425);
+        Assert.False(result.IsEquipped);
     }
 
     [Theory]

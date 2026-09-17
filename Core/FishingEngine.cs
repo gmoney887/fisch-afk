@@ -714,7 +714,7 @@ public class FishingEngine : IDisposable
                 else
                     bottomSnap.CopyTo(bgr);
 
-                var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false);
+                var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false, fullViewportHeight: clientH);
                 if (rodRes.HotbarFound)
                 {
                     slotClientX = rodRes.SlotCenter.X;
@@ -727,9 +727,9 @@ public class FishingEngine : IDisposable
         // Fallback to center-anchored proportions if vision capture failed
         if (slotClientX < 0 || slotClientY < 0)
         {
-            double offsetRatio = (slotNum - 5) * 0.05607;
+            double offsetRatio = (slotNum - 5) * 0.04833;
             slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
-            slotClientY = (clientH / 2) + (int)Math.Round(clientH * 0.4509);
+            slotClientY = clientH - (int)Math.Round(clientH * 0.035);
         }
 
         if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClientX, slotClientY, out int safeX, out int safeY, out int sX, out int sY))
@@ -761,7 +761,7 @@ public class FishingEngine : IDisposable
             else
                 bottomSnap.CopyTo(bgr);
 
-            var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false);
+            var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false, fullViewportHeight: clientH);
             _lastKnownRodEquipped = rodRes.IsEquipped;
             _lastKnownRodStatus = rodRes.IsEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
             return rodRes.IsEquipped;
@@ -1175,7 +1175,7 @@ public class FishingEngine : IDisposable
 
                         char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
                         int slotNum = Math.Clamp(rodKey - '0', 1, 9);
-                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: winH);
                         if (rodRes.AnnotatedFrame != null)
                         {
                             castFrame.Dispose();
@@ -1898,7 +1898,7 @@ public class FishingEngine : IDisposable
 
                         char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
                         int slotNum = Math.Clamp(rodKey - '0', 1, 9);
-                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+                        var rodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: winH);
                         if (rodRes.AnnotatedFrame != null)
                         {
                             postCatchFrame.Dispose();

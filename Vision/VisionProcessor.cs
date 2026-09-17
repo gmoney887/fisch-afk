@@ -960,7 +960,7 @@ public class VisionProcessor
         return DynamicUISnapWithStatus(fullFrame, expectedX, expectedY, targetType, searchRadius).Pt;
     }
 
-    public RodDetectionResult DetectRodEquipped(Mat frame, int slotNum = 1, bool generateDebug = false)
+    public RodDetectionResult DetectRodEquipped(Mat frame, int slotNum = 1, bool generateDebug = false, int fullViewportHeight = 0)
     {
         var result = new RodDetectionResult();
         if (frame == null || frame.Empty()) return result;
@@ -970,17 +970,32 @@ public class VisionProcessor
         int h = frame.Height;
         int midX = w / 2;
 
-        // Scan bottom of frame to find hotbar vertical bounds
-        int scanTop = (h >= 200) ? (int)(h * 0.75) : 0;
-        int scanBottom = h - 2;
+        // In Roblox CoreGui, UI elements scale strictly with viewport height (GuiService).
+        // If frame is an ROI crop of the bottom region (w/h >= 4.5), calculate full viewport height.
+        int vpH = fullViewportHeight > 0 
+            ? fullViewportHeight 
+            : ((w / (double)h >= 4.5) ? (int)Math.Round(h * 4.0) : h);
 
-        int hotbarTop = -1;
-        int hotbarBottom = -1;
+        // Center-Anchored Height-Scaled Roblox Hotbar Geometry (Immune to scenery, sand, and aspect ratio)
+        int nominalTotalW = Math.Max(50, (int)Math.Round(vpH * 0.435));
+        double nominalSlotW = nominalTotalW / 9.0;
+        int nominalHotbarH = Math.Max(16, (int)Math.Round(vpH * 0.0584));
+        int bottomMargin = Math.Max(2, (int)Math.Round(vpH * 0.007));
 
-        // Find the top border of the hotbar by finding where a central slice is dark container
-        // Height-scaled slice radius & sampling step to guarantee resolution invariance
-        int sliceRadius = Math.Max(8, (int)Math.Round(h * 0.018));
-        int step = Math.Max(2, (int)Math.Round(h * 0.004));
+        int defaultBottom = h - bottomMargin;
+        int defaultTop = defaultBottom - nominalHotbarH;
+
+        int hotbarTop = defaultTop;
+        int hotbarBottom = defaultBottom;
+
+        // Try to visually locate or fine-tune vertical hotbar bounds near screen center
+        int scanTop = Math.Max(0, defaultTop - (int)(vpH * 0.025));
+        int scanBottom = Math.Min(h - 2, defaultBottom + (int)(vpH * 0.015));
+        int sliceRadius = Math.Max(8, (int)Math.Round(vpH * 0.018));
+        int step = Math.Max(2, (int)Math.Round(vpH * 0.004));
+
+        int detectedTop = -1;
+        int detectedBottom = -1;
 
         for (int y = scanTop; y <= scanBottom; y++)
         {
@@ -994,49 +1009,50 @@ public class VisionProcessor
             }
             if (totalSliceSamples > 0 && ((double)darkAtMid / totalSliceSamples) >= 0.65)
             {
-                if (hotbarTop == -1) hotbarTop = y;
-                hotbarBottom = y;
+                if (detectedTop == -1) detectedTop = y;
+                detectedBottom = y;
             }
         }
 
-        int minHotbarH = Math.Max(12, (int)Math.Round(h * 0.030));
-        if (hotbarTop == -1 || (hotbarBottom - hotbarTop) < minHotbarH)
+        int minHotbarH = Math.Max(12, (int)Math.Round(vpH * 0.030));
+        if (detectedTop != -1 && (detectedBottom - detectedTop) >= minHotbarH)
         {
-            int fallbackH = (int)Math.Max(24, Math.Round(h * 0.056));
-            int bottomMargin = Math.Max(2, (int)Math.Round(h * 0.007));
-            hotbarBottom = h - bottomMargin;
-            hotbarTop = hotbarBottom - fallbackH;
+            hotbarTop = detectedTop;
+            hotbarBottom = detectedBottom;
         }
 
-        // Scan row just inside top margin where no item text or icons appear
+        // Horizontal Container Bounds:
+        // Roblox CoreGui hotbar is STRICTLY HORIZONTALLY CENTERED around midX (clientW / 2).
+        // Check if visual contrast scan finds a valid symmetric container, otherwise use center-anchored geometry.
         int topMargin = Math.Max(2, (int)Math.Round((hotbarBottom - hotbarTop) * 0.12));
         int scanY = Math.Clamp(hotbarTop + topMargin, hotbarTop, hotbarBottom);
-        int hotbarLeft = -1;
-        int hotbarRight = -1;
 
-        // Center-Anchored Height-Scaled search span: never uses horizontal width percentages
-        int searchMinX = Math.Max(0, midX - (int)(h * 0.60));
-        int searchMaxX = Math.Min(w - 1, midX + (int)(h * 0.60));
+        // Search wide enough across the entire hotbar span (+-32% vpH from center)
+        int searchRadiusX = (int)Math.Round(vpH * 0.32);
+        int searchMinX = Math.Max(0, midX - searchRadiusX);
+        int searchMaxX = Math.Min(w - 1, midX + searchRadiusX);
 
+        int detectedLeft = -1;
+        int detectedRight = -1;
         for (int x = searchMinX; x <= searchMaxX; x++)
         {
             var p = frame.At<Vec3b>(scanY, x);
             bool isDark = (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80);
-            if (isDark && hotbarLeft == -1) hotbarLeft = x;
-            if (isDark) hotbarRight = x;
+            if (isDark && detectedLeft == -1) detectedLeft = x;
+            if (isDark) detectedRight = x;
         }
 
-        int totalW = (hotbarLeft >= 0 && hotbarRight > hotbarLeft) ? (hotbarRight - hotbarLeft + 1) : 0;
-        int minHotbarW = Math.Max(50, (int)Math.Round(h * 0.20));
-        bool found = totalW >= minHotbarW;
+        int visualW = (detectedLeft >= 0 && detectedRight > detectedLeft) ? (detectedRight - detectedLeft + 1) : 0;
+        int visualCenter = (detectedLeft + detectedRight) / 2;
 
-        if (!found)
-        {
-            int estSlotW = (int)Math.Max(20, Math.Round(h * 0.056));
-            totalW = estSlotW * 9;
-            hotbarLeft = midX - (totalW / 2);
-            hotbarRight = hotbarLeft + totalW - 1;
-        }
+        // Container is valid ONLY if width matches 9 slots (within 20% of nominal) and is centered near midX
+        bool visualValid = visualW >= (int)(nominalTotalW * 0.80) &&
+                           visualW <= (int)(nominalTotalW * 1.25) &&
+                           Math.Abs(visualCenter - midX) <= (int)(vpH * 0.035);
+
+        int totalW = visualValid ? visualW : nominalTotalW;
+        int hotbarLeft = visualValid ? detectedLeft : (midX - (totalW / 2));
+        int hotbarRight = hotbarLeft + totalW - 1;
 
         Rect hotbarRect = new Rect(hotbarLeft, hotbarTop, totalW, hotbarBottom - hotbarTop + 1);
         double slotW = totalW / 9.0;
@@ -1045,9 +1061,9 @@ public class VisionProcessor
         Rect slotRect = new Rect(sLeft, hotbarTop, Math.Max(1, sRight - sLeft), hotbarRect.Height);
         Point center = new Point((sLeft + sRight) / 2, (hotbarTop + hotbarBottom) / 2);
 
-        // Sample interior of the slot (inset by 15% to strictly avoid borders and background water)
-        int insetX = Math.Max(2, (int)Math.Round(slotRect.Width * 0.15));
-        int insetY = Math.Max(2, (int)Math.Round(slotRect.Height * 0.15));
+        // Sample interior of the slot (inset by 12% to strictly avoid borders and background water)
+        int insetX = Math.Max(2, (int)Math.Round(slotRect.Width * 0.12));
+        int insetY = Math.Max(2, (int)Math.Round(slotRect.Height * 0.12));
         int sampleX1 = slotRect.X + insetX;
         int sampleX2 = slotRect.Right - insetX;
         int sampleY1 = slotRect.Y + insetY;
@@ -1071,10 +1087,10 @@ public class VisionProcessor
         // Density-based detection: active pixels must cover at least 4.5% of the sampled interior
         // with a scaled noise floor (for tiny window scales)
         double activeDensity = (double)activePx / totalSampleArea;
-        int minActivePxFloor = Math.Max(4, (int)Math.Round(6 * (h / 1080.0)));
+        int minActivePxFloor = Math.Max(4, (int)Math.Round(6 * (vpH / 1080.0)));
         bool isEquipped = activeDensity >= 0.045 && activePx >= minActivePxFloor;
 
-        result.HotbarFound = found;
+        result.HotbarFound = true;
         result.HotbarBounds = hotbarRect;
         result.SlotBounds = slotRect;
         result.SlotCenter = center;

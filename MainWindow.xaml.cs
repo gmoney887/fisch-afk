@@ -271,7 +271,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            if (_settings.AutoRunPreFlightOnStart)
+            if (_settings.AutoRunPreFlightOnStart && BorderPreFlightResults.Visibility != Visibility.Visible)
             {
                 _ = Task.Run(async () =>
                 {

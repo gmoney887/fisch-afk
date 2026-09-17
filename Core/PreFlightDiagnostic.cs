@@ -202,7 +202,7 @@ public class PreFlightDiagnostic : IDisposable
             else
                 bottomSnap.CopyTo(bgr);
 
-            initialRodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+            initialRodRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
         }
 
         stepHotbar.DurationMs = swStep.Elapsed.TotalMilliseconds;
@@ -235,11 +235,11 @@ public class PreFlightDiagnostic : IDisposable
 
         // Ensure Roblox is foreground
         Win32.ForceSetForegroundWindow(robloxHwnd);
-        await Task.Delay(60, ct);
+        await Task.Delay(80, ct);
 
         // Send momentary keypress '1'
         Win32.SendKeyPress(rodKey);
-        await Task.Delay(180, ct);
+        await Task.Delay(200, ct);
 
         // Capture post-toggle frame
         using var postToggleSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
@@ -253,18 +253,55 @@ public class PreFlightDiagnostic : IDisposable
             else
                 postToggleSnap.CopyTo(bgr);
 
-            postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true);
+            postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
         }
 
         bool toggledEquipped = postToggleRes?.IsEquipped ?? false;
         double toggledDensity = postToggleRes?.ActiveDensity ?? 0.0;
         bool stateChanged = (initialEquipped != toggledEquipped);
 
+        // If keypress did not cause a toggle (e.g. background chat focus), fallback to hardware clicking the slot directly
+        if (!stateChanged && !toggledEquipped)
+        {
+            int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
+            int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
+            if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
+            {
+                Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
+                await Task.Delay(200, ct);
+
+                using var clickSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+                if (clickSnap != null && !clickSnap.Empty())
+                {
+                    using var bgr = new Mat();
+                    if (clickSnap.Channels() == 4)
+                        Cv2.CvtColor(clickSnap, bgr, ColorConversionCodes.BGRA2BGR);
+                    else
+                        clickSnap.CopyTo(bgr);
+
+                    postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
+                    toggledEquipped = postToggleRes.IsEquipped;
+                    toggledDensity = postToggleRes.ActiveDensity;
+                    stateChanged = (initialEquipped != toggledEquipped);
+                }
+            }
+        }
+
         // Ensure the rod is returned to the EQUIPPED state ready for fishing!
         if (!toggledEquipped)
         {
-            Win32.SendKeyPress(rodKey);
-            await Task.Delay(180, ct);
+            int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
+            int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
+            if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
+            {
+                Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
+                await Task.Delay(200, ct);
+            }
+            else
+            {
+                Win32.SendKeyPress(rodKey);
+                await Task.Delay(200, ct);
+            }
 
             // Re-verify final state
             using var finalSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
@@ -276,10 +313,18 @@ public class PreFlightDiagnostic : IDisposable
                 else
                     finalSnap.CopyTo(bgr);
 
-                var finalRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false);
+                var finalRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false, fullViewportHeight: clientH);
                 toggledEquipped = finalRes.IsEquipped;
                 toggledDensity = finalRes.ActiveDensity;
             }
+        }
+
+        // Return mouse cursor to safe water area
+        int safeWaterX = clientW / 2;
+        int safeWaterY = (int)Math.Round(clientH * 0.38);
+        if (Win32.SafeClientToScreen(robloxHwnd, safeWaterX, safeWaterY, out int waterSX, out int waterSY))
+        {
+            Win32.SetCursorPos(waterSX, waterSY);
         }
 
         stepToggle.DurationMs = swStep.Elapsed.TotalMilliseconds;
