@@ -104,11 +104,61 @@ public class PreFlightDiagnosticTests
         Assert.True(postToggleRes.IsEquipped, "Post-toggle state should be equipped");
         double toggledDensity = postToggleRes.ActiveDensity;
 
+        // Step 3: Verify OpenCV temporal differential analysis (Cv2.Absdiff)
+        var diffRes = _vision.DetectToolToggleDiff(unequippedImg, toggledImg, initialRes.SlotBounds, minDeltaRatio: 0.03, generateDebug: true);
+        Assert.True(diffRes.ToggleDetected, "OpenCV temporal differential analysis must detect visual state change");
+        Assert.True(diffRes.DeltaRatio >= 0.03, $"Delta ratio must exceed 3%, got {diffRes.DeltaRatio:P2}");
+        Assert.NotNull(diffRes.AnnotatedFrame);
+
         // Verify momentary toggle detection criteria
-        bool stateChanged = (initialRes.IsEquipped != postToggleRes.IsEquipped);
+        bool stateChanged = (initialRes.IsEquipped != postToggleRes.IsEquipped) || diffRes.ToggleDetected;
         Assert.True(stateChanged, "State transition between unequipped and equipped MUST be detected");
         Assert.True(toggledDensity > initialDensity, "Toggled density must be greater than unequipped density");
         Assert.True(postToggleRes.IsEquipped, "Final state is confirmed equipped");
+    }
+
+    [Fact]
+    public void DetectToolToggleDiff_AbsDiff_DetectsTemporalStateChange()
+    {
+        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        string fixturePath = Path.Combine(baseDir, "Fixtures", "user_screenshot.png");
+        if (!File.Exists(fixturePath))
+        {
+            fixturePath = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "user_screenshot.png"));
+        }
+        Assert.True(File.Exists(fixturePath), "Fixture must exist");
+
+        using var beforeImg = Cv2.ImRead(fixturePath);
+        Assert.False(beforeImg.Empty());
+
+        var initialRes = _vision.DetectRodEquipped(beforeImg, slotNum: 1, generateDebug: false);
+        Assert.True(initialRes.HotbarFound);
+
+        // 1. Identical frames: Diff should be 0, no toggle
+        var noChangeRes = _vision.DetectToolToggleDiff(beforeImg, beforeImg, initialRes.SlotBounds, minDeltaRatio: 0.03);
+        Assert.False(noChangeRes.ToggleDetected, "Identical frames must not trigger toggle");
+        Assert.Equal(0, noChangeRes.ChangedPixels);
+        Assert.Equal(0.0, noChangeRes.DeltaRatio);
+
+        // 2. Toggled frame: Illuminate slot 1
+        using var afterImg = beforeImg.Clone();
+        int y1 = initialRes.SlotBounds.Y + 4;
+        int y2 = initialRes.SlotBounds.Bottom - 4;
+        int x1 = initialRes.SlotBounds.X + 4;
+        int x2 = initialRes.SlotBounds.Right - 4;
+        for (int y = y1; y < y2; y++)
+        {
+            for (int x = x1; x < x2; x++)
+            {
+                afterImg.Set(y, x, new Vec3b(240, 160, 20));
+            }
+        }
+
+        var toggleRes = _vision.DetectToolToggleDiff(beforeImg, afterImg, initialRes.SlotBounds, minDeltaRatio: 0.03, generateDebug: true);
+        Assert.True(toggleRes.ToggleDetected, "Temporal visual delta must confirm toggle");
+        Assert.True(toggleRes.ChangedPixels > 50, "Changed pixels should be significant");
+        Assert.True(toggleRes.DeltaRatio >= 0.03, "Delta ratio must exceed 3%");
+        Assert.NotNull(toggleRes.AnnotatedFrame);
     }
 
     [Fact]

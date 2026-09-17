@@ -232,6 +232,12 @@ public class PreFlightDiagnostic : IDisposable
 
         bool initialEquipped = initialRodRes?.IsEquipped ?? false;
         double initialDensity = initialRodRes?.ActiveDensity ?? 0.0;
+        Rect slotBounds = initialRodRes?.SlotBounds ?? new Rect(
+            (clientW / 2) - (int)Math.Round(clientH * 0.217),
+            bottomH - (int)Math.Round(clientH * 0.0584) - Math.Max(2, (int)Math.Round(clientH * 0.007)),
+            Math.Max(16, (int)Math.Round(clientH * 0.0483)),
+            Math.Max(16, (int)Math.Round(clientH * 0.0584))
+        );
 
         // Ensure Roblox is foreground
         Win32.ForceSetForegroundWindow(robloxHwnd);
@@ -244,6 +250,7 @@ public class PreFlightDiagnostic : IDisposable
         // Capture post-toggle frame
         using var postToggleSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
         RodDetectionResult? postToggleRes = null;
+        ToolToggleResult? toggleDiffRes = null;
 
         if (postToggleSnap != null && !postToggleSnap.Empty())
         {
@@ -254,11 +261,22 @@ public class PreFlightDiagnostic : IDisposable
                 postToggleSnap.CopyTo(bgr);
 
             postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
+
+            if (bottomSnap != null && !bottomSnap.Empty())
+            {
+                using var bgrBefore = new Mat();
+                if (bottomSnap.Channels() == 4)
+                    Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
+                else
+                    bottomSnap.CopyTo(bgrBefore);
+
+                toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
+            }
         }
 
         bool toggledEquipped = postToggleRes?.IsEquipped ?? false;
         double toggledDensity = postToggleRes?.ActiveDensity ?? 0.0;
-        bool stateChanged = (initialEquipped != toggledEquipped);
+        bool stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
 
         // If keypress did not cause a toggle (e.g. background chat focus), fallback to hardware clicking the slot directly
         if (!stateChanged && !toggledEquipped)
@@ -282,7 +300,19 @@ public class PreFlightDiagnostic : IDisposable
                     postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
                     toggledEquipped = postToggleRes.IsEquipped;
                     toggledDensity = postToggleRes.ActiveDensity;
-                    stateChanged = (initialEquipped != toggledEquipped);
+
+                    if (bottomSnap != null && !bottomSnap.Empty())
+                    {
+                        using var bgrBefore = new Mat();
+                        if (bottomSnap.Channels() == 4)
+                            Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
+                        else
+                            bottomSnap.CopyTo(bgrBefore);
+
+                        toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
+                    }
+
+                    stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
                 }
             }
         }
@@ -332,8 +362,11 @@ public class PreFlightDiagnostic : IDisposable
         if (stateChanged)
         {
             stepToggle.Status = DiagnosticStatus.Pass;
-            stepToggle.Metric = $"Toggle Verified ({initialDensity * 100:F0}% ➔ {toggledDensity * 100:F0}%)";
-            stepToggle.Details = $"OpenCV confirmed live tool state transition! Slot {slotNum} is confirmed equipped in hand.";
+            string deltaTag = toggleDiffRes != null && toggleDiffRes.ToggleDetected 
+                ? $"Diff Delta: {toggleDiffRes.DeltaRatio * 100:F1}% (Confirmed)" 
+                : $"Toggle Verified ({initialDensity * 100:F0}% ➔ {toggledDensity * 100:F0}%)";
+            stepToggle.Metric = deltaTag;
+            stepToggle.Details = $"OpenCV confirmed live tool state transition via temporal differential analysis! Slot {slotNum} is confirmed equipped in hand.";
         }
         else if (toggledEquipped)
         {

@@ -51,6 +51,16 @@ public class RodDetectionResult
     public Mat? AnnotatedFrame { get; set; }
 }
 
+public class ToolToggleResult
+{
+    public bool ToggleDetected { get; set; }
+    public double DeltaRatio { get; set; }
+    public int ChangedPixels { get; set; }
+    public int TotalPixels { get; set; }
+    public Rect SlotBounds { get; set; }
+    public Mat? AnnotatedFrame { get; set; }
+}
+
 public class VisionProcessor
 {
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
@@ -894,32 +904,31 @@ public class VisionProcessor
             mask.Create(roi.Size(), MatType.CV_8UC1);
             mask.SetTo(Scalar.All(0));
 
-            int roiRows = roi.Rows;
-            int roiCols = roi.Cols;
+            using var hsvRoi = new Mat();
+            if (roi.Channels() == 4)
+            {
+                using var bgrRoi = new Mat();
+                Cv2.CvtColor(roi, bgrRoi, ColorConversionCodes.BGRA2BGR);
+                Cv2.CvtColor(bgrRoi, hsvRoi, ColorConversionCodes.BGR2HSV);
+            }
+            else
+            {
+                Cv2.CvtColor(roi, hsvRoi, ColorConversionCodes.BGR2HSV);
+            }
 
             if (targetType == UIColorType.GreenButton)
             {
-                for (int r = 0; r < roiRows; r++)
-                {
-                    for (int c = 0; c < roiCols; c++)
-                    {
-                        Vec3b bgr = roi.At<Vec3b>(r, c);
-                        if (bgr.Item1 > 160 && bgr.Item1 > bgr.Item2 + 25 && bgr.Item1 > bgr.Item0 + 25)
-                            mask.Set<byte>(r, c, 255);
-                    }
-                }
+                // Green button in HSV: H in [35, 85], S >= 60, V >= 60
+                Cv2.InRange(hsvRoi, new Scalar(35, 60, 60), new Scalar(85, 255, 255), mask);
             }
             else if (targetType == UIColorType.RedCloseButton)
             {
-                for (int r = 0; r < roiRows; r++)
-                {
-                    for (int c = 0; c < roiCols; c++)
-                    {
-                        Vec3b bgr = roi.At<Vec3b>(r, c);
-                        if (bgr.Item2 > 150 && bgr.Item1 < 85 && bgr.Item0 < 85)
-                            mask.Set<byte>(r, c, 255);
-                    }
-                }
+                // Red close button in HSV (wraps around 0/180): H in [0, 10] or [170, 180]
+                using var mask1 = new Mat();
+                using var mask2 = new Mat();
+                Cv2.InRange(hsvRoi, new Scalar(0, 70, 70), new Scalar(10, 255, 255), mask1);
+                Cv2.InRange(hsvRoi, new Scalar(170, 70, 70), new Scalar(180, 255, 255), mask2);
+                Cv2.BitwiseOr(mask1, mask2, mask);
             }
 
             using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
@@ -988,37 +997,45 @@ public class VisionProcessor
         int hotbarTop = defaultTop;
         int hotbarBottom = defaultBottom;
 
+        // Visual hotbar container discovery using OpenCV native InRange + Row/Col projections
         // Try to visually locate or fine-tune vertical hotbar bounds near screen center
         int scanTop = Math.Max(0, defaultTop - (int)(vpH * 0.025));
         int scanBottom = Math.Min(h - 2, defaultBottom + (int)(vpH * 0.015));
         int sliceRadius = Math.Max(8, (int)Math.Round(vpH * 0.018));
-        int step = Math.Max(2, (int)Math.Round(vpH * 0.004));
+        int stripW = (sliceRadius * 2) + 1;
+        int stripH = scanBottom - scanTop + 1;
 
-        int detectedTop = -1;
-        int detectedBottom = -1;
-
-        for (int y = scanTop; y <= scanBottom; y++)
+        if (stripW > 0 && stripH > 0 && (midX - sliceRadius) >= 0 && (midX + sliceRadius) < w)
         {
-            int totalSliceSamples = 0;
-            int darkAtMid = 0;
-            for (int dx = -sliceRadius; dx <= sliceRadius; dx += step)
-            {
-                totalSliceSamples++;
-                var p = frame.At<Vec3b>(y, midX + dx);
-                if (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80) darkAtMid++;
-            }
-            if (totalSliceSamples > 0 && ((double)darkAtMid / totalSliceSamples) >= 0.65)
-            {
-                if (detectedTop == -1) detectedTop = y;
-                detectedBottom = y;
-            }
-        }
+            Rect vStripRoi = new Rect(midX - sliceRadius, scanTop, stripW, stripH);
+            using var vStrip = new Mat(frame, vStripRoi);
+            using var vDark = new Mat();
+            // Hotbar container background is dark (R,G,B < 80)
+            Cv2.InRange(vStrip, new Scalar(0, 0, 0), new Scalar(80, 80, 80), vDark);
 
-        int minHotbarH = Math.Max(12, (int)Math.Round(vpH * 0.030));
-        if (detectedTop != -1 && (detectedBottom - detectedTop) >= minHotbarH)
-        {
-            hotbarTop = detectedTop;
-            hotbarBottom = detectedBottom;
+            using var rowAvg = new Mat();
+            Cv2.Reduce(vDark, rowAvg, ReduceDimension.Column, ReduceTypes.Avg, MatType.CV_32F);
+
+            int detectedTop = -1;
+            int detectedBottom = -1;
+            int rowCount = rowAvg.Rows;
+            for (int i = 0; i < rowCount; i++)
+            {
+                float val = rowAvg.At<float>(i, 0); // 0 to 255
+                if (val >= 165) // 65% dark threshold
+                {
+                    int y = scanTop + i;
+                    if (detectedTop == -1) detectedTop = y;
+                    detectedBottom = y;
+                }
+            }
+
+            int minHotbarH = Math.Max(12, (int)Math.Round(vpH * 0.030));
+            if (detectedTop != -1 && (detectedBottom - detectedTop) >= minHotbarH)
+            {
+                hotbarTop = detectedTop;
+                hotbarBottom = detectedBottom;
+            }
         }
 
         // Horizontal Container Bounds:
@@ -1027,31 +1044,49 @@ public class VisionProcessor
         int topMargin = Math.Max(2, (int)Math.Round((hotbarBottom - hotbarTop) * 0.12));
         int scanY = Math.Clamp(hotbarTop + topMargin, hotbarTop, hotbarBottom);
 
-        // Search wide enough across the entire hotbar span (+-32% vpH from center)
         int searchRadiusX = (int)Math.Round(vpH * 0.32);
         int searchMinX = Math.Max(0, midX - searchRadiusX);
         int searchMaxX = Math.Min(w - 1, midX + searchRadiusX);
+        int searchW = searchMaxX - searchMinX + 1;
+        int hStripHeight = Math.Max(1, (int)Math.Round((hotbarBottom - hotbarTop) * 0.3));
 
         int detectedLeft = -1;
         int detectedRight = -1;
-        for (int x = searchMinX; x <= searchMaxX; x++)
+
+        if (searchW > 0 && scanY + hStripHeight <= h)
         {
-            var p = frame.At<Vec3b>(scanY, x);
-            bool isDark = (p.Item0 < 80 && p.Item1 < 80 && p.Item2 < 80);
-            if (isDark && detectedLeft == -1) detectedLeft = x;
-            if (isDark) detectedRight = x;
+            Rect hStripRoi = new Rect(searchMinX, scanY, searchW, hStripHeight);
+            using var hStrip = new Mat(frame, hStripRoi);
+            using var hDark = new Mat();
+            Cv2.InRange(hStrip, new Scalar(0, 0, 0), new Scalar(80, 80, 80), hDark);
+
+            using var colScores = new Mat();
+            Cv2.Reduce(hDark, colScores, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+
+            int colCount = colScores.Cols;
+            for (int i = 0; i < colCount; i++)
+            {
+                float val = colScores.At<float>(0, i);
+                if (val >= 128)
+                {
+                    int x = searchMinX + i;
+                    if (detectedLeft == -1) detectedLeft = x;
+                    detectedRight = x;
+                }
+            }
         }
 
         int visualW = (detectedLeft >= 0 && detectedRight > detectedLeft) ? (detectedRight - detectedLeft + 1) : 0;
         int visualCenter = (detectedLeft + detectedRight) / 2;
 
-        // Container is valid ONLY if width matches 9 slots (within 20% of nominal) and is centered near midX
+        // Roblox CoreGui hotbar is strictly horizontally centered around midX (clientW / 2).
+        // A visual container is accepted only if symmetric around midX within a tight margin.
         bool visualValid = visualW >= (int)(nominalTotalW * 0.80) &&
                            visualW <= (int)(nominalTotalW * 1.25) &&
-                           Math.Abs(visualCenter - midX) <= (int)(vpH * 0.035);
+                           Math.Abs(visualCenter - midX) <= Math.Max(2, (int)(vpH * 0.008));
 
         int totalW = visualValid ? visualW : nominalTotalW;
-        int hotbarLeft = visualValid ? detectedLeft : (midX - (totalW / 2));
+        int hotbarLeft = midX - (totalW / 2);
         int hotbarRight = hotbarLeft + totalW - 1;
 
         Rect hotbarRect = new Rect(hotbarLeft, hotbarTop, totalW, hotbarBottom - hotbarTop + 1);
@@ -1061,27 +1096,39 @@ public class VisionProcessor
         Rect slotRect = new Rect(sLeft, hotbarTop, Math.Max(1, sRight - sLeft), hotbarRect.Height);
         Point center = new Point((sLeft + sRight) / 2, (hotbarTop + hotbarBottom) / 2);
 
-        // Sample interior of the slot (inset by 12% to strictly avoid borders and background water)
+        // Native OpenCV Computer Vision: Sample interior of the slot using HSV InRange
+        // Inset by 12% to strictly avoid borders and background water
         int insetX = Math.Max(2, (int)Math.Round(slotRect.Width * 0.12));
         int insetY = Math.Max(2, (int)Math.Round(slotRect.Height * 0.12));
-        int sampleX1 = slotRect.X + insetX;
-        int sampleX2 = slotRect.Right - insetX;
-        int sampleY1 = slotRect.Y + insetY;
-        int sampleY2 = slotRect.Bottom - insetY;
+        int sampleX = Math.Clamp(slotRect.X + insetX, 0, w - 1);
+        int sampleY = Math.Clamp(slotRect.Y + insetY, 0, h - 1);
+        int sampleW = Math.Clamp(slotRect.Width - (2 * insetX), 1, w - sampleX);
+        int sampleH = Math.Clamp(slotRect.Height - (2 * insetY), 1, h - sampleY);
+        Rect sampleRoi = new Rect(sampleX, sampleY, sampleW, sampleH);
 
-        int totalSampleArea = Math.Max(1, (sampleX2 - sampleX1 + 1) * (sampleY2 - sampleY1 + 1));
+        int totalSampleArea = Math.Max(1, sampleRoi.Width * sampleRoi.Height);
         int activePx = 0;
-        for (int y = sampleY1; y <= sampleY2; y++)
+
+        using (var slotInterior = new Mat(frame, sampleRoi))
+        using (var hsv = new Mat())
+        using (var maskCyan = new Mat())
         {
-            for (int x = sampleX1; x <= sampleX2; x++)
+            if (slotInterior.Channels() == 4)
             {
-                var p = frame.At<Vec3b>(y, x);
-                // Active cyan/blue selection
-                bool isBlue = (p.Item0 > 130 && p.Item0 > p.Item2 + 25 && p.Item0 > p.Item1 + 15);
-                // Active white selection border/glow
-                bool isWhite = (p.Item0 > 185 && p.Item1 > 185 && p.Item2 > 185);
-                if (isBlue || isWhite) activePx++;
+                using var bgrInterior = new Mat();
+                Cv2.CvtColor(slotInterior, bgrInterior, ColorConversionCodes.BGRA2BGR);
+                Cv2.CvtColor(bgrInterior, hsv, ColorConversionCodes.BGR2HSV);
             }
+            else
+            {
+                Cv2.CvtColor(slotInterior, hsv, ColorConversionCodes.BGR2HSV);
+            }
+
+            // Active cyan/blue selection glow (Roblox CoreGui selection highlight: H: 90-130, S: 120-255, V: 140-255)
+            Cv2.InRange(hsv, new Scalar(90, 120, 140), new Scalar(130, 255, 255), maskCyan);
+
+            // Native population count via OpenCV SIMD
+            activePx = Cv2.CountNonZero(maskCyan);
         }
 
         // Density-based detection: active pixels must cover at least 4.5% of the sampled interior
@@ -1117,6 +1164,86 @@ public class VisionProcessor
             Cv2.PutText(annotated, statusTag, new Point(textX, textY), HersheyFonts.HersheySimplex, 0.50, slotColor, 2);
 
             result.AnnotatedFrame = annotated;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Evaluates visual tool toggle state transitions between two frames using OpenCV temporal differential analysis (Cv2.AbsDiff).
+    /// Highly resilient against any background scenery (sand, snow, water, transparent CoreGui).
+    /// </summary>
+    public ToolToggleResult DetectToolToggleDiff(Mat beforeFrame, Mat afterFrame, Rect targetSlotRoi, double minDeltaRatio = 0.03, bool generateDebug = false)
+    {
+        var result = new ToolToggleResult
+        {
+            SlotBounds = targetSlotRoi
+        };
+
+        if (beforeFrame == null || beforeFrame.Empty() || afterFrame == null || afterFrame.Empty())
+            return result;
+
+        int w = beforeFrame.Width;
+        int h = beforeFrame.Height;
+
+        int x = Math.Clamp(targetSlotRoi.X, 0, w - 1);
+        int y = Math.Clamp(targetSlotRoi.Y, 0, h - 1);
+        int slotW = Math.Clamp(targetSlotRoi.Width, 1, w - x);
+        int slotH = Math.Clamp(targetSlotRoi.Height, 1, h - y);
+        Rect clampedRoi = new Rect(x, y, slotW, slotH);
+
+        result.SlotBounds = clampedRoi;
+        result.TotalPixels = clampedRoi.Width * clampedRoi.Height;
+
+        try
+        {
+            using var slotBefore = new Mat(beforeFrame, clampedRoi);
+            using var slotAfter = new Mat(afterFrame, clampedRoi);
+
+            // 1. Calculate absolute pixel difference across all channels
+            using var diff = new Mat();
+            Cv2.Absdiff(slotBefore, slotAfter, diff);
+
+            // 2. Convert difference to grayscale
+            using var diffGray = new Mat();
+            if (diff.Channels() == 3)
+                Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGR2GRAY);
+            else if (diff.Channels() == 4)
+                Cv2.CvtColor(diff, diffGray, ColorConversionCodes.BGRA2GRAY);
+            else
+                diff.CopyTo(diffGray);
+
+            // 3. Threshold to ignore minor camera / sensor noise (diff intensity > 20)
+            using var diffThresh = new Mat();
+            Cv2.Threshold(diffGray, diffThresh, 20, 255, ThresholdTypes.Binary);
+
+            // 4. Count changed pixels with native SIMD CountNonZero
+            int changedPx = Cv2.CountNonZero(diffThresh);
+            double deltaRatio = (double)changedPx / Math.Max(1, result.TotalPixels);
+
+            result.ChangedPixels = changedPx;
+            result.DeltaRatio = deltaRatio;
+            result.ToggleDetected = deltaRatio >= minDeltaRatio;
+
+            if (generateDebug)
+            {
+                Mat annotated = afterFrame.Clone();
+                Scalar boxColor = result.ToggleDetected ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(255, 82, 82);
+                Cv2.Rectangle(annotated, clampedRoi, boxColor, 2);
+
+                string tag = result.ToggleDetected 
+                    ? $"TOOL TOGGLE CONFIRMED ({deltaRatio * 100:F1}%)" 
+                    : $"NO TOGGLE ({deltaRatio * 100:F1}%)";
+                int textY = Math.Max(20, clampedRoi.Y - 6);
+                int textX = Math.Max(5, clampedRoi.X - 50);
+                Cv2.PutText(annotated, tag, new Point(textX, textY), HersheyFonts.HersheySimplex, 0.45, boxColor, 1);
+
+                result.AnnotatedFrame = annotated;
+            }
+        }
+        catch
+        {
+            // Graceful fallback
         }
 
         return result;

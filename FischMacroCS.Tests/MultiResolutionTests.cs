@@ -103,7 +103,7 @@ public class MultiResolutionTests
         var result = _vision.DetectRodEquipped(canvas, slotNum: 1, generateDebug: true);
 
         Assert.True(result.HotbarFound, $"Hotbar container must be dynamically located on {label} ({width}x{height})");
-        Assert.False(result.IsEquipped, $"Rod must NOT be detected as equipped when unequipped on {label} ({width}x{height})");
+        Assert.False(result.IsEquipped, $"Rod must NOT be detected as equipped on {label}! Bounds={result.HotbarBounds}, Slot={result.SlotBounds}, ActivePx={result.ActivePixels}, Density={result.ActiveDensity:P3}");
         Assert.True(result.ActiveDensity < 0.045, $"Active density must be low on {label}, got {result.ActiveDensity:P2}");
 
         // Slot 1 must be within container
@@ -129,7 +129,7 @@ public class MultiResolutionTests
         var result = _vision.DetectRodEquipped(canvas, slotNum: 1, generateDebug: true);
 
         Assert.True(result.HotbarFound, $"Hotbar container must be dynamically located on {label} ({width}x{height})");
-        Assert.True(result.IsEquipped, $"Rod MUST be detected as EQUIPPED when illuminated on {label} ({width}x{height})");
+        Assert.True(result.IsEquipped, $"Rod MUST be detected as EQUIPPED on {label}! Bounds={result.HotbarBounds}, Slot={result.SlotBounds}, ActivePx={result.ActivePixels}, Density={result.ActiveDensity:P3}");
         Assert.True(result.ActiveDensity >= 0.045, $"Active density must be >= 4.5% on {label}, got {result.ActiveDensity:P2}");
         Assert.NotNull(result.AnnotatedFrame);
     }
@@ -250,5 +250,32 @@ public class MultiResolutionTests
 
         Assert.True(res.Found, $"Overhead cast bar must be detected on {label} ({width}x{height})");
         Assert.InRange(res.FillPercent, 80.0, 100.0);
+    }
+
+    [Theory]
+    [InlineData(1024, 428, "Compact Windowed")]
+    [InlineData(1280, 720, "720p HD 16:9")]
+    [InlineData(1920, 1080, "1080p FHD 16:9")]
+    [InlineData(2560, 1440, "1440p QHD 16:9")]
+    [InlineData(3840, 2160, "4K UHD 16:9")]
+    [InlineData(3424, 1353, "21:9 Ultrawide 3424x1353")]
+    [InlineData(5120, 1440, "32:9 Super Ultrawide")]
+    public void DetectToolToggleDiff_MultiResolution_DetectsTemporalToggleAcrossAllScales(int width, int height, string label)
+    {
+        using var beforeCanvas = CreateSyntheticGameView(width, height, equipSlot1: false);
+        using var afterCanvas = CreateSyntheticGameView(width, height, equipSlot1: true);
+
+        var rodRes = _vision.DetectRodEquipped(beforeCanvas, slotNum: 1, generateDebug: false);
+        Assert.True(rodRes.HotbarFound, $"Hotbar container must be found on {label}");
+
+        // 1. Identical frames: Diff must not trigger
+        var noDiff = _vision.DetectToolToggleDiff(beforeCanvas, beforeCanvas, rodRes.SlotBounds);
+        Assert.False(noDiff.ToggleDetected, $"Identical frames on {label} must not trigger toggle");
+
+        // 2. Toggle frames: Diff must trigger reliably
+        var diff = _vision.DetectToolToggleDiff(beforeCanvas, afterCanvas, rodRes.SlotBounds, minDeltaRatio: 0.03, generateDebug: true);
+        Assert.True(diff.ToggleDetected, $"Toggle state transition on {label} must be detected via OpenCV temporal diff");
+        Assert.True(diff.DeltaRatio >= 0.03, $"Delta ratio must be >= 3% on {label}, got {diff.DeltaRatio:P2}");
+        Assert.NotNull(diff.AnnotatedFrame);
     }
 }
