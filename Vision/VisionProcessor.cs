@@ -1009,10 +1009,10 @@ public class VisionProcessor
         int visualCenter = (detectedLeft + detectedRight) / 2;
 
         // Roblox CoreGui hotbar is strictly horizontally centered around midX (clientW / 2).
-        // A visual container is accepted only if symmetric around midX within a tight margin.
-        bool visualValid = visualW >= (int)(nominalTotalW * 0.80) &&
-                           visualW <= (int)(nominalTotalW * 1.25) &&
-                           Math.Abs(visualCenter - midX) <= Math.Max(2, (int)(vpH * 0.008));
+        // A visual container is accepted only if symmetric around midX and represents a complete 9-slot container.
+        bool visualValid = visualW >= (int)(nominalTotalW * 0.94) &&
+                           visualW <= (int)(nominalTotalW * 1.08) &&
+                           Math.Abs(visualCenter - midX) <= Math.Max(2, (int)(vpH * 0.006));
 
         int totalW = visualValid ? visualW : nominalTotalW;
         int hotbarLeft = midX - (totalW / 2);

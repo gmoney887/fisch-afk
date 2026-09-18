@@ -753,7 +753,8 @@
                                 <!-- Rod Slot -->
                                 <StackPanel Grid.Column="0" Margin="0,0,8,0">
                                     <TextBlock Text="ROD SLOT" Style="{StaticResource MetricLabel}"/>
-                                    <TextBox x:Name="TxtRodSlot" Text="1" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0"/>
+                                    <TextBox x:Name="TxtRodSlot" Text="1" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0"
+                                             TextChanged="TxtRodSlot_TextChanged" LostFocus="TxtRodSlot_LostFocus"/>
                                 </StackPanel>
 
                                 <!-- Predictive Lead -->

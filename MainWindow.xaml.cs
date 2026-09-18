@@ -267,6 +267,8 @@ public partial class MainWindow : Window
         }
         else
         {
+            SyncSettingsFromUI(showNotification: false);
+
             if (_settings.AutoRunPreFlightOnStart && !_hasPreFlightPassed)
             {
                 if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txtPre)
@@ -633,29 +635,43 @@ public partial class MainWindow : Window
     }
 
 
-    private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
+    public void SyncSettingsFromUI(bool showNotification = false)
     {
-        _settings.RodSlot = TxtRodSlot.Text.Trim();
-        if (int.TryParse(TxtPostCatch.Text, out int pc))
+        if (_settings == null || _engine == null) return;
+
+        if (TxtRodSlot != null && !string.IsNullOrWhiteSpace(TxtRodSlot.Text))
+        {
+            string slotText = TxtRodSlot.Text.Trim();
+            if (slotText.Length > 0 && char.IsDigit(slotText[0]))
+            {
+                int slotVal = Math.Clamp(slotText[0] - '0', 1, 9);
+                _settings.RodSlot = slotVal.ToString();
+                _engine.Config.RodSlot = _settings.RodSlot;
+            }
+        }
+
+        if (TxtPostCatch != null && int.TryParse(TxtPostCatch.Text, out int pc))
         {
             _settings.PostCatchDelayMs = pc;
             _engine.Config.PostCatchDelayMs = pc;
         }
 
-        if (int.TryParse(TxtCastLead.Text, out int cl))
+        if (TxtCastLead != null && int.TryParse(TxtCastLead.Text, out int cl))
         {
             _settings.CastPredictiveLeadMs = cl;
             _engine.Config.CastPredictiveLeadMs = cl;
         }
 
-        if (CmbToggleKey.SelectedItem is ComboBoxItem toggleItem && toggleItem.Content != null)
+        if (CmbToggleKey?.SelectedItem is ComboBoxItem toggleItem && toggleItem.Content != null)
             _settings.ToggleHotkey = toggleItem.Content.ToString()!;
 
-        if (CmbReEquipKey.SelectedItem is ComboBoxItem reequipItem && reequipItem.Content != null)
+        if (CmbReEquipKey?.SelectedItem is ComboBoxItem reequipItem && reequipItem.Content != null)
             _settings.ReEquipHotkey = reequipItem.Content.ToString()!;
 
-        _settings.EnableRecording = ChkEnableRecording.IsChecked == true;
-        if (CmbShakeMode.SelectedItem is ComboBoxItem shakeItem && shakeItem.Content != null)
+        if (ChkEnableRecording != null)
+            _settings.EnableRecording = ChkEnableRecording.IsChecked == true;
+
+        if (CmbShakeMode?.SelectedItem is ComboBoxItem shakeItem && shakeItem.Content != null)
         {
             string sm = shakeItem.Content.ToString()!;
             if (sm.Contains("Navigation", StringComparison.OrdinalIgnoreCase))
@@ -677,50 +693,67 @@ public partial class MainWindow : Window
             _engine.Config.EnableShakeClicks = _settings.EnableShakeClicks;
         }
 
-        _settings.EnableAntiAfk = ChkAntiAfk.IsChecked == true;
-        _engine.Config.EnableAntiAfk = _settings.EnableAntiAfk;
+        if (ChkAntiAfk != null)
+        {
+            _settings.EnableAntiAfk = ChkAntiAfk.IsChecked == true;
+            _engine.Config.EnableAntiAfk = _settings.EnableAntiAfk;
+        }
 
-        _settings.EnableHumanizedJitter = ChkJitter.IsChecked == true;
-        _engine.Config.EnableHumanizedJitter = _settings.EnableHumanizedJitter;
+        if (ChkJitter != null)
+        {
+            _settings.EnableHumanizedJitter = ChkJitter.IsChecked == true;
+            _engine.Config.EnableHumanizedJitter = _settings.EnableHumanizedJitter;
+        }
 
         _settings.EnableDynamicCastRelease = true;
         _engine.Config.EnableDynamicCastRelease = true;
 
-        _settings.EnableAutoClaimAquarium = ChkAutoClaimAquarium.IsChecked == true;
-        _engine.Config.EnableAutoClaimAquarium = _settings.EnableAutoClaimAquarium;
+        if (ChkAutoClaimAquarium != null)
+        {
+            _settings.EnableAutoClaimAquarium = ChkAutoClaimAquarium.IsChecked == true;
+            _engine.Config.EnableAutoClaimAquarium = _settings.EnableAutoClaimAquarium;
+        }
 
-        if (int.TryParse(TxtAquariumInterval.Text, out int ai) && ai >= 5)
+        if (TxtAquariumInterval != null && int.TryParse(TxtAquariumInterval.Text, out int ai) && ai >= 5)
         {
             _settings.AquariumClaimIntervalMinutes = ai;
             _engine.Config.AquariumClaimIntervalMinutes = ai;
         }
 
-        _settings.EnableAutoOpenCrates = ChkAutoOpenCrates.IsChecked == true;
-        _engine.Config.EnableAutoOpenCrates = _settings.EnableAutoOpenCrates;
+        if (ChkAutoOpenCrates != null)
+        {
+            _settings.EnableAutoOpenCrates = ChkAutoOpenCrates.IsChecked == true;
+            _engine.Config.EnableAutoOpenCrates = _settings.EnableAutoOpenCrates;
+        }
 
-        _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
-        _settings.EnableWatchdogRecovery = ChkWatchdog.IsChecked == true;
-        _engine.Config.EnableWatchdogRecovery = _settings.EnableWatchdogRecovery;
+        if (ChkAutoPreFlight != null)
+            _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
 
-        if (int.TryParse(TxtCrateInterval.Text, out int ci) && ci >= 1)
+        if (ChkWatchdog != null)
+        {
+            _settings.EnableWatchdogRecovery = ChkWatchdog.IsChecked == true;
+            _engine.Config.EnableWatchdogRecovery = _settings.EnableWatchdogRecovery;
+        }
+
+        if (TxtCrateInterval != null && int.TryParse(TxtCrateInterval.Text, out int ci) && ci >= 1)
         {
             _settings.CrateIntervalCatches = ci;
             _engine.Config.CrateIntervalCatches = ci;
         }
 
-        if (int.TryParse(TxtCrateMaxTypes.Text, out int cmt) && cmt >= 0 && cmt <= 999)
+        if (TxtCrateMaxTypes != null && int.TryParse(TxtCrateMaxTypes.Text, out int cmt) && cmt >= 0 && cmt <= 999)
         {
             _settings.CrateMaxTypes = cmt;
             _engine.Config.CrateMaxTypes = cmt;
         }
 
-        if (int.TryParse(TxtMaxRecordings.Text, out int mr) && mr > 0)
+        if (TxtMaxRecordings != null && int.TryParse(TxtMaxRecordings.Text, out int mr) && mr > 0)
         {
             _settings.MaxRecordingsToKeep = mr;
             _engine.Recorder.MaxRecordingsToKeep = mr;
         }
 
-        if (CmbMinigameTheme.SelectedItem is ComboBoxItem themeItem)
+        if (CmbMinigameTheme?.SelectedItem is ComboBoxItem themeItem)
         {
             _settings.SelectedTheme = (MinigameTheme)CmbMinigameTheme.SelectedIndex;
             _engine.Config.SelectedTheme = _settings.SelectedTheme;
@@ -729,7 +762,41 @@ public partial class MainWindow : Window
         _settings.Save();
         RegisterHotkeys();
 
-        MessageBox.Show($"Configuration saved!\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Heal Watchdog: [{(_settings.EnableWatchdogRecovery ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+        if (showNotification)
+        {
+            MessageBox.Show($"Configuration saved!\nRod Slot: [{_settings.RodSlot}]\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Heal Watchdog: [{(_settings.EnableWatchdogRecovery ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
+    private void TxtRodSlot_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!IsLoaded || _settings == null || _engine == null || TxtRodSlot == null) return;
+        string txt = TxtRodSlot.Text.Trim();
+        if (txt.Length > 0 && char.IsDigit(txt[0]))
+        {
+            int slot = Math.Clamp(txt[0] - '0', 1, 9);
+            _settings.RodSlot = slot.ToString();
+            _engine.Config.RodSlot = _settings.RodSlot;
+            _settings.Save();
+        }
+    }
+
+    private void TxtRodSlot_LostFocus(object sender, RoutedEventArgs e)
+    {
+        if (!IsLoaded || _settings == null || _engine == null || TxtRodSlot == null) return;
+        string txt = TxtRodSlot.Text.Trim();
+        int slot = 1;
+        if (txt.Length > 0 && char.IsDigit(txt[0]))
+            slot = Math.Clamp(txt[0] - '0', 1, 9);
+        _settings.RodSlot = slot.ToString();
+        _engine.Config.RodSlot = _settings.RodSlot;
+        TxtRodSlot.Text = _settings.RodSlot;
+        _settings.Save();
+    }
+
+    private void BtnSaveSettings_Click(object sender, RoutedEventArgs e)
+    {
+        SyncSettingsFromUI(showNotification: true);
     }
 
     private void CmbMinigameTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -881,6 +948,7 @@ public partial class MainWindow : Window
     private async void BtnPreFlight_Click(object sender, RoutedEventArgs e)
     {
         if (_engine.IsRunning || _isDiagnosticRunning) return;
+        SyncSettingsFromUI(showNotification: false);
         await RunPreFlightDiagnosticAsync();
     }
 
@@ -924,11 +992,13 @@ public partial class MainWindow : Window
         TxtPreFlightVerdict.Text = "RUNNING IN-GAME PRE-FLIGHT DIAGNOSTIC...";
         TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
 
+        char slotKey = (!string.IsNullOrEmpty(_settings.RodSlot) && char.IsDigit(_settings.RodSlot[0])) ? _settings.RodSlot[0] : '1';
+
         // Reset step items to pending
         ResetStepUI(StepItemWindow, IconStepWindow, MetricStepWindow, DescStepWindow, "Checking for active Roblox client...");
         ResetStepUI(StepItemCapture, IconStepCapture, MetricStepCapture, DescStepCapture, "Measuring BitBlt latency (target sub-3ms)...");
         ResetStepUI(StepItemHotbar, IconStepHotbar, MetricStepHotbar, DescStepHotbar, "Locating CoreGui hotbar container...");
-        ResetStepUI(StepItemToggle, IconStepToggle, MetricStepToggle, DescStepToggle, "Sending momentary '1' keypress and verifying CV detection...");
+        ResetStepUI(StepItemToggle, IconStepToggle, MetricStepToggle, DescStepToggle, $"Sending momentary '{slotKey}' keypress and verifying CV detection...");
         ResetStepUI(StepItemSafety, IconStepSafety, MetricStepSafety, DescStepSafety, "Auditing water target, slot click, and dialog coordinates...");
 
         try

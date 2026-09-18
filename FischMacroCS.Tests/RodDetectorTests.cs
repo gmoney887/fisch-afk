@@ -127,6 +127,28 @@ public class RodDetectorTests
     }
 
     [Fact]
+    public void DetectRodEquipped_Slot8AndSlot9_DistinctCentersAndNoCollision()
+    {
+        // 1920x1080 resolution
+        int width = 1920;
+        int height = 1080;
+        using var canvas = new Mat(new Size(width, height), MatType.CV_8UC3, new Scalar(25, 25, 25));
+
+        var res8 = _vision.DetectRodEquipped(canvas, slotNum: 8, generateDebug: false, fullViewportHeight: height);
+        var res9 = _vision.DetectRodEquipped(canvas, slotNum: 9, generateDebug: false, fullViewportHeight: height);
+
+        Assert.True(res8.HotbarFound);
+        Assert.True(res9.HotbarFound);
+
+        // Distance between Slot 8 and Slot 9 must be ~1 slot width (~52px at 1080p)
+        int deltaX = res9.SlotCenter.X - res8.SlotCenter.X;
+        Assert.InRange(deltaX, 45, 60);
+
+        // Slot 9 center must be strictly to the right of Slot 8 right edge
+        Assert.True(res9.SlotCenter.X > res8.SlotBounds.Right, "Slot 9 center must not fall inside Slot 8 bounds!");
+    }
+
+    [Fact]
     public void DetectRodEquipped_RealPCEquippedSlot1_CorrectlyDetectsEquipped()
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
