@@ -770,7 +770,8 @@ public class FishingEngine : IDisposable
         // Fallback to center-anchored proportions if vision capture failed
         if (slotClientX < 0 || slotClientY < 0)
         {
-            double offsetRatio = (slotNum - 5) * 0.04833;
+            double slotRatio = (clientW / (double)clientH > 1.95) ? (0.435 / 9.0) : (0.5667 / 9.0);
+            double offsetRatio = (slotNum - 5) * slotRatio;
             slotClientX = (clientW / 2) + (int)Math.Round(clientH * offsetRatio);
             slotClientY = clientH - (int)Math.Round(clientH * 0.035);
         }
@@ -834,6 +835,10 @@ public class FishingEngine : IDisposable
 
         char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
         int slotNum = Math.Clamp(rodKey - '0', 1, 9);
+
+        // Ensure Roblox has focus before sending hotkey
+        Win32.ForceSetForegroundWindow(robloxHwnd);
+        Thread.Sleep(30);
 
         // Send hotkey once
         Win32.SendKeyPress(rodKey);

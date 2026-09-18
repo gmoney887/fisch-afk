@@ -915,7 +915,12 @@ public class VisionProcessor
             : ((w / (double)h >= 4.5) ? (int)Math.Round(h * 4.0) : h);
 
         // Center-Anchored Height-Scaled Roblox Hotbar Geometry (Immune to scenery, sand, and aspect ratio)
-        int nominalTotalW = Math.Max(50, (int)Math.Round(vpH * 0.435));
+        // In Roblox Desktop CoreGui, hotbar slots are ~68px wide at 100% DPI.
+        // On 16:9 / 16:10 displays (aspect <= 1.95), 9 slots * 68px / 1080 = ~0.5667 * vpH.
+        // On 21:9 / 32:9 ultrawide displays (aspect > 1.95), 9 slots * 68px / 1440 = ~0.435 * vpH.
+        double aspect = w / (double)vpH;
+        double nominalRatio = aspect > 1.95 ? 0.435 : 0.5667;
+        int nominalTotalW = Math.Max(50, (int)Math.Round(vpH * nominalRatio));
         double nominalSlotW = nominalTotalW / 9.0;
         int nominalHotbarH = Math.Max(16, (int)Math.Round(vpH * 0.0584));
         int bottomMargin = Math.Max(2, (int)Math.Round(vpH * 0.007));
@@ -1009,10 +1014,11 @@ public class VisionProcessor
         int visualCenter = (detectedLeft + detectedRight) / 2;
 
         // Roblox CoreGui hotbar is strictly horizontally centered around midX (clientW / 2).
-        // A visual container is accepted only if symmetric around midX and represents a complete 9-slot container.
-        bool visualValid = visualW >= (int)(nominalTotalW * 0.94) &&
-                           visualW <= (int)(nominalTotalW * 1.08) &&
-                           Math.Abs(visualCenter - midX) <= Math.Max(2, (int)(vpH * 0.006));
+        // Across aspect ratios (ultrawide to 16:9), hotbar width ranges from ~0.40*vpH to ~0.58*vpH.
+        // A visual container is accepted if symmetric around midX and within the valid hotbar width envelope.
+        bool visualValid = visualW >= (int)(vpH * 0.38) &&
+                           visualW <= (int)(vpH * 0.62) &&
+                           Math.Abs(visualCenter - midX) <= Math.Max(4, (int)(vpH * 0.012));
 
         int totalW = visualValid ? visualW : nominalTotalW;
         int hotbarLeft = midX - (totalW / 2);
@@ -1088,13 +1094,14 @@ public class VisionProcessor
             Cv2.CvtColor(slotBoxBgr, slotBoxHsv, ColorConversionCodes.BGR2HSV);
 
             using var maskWhite = new Mat();
-            Cv2.InRange(slotBoxHsv, new Scalar(0, 0, 215), new Scalar(180, 40, 255), maskWhite);
+            Cv2.InRange(slotBoxHsv, new Scalar(0, 0, 190), new Scalar(180, 50, 255), maskWhite);
 
             Cv2.FindContours(maskWhite, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
             foreach (var cnt in contours)
             {
                 Rect r = Cv2.BoundingRect(cnt);
-                if (r.Width >= (slotRect.Width * 0.72) && r.Height >= (slotSquareH * 0.72))
+                if (r.Width >= (slotRect.Width * 0.70) && r.Height >= (slotSquareH * 0.70) &&
+                    Math.Abs(r.Width - r.Height) <= Math.Max(8, (int)(slotSquareH * 0.35)))
                 {
                     isWhiteBorderEquipped = true;
                     break;
