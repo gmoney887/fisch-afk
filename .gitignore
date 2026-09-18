@@ -5,6 +5,7 @@
 /[Pp]ublish/
 /[Pp]ublish*/
 /dist/
+/artifacts/
 
 # Visual Studio / IDE
 .vs/

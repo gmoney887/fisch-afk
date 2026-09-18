@@ -5,7 +5,7 @@ using FischMacroCS.Native;
 
 namespace FischMacroCS.Capture;
 
-public class ScreenCapture : IDisposable
+public class ScreenCapture : FischMacroCS.Core.IFrameSource
 {
     private IntPtr _hMemDC = IntPtr.Zero;
     private IntPtr _hDIBBitmap = IntPtr.Zero;
@@ -61,7 +61,8 @@ public class ScreenCapture : IDisposable
             }
 
             // Blit screen pixels directly into DIBSection memory buffer at _pBits
-            Win32.BitBlt(_hMemDC, 0, 0, width, height, hDesktopDC, pt.X, pt.Y, Win32.SRCCOPY);
+            if (!Win32.BitBlt(_hMemDC, 0, 0, width, height, hDesktopDC, pt.X, pt.Y, Win32.SRCCOPY))
+                return null;
 
             // Wrap DIB section memory buffer directly with OpenCV Mat (zero copy!)
             using Mat bgraMat = Mat.FromPixelData(height, width, MatType.CV_8UC4, _pBits);

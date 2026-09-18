@@ -173,7 +173,7 @@ public class VisionProcessor
         int minBarH = (int)Math.Max(20, Math.Round(26 * scaleFactor));
         int maxBarH = (int)Math.Max(120, Math.Round(140 * scaleFactor));
         int minBarW = (int)Math.Max(25, Math.Round(35 * scaleFactor));
-        int maxBarW = (int)(cropW * 0.70);
+        int maxBarW = (int)(cropW * 0.95);
 
         foreach (var cnt in contours)
         {
@@ -305,11 +305,14 @@ public class VisionProcessor
                 int baseline = Math.Max(colHist[Math.Max(0, nx - shoulderDist)], colHist[Math.Min(cropW - 1, nx + shoulderDist)]);
                 int prominence = colHist[nx] - baseline;
 
-                // Check contiguous width of matches around nx
+                // Evaluate contiguous peak width at half-prominence above baseline (FWHM):
+                // Background ocean water typically creates an elevated noise floor (~20-30px).
+                // Measuring width at half-prominence accurately detects sharp needles even across illuminated/noisy water.
+                int halfHeightThresh = baseline + Math.Max(4, prominence / 2);
                 int leftEdge = nx;
-                while (leftEdge > trackSearchX1 && colHist[leftEdge] >= (minNeedleHeight / 2)) leftEdge--;
+                while (leftEdge > trackSearchX1 && colHist[leftEdge] >= halfHeightThresh) leftEdge--;
                 int rightEdge = nx;
-                while (rightEdge < trackSearchX2 && colHist[rightEdge] >= (minNeedleHeight / 2)) rightEdge++;
+                while (rightEdge < trackSearchX2 && colHist[rightEdge] >= halfHeightThresh) rightEdge++;
                 int peakWidth = rightEdge - leftEdge - 1;
 
                 // Needle must be narrow (<= maxNeedleWidth) and have significant localized prominence
@@ -333,8 +336,9 @@ public class VisionProcessor
             {
                 if (colHist[nx] > fallbackMax && colHist[nx] >= minNeedleHeight)
                 {
-                    int leftScan = nx; while (leftScan > trackSearchX1 && colHist[leftScan] >= (minNeedleHeight / 2)) leftScan--;
-                    int rightScan = nx; while (rightScan < trackSearchX2 && colHist[rightScan] >= (minNeedleHeight / 2)) rightScan++;
+                    int fallbackThresh = Math.Max(minNeedleHeight / 2, (int)(colHist[nx] * 0.65));
+                    int leftScan = nx; while (leftScan > trackSearchX1 && colHist[leftScan] >= fallbackThresh) leftScan--;
+                    int rightScan = nx; while (rightScan < trackSearchX2 && colHist[rightScan] >= fallbackThresh) rightScan++;
                     if ((rightScan - leftScan - 1) <= maxNeedleWidth)
                     {
                         fallbackMax = colHist[nx];
@@ -353,13 +357,15 @@ public class VisionProcessor
             long weightedSum = 0;
             int totalWeight = 0;
 
+            int localBase = Math.Min(colHist[winStart], colHist[winEnd]);
             for (int wx = winStart; wx <= winEnd; wx++)
             {
                 int w = colHist[wx];
-                if (w >= (minNeedleHeight / 2))
+                if (w > localBase)
                 {
-                    weightedSum += (long)wx * w;
-                    totalWeight += w;
+                    int netW = w - localBase;
+                    weightedSum += (long)wx * netW;
+                    totalWeight += netW;
                 }
             }
 
@@ -1221,6 +1227,77 @@ public class VisionProcessor
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Detects the presence of the in-game catch notification banner ("You just caught a..." / "Extra! Your ... caught a...")
+    /// appearing above the minigame track area at the conclusion of a successful catch.
+    /// Returns true if a catch banner is confirmed, false if the fish escaped or no catch occurred.
+    /// </summary>
+    public bool DetectCatchNotification(Mat frame)
+    {
+        if (frame == null || frame.Empty() || frame.Width < 50 || frame.Height < 40)
+            return false;
+
+        try
+        {
+            // Banner appears in upper half of track crop: y from 10% to 55% of crop height, centered horizontally
+            int y1 = (int)(frame.Height * 0.10);
+            int y2 = (int)(frame.Height * 0.55);
+            int x1 = (int)(frame.Width * 0.12);
+            int x2 = (int)(frame.Width * 0.88);
+            int roiW = x2 - x1;
+            int roiH = y2 - y1;
+
+            if (roiW <= 0 || roiH <= 0 || x1 + roiW > frame.Width || y1 + roiH > frame.Height)
+                return false;
+
+            using var roi = new Mat(frame, new Rect(x1, y1, roiW, roiH));
+
+            Mat[] bgr = Cv2.Split(roi);
+            using var b = bgr[0];
+            using var g = bgr[1];
+            using var r = bgr[2];
+
+            // Text white (R, G >= 190):
+            using var maskWhite = new Mat();
+            using var maskW1 = new Mat();
+            using var maskW2 = new Mat();
+            Cv2.Threshold(r, maskW1, 190, 255, ThresholdTypes.Binary);
+            Cv2.Threshold(g, maskW2, 190, 255, ThresholdTypes.Binary);
+            Cv2.BitwiseAnd(maskW1, maskW2, maskWhite);
+
+            // Text gold/yellow (R >= 180, G >= 135):
+            using var maskGold = new Mat();
+            using var maskG1 = new Mat();
+            using var maskG2 = new Mat();
+            Cv2.Threshold(r, maskG1, 180, 255, ThresholdTypes.Binary);
+            Cv2.Threshold(g, maskG2, 135, 255, ThresholdTypes.Binary);
+            Cv2.BitwiseAnd(maskG1, maskG2, maskGold);
+
+            using var bannerMask = new Mat();
+            Cv2.BitwiseOr(maskWhite, maskGold, bannerMask);
+
+            // Find contours corresponding to text letters
+            Cv2.FindContours(bannerMask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            int textLetterCount = 0;
+            foreach (var cnt in contours)
+            {
+                var rect = Cv2.BoundingRect(cnt);
+                // Letters are typically 5px to 40px high, 2px to 50px wide
+                if (rect.Height >= 5 && rect.Height <= 40 && rect.Width >= 2 && rect.Width <= 50)
+                {
+                    textLetterCount++;
+                }
+            }
+
+            foreach (var ch in bgr) ch.Dispose();
+            return textLetterCount >= 12;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
 

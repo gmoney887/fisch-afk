@@ -5,7 +5,7 @@ echo   Building Fat Dad's Fisch AFK Pro - Portable Standalone
 echo ========================================================
 echo.
 
-"C:\Users\garre\.dotnet\dotnet.exe" publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish-singlefile
+powershell.exe -NoProfile -File "%~dp0scripts\Publish-Portable.ps1"
 
 if %ERRORLEVEL% equ 0 (
     echo.

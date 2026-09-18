@@ -343,7 +343,19 @@
 
                                         <Button x:Name="BtnOpenRecordings" Click="BtnOpenRecordings_Click" Content="📁 Clips" 
                                                 Background="#171C28" Foreground="#94A3B8" BorderBrush="#2A3347" BorderThickness="1" FontSize="9.5" FontWeight="Bold" 
-                                                Padding="6,2.5" Margin="0,0,0,2" Cursor="Hand" ToolTip="Display Option: Open recorded fish catch clips folder in Explorer">
+                                                Padding="6,2.5" Margin="0,0,4,2" Cursor="Hand" ToolTip="Display Option: Open recorded fish catch clips folder in Explorer">
+                                            <Button.Template>
+                                                <ControlTemplate TargetType="Button">
+                                                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                    </Border>
+                                                </ControlTemplate>
+                                            </Button.Template>
+                                        </Button>
+
+                                        <Button x:Name="BtnSubmitRecording" Click="BtnSubmitRecording_Click" Content="📤 Submit" 
+                                                Background="#064E3B" Foreground="#34D399" BorderBrush="#059669" BorderThickness="1" FontSize="9.5" FontWeight="Bold" 
+                                                Padding="6,2.5" Margin="0,0,0,2" Cursor="Hand" ToolTip="Diagnostic Option: Submit or export recording bundle with telemetry &amp; logs to review and correct issues">
                                             <Button.Template>
                                                 <ControlTemplate TargetType="Button">
                                                     <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4" Padding="{TemplateBinding Padding}">
@@ -686,6 +698,7 @@
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" DockPanel.Dock="Right">
+                                <Button Content="Observe" Click="Observe_Click" Padding="5,1" Margin="0,0,6,0" ToolTip="Record manual gameplay without automated inputs. End stops recording."/>
                                 <CheckBox x:Name="ChkEnableRecording" Content="Record" IsChecked="True" Foreground="#8A94A6" FontSize="10" Margin="0,0,6,0" VerticalAlignment="Center"/>
                                 <TextBlock Text="Cap:" FontSize="10" Foreground="#8A94A6" VerticalAlignment="Center" Margin="0,0,2,0"/>
                                 <TextBox x:Name="TxtMaxRecordings" Text="25" Width="26" Height="18" Background="#0F1117" Foreground="#FFFFFF" BorderBrush="#2D3344" Padding="0" FontSize="10" TextAlignment="Center" Margin="0,0,8,0" VerticalAlignment="Center"/>
@@ -779,6 +792,7 @@
                                 <StackPanel Grid.Column="3">
                                     <TextBlock Text="POST-CATCH (MS)" Style="{StaticResource MetricLabel}"/>
                                     <TextBox x:Name="TxtPostCatch" Text="1500" Height="30" FontSize="11" TextAlignment="Center" Margin="0,2,0,0"/>
+                                    <CheckBox x:Name="ChkAdaptiveDynamics" Content="Trial adaptive dynamics" Foreground="#94A3B8" FontSize="10" Margin="0,4,0,0" Checked="AdaptiveDynamicsChanged" Unchecked="AdaptiveDynamicsChanged" ToolTip="Experimental bounded pull/release tuning. Compare matched live sessions on both PCs before enabling for unattended use."/>
                                 </StackPanel>
                             </Grid>
 

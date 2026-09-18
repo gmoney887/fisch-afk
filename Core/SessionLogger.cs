@@ -42,7 +42,7 @@ public class SessionLogger : IDisposable
 
     public SessionLogger(string? customPath = null)
     {
-        _logFilePath = customPath ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "macro_events.log");
+        _logFilePath = customPath ?? AppDataPaths.FilePath("macro_events.log");
         InitializeWriter();
     }
 

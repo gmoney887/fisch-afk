@@ -15,6 +15,8 @@ public enum MinigameTheme
 
 public class Settings
 {
+    public string DiagnosticsRepository { get; set; } = "";
+    public bool EnableAdaptiveRodDynamics { get; set; } = false;
     public string RodSlot { get; set; } = "1";
     public int CastHoldMs { get; set; } = 760; // Calibrated universal sweet spot for 100% PERFECT! cast
     public int PostCastDelayMs { get; set; } = 1000;
@@ -58,7 +60,7 @@ public class Settings
     public double CustomGravityFall { get; set; } = 410.0;
 
     // Aquarium Auto-Claim
-    public bool EnableAutoClaimAquarium { get; set; } = true;
+    public bool EnableAutoClaimAquarium { get; set; } = false;
     public int AquariumClaimIntervalMinutes { get; set; } = 55;
     public DateTime LastAquariumClaimUtc { get; set; } = DateTime.MinValue;
 
@@ -75,15 +77,17 @@ public class Settings
     public bool EnableAutoTuneCastDelay { get; set; } = true;
     public int CastPredictiveLeadMs { get; set; } = 25; // Predictive lead (ms) so mouse release lands at 97-99% sweet spot
 
-    private static readonly string ConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+    private static readonly string ConfigPath = AppDataPaths.FilePath("config.json");
+    private static readonly object SaveGate = new();
 
     public static Settings Load()
     {
         try
         {
-            if (File.Exists(ConfigPath))
+            string sourcePath = File.Exists(ConfigPath) ? ConfigPath : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "config.json");
+            if (File.Exists(sourcePath))
             {
-                string json = File.ReadAllText(ConfigPath);
+                string json = File.ReadAllText(sourcePath);
                 var settings = JsonSerializer.Deserialize<Settings>(json);
                 if (settings != null)
                 {
@@ -108,11 +112,26 @@ public class Settings
                         settings.ReelTimeoutMs = 35000;
                     if (settings.WatchdogStallTimeoutSeconds <= 0)
                         settings.WatchdogStallTimeoutSeconds = 50;
+                    if (sourcePath != ConfigPath) settings.Save();
                     return settings;
                 }
             }
         }
-        catch { }
+        catch
+        {
+            // Preserve unreadable configuration for recovery instead of silently destroying it.
+            try
+            {
+                if (File.Exists(ConfigPath)) File.Copy(ConfigPath, ConfigPath + $".unreadable-{DateTime.UtcNow:yyyyMMddHHmmssfff}", false);
+                if (File.Exists(ConfigPath + ".backup"))
+                {
+                    var backup = JsonSerializer.Deserialize<Settings>(File.ReadAllText(ConfigPath + ".backup"));
+                    if (backup != null) return backup;
+                }
+            }
+            catch { }
+            return new Settings();
+        }
 
         var def = new Settings();
         def.Save();
@@ -121,11 +140,16 @@ public class Settings
 
     public void Save()
     {
+        lock (SaveGate)
+        {
         try
         {
             string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(ConfigPath, json);
+            File.WriteAllText(ConfigPath + ".tmp", json);
+            if (File.Exists(ConfigPath)) File.Copy(ConfigPath, ConfigPath + ".backup", true);
+            File.Move(ConfigPath + ".tmp", ConfigPath, true);
         }
         catch { }
+        }
     }
 }

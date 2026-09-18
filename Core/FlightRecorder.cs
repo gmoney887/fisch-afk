@@ -1,208 +1,242 @@
-using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Security.Cryptography;
 using System.Text;
 using OpenCvSharp;
 
 namespace FischMacroCS.Core;
 
-public class FlightRecorder : IDisposable
+/// <summary>Bounded, asynchronous raw evidence recording. Mat ownership transfers only after cloning.</summary>
+public sealed class FlightRecorder : IDisposable
 {
+    private sealed record Entry(long Id, long Timestamp, string Kind, object Data, Mat? Frame = null, long DroppedBefore = 0);
+    private readonly object _gate = new();
     private readonly string _baseDir;
-    private string? _currentSessionDir;
-    private VideoWriter? _videoWriter;
-    private StreamWriter? _csvWriter;
-    private bool _isRecording = false;
-    private long _sessionStartTicks = 0;
-    private int _frameCount = 0;
-    private int _insideBarCount = 0;
-    private int _outsideBarCount = 0;
-    private int _deadCenterCount = 0;
-    private int _activeReelingTicks = 0;
-    private double _totalAbsError = 0;
-    private int _frameWidth = 640;
-    private int _frameHeight = 120;
-    private int _maxRecordingsToKeep = 25;
-
-    public bool IsRecording => _isRecording;
+    private BlockingCollection<Entry>? _queue;
+    private Task? _writer;
+    private long _nextId, _dropped, _lastFrame, _lastContext;
+    private long _queuedBytes;
+    private static readonly JsonSerializerOptions Json = new() { IncludeFields = true, Converters = { new JsonStringEnumConverter() } };
+    private const long QueueByteLimit = 48L * 1024 * 1024;
+    private string? _sessionDirectory;
+    private readonly List<Task> _writers = new();
+    private int _maxRecordings = 25;
+    public bool IsRecording { get { lock (_gate) return _queue != null; } }
     public string RecordingsDirectory => _baseDir;
-    public int MaxRecordingsToKeep
-    {
-        get => _maxRecordingsToKeep;
-        set
-        {
-            _maxRecordingsToKeep = value;
-            EnforceRetentionPolicy();
-        }
-    }
-
+    public string? CurrentSessionDirectory => _sessionDirectory;
+    public string? LastError { get; private set; }
+    public int MaxRecordingsToKeep { get => _maxRecordings; set => _maxRecordings = Math.Max(1, value); }
     public FlightRecorder(string? customDir = null, int maxRecordings = 25)
     {
-        _maxRecordingsToKeep = maxRecordings;
-        _baseDir = customDir ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recordings");
-        try
-        {
-            Directory.CreateDirectory(_baseDir);
-            EnforceRetentionPolicy();
-        }
-        catch { }
+        _baseDir = customDir ?? AppDataPaths.FilePath("recordings");
+        MaxRecordingsToKeep = maxRecordings;
     }
-
-    public void EnforceRetentionPolicy()
-    {
-        try
-        {
-            if (_maxRecordingsToKeep <= 0 || !Directory.Exists(_baseDir)) return;
-
-            var sessionDirs = Directory.GetDirectories(_baseDir, "session_*")
-                .OrderBy(d => Directory.GetCreationTimeUtc(d))
-                .ToList();
-
-            int excessCount = sessionDirs.Count - _maxRecordingsToKeep;
-            for (int i = 0; i < excessCount; i++)
-            {
-                try
-                {
-                    Directory.Delete(sessionDirs[i], true);
-                }
-                catch { }
-            }
-        }
-        catch { }
-    }
-
-    public void StartSession(int frameWidth, int frameHeight)
+    public void StartSession(int frameWidth, int frameHeight, object? metadata = null)
     {
         StopSession();
-
+        // Reserve the active session's worst-case frame/journal footprint before accepting it.
+        EnforceRetentionPolicy(224L * 1024 * 1024);
+        if (Directory.Exists(_baseDir) && StoredBytes(_baseDir) > 800L * 1024 * 1024)
+        {
+            LastError = "Recording storage is full. Export or remove old reports before recording again.";
+            return;
+        }
+        lock (_gate)
+        {
+            _sessionDirectory = Path.Combine(_baseDir, $"session_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}");
+            var queue = new BlockingCollection<Entry>(24);
+            _queue = queue; _nextId = _dropped = _lastFrame = _lastContext = 0;
+            LastError = null;
+            string directory = _sessionDirectory;
+            long started = Stopwatch.GetTimestamp();
+            var manifest = new { SchemaVersion = 3, SessionId = Path.GetFileName(directory),
+                PcId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Environment.MachineName)))[..16],
+                AppVersion = typeof(FlightRecorder).Assembly.GetName().Version?.ToString(),
+                DetectorVersion = "2", StartedUtc = DateTime.UtcNow, MonotonicStart = started,
+                TimestampFrequency = Stopwatch.Frequency, Width = frameWidth, Height = frameHeight,
+                Metadata = JsonSerializer.SerializeToElement(metadata, Json), Privacy = "Raw gameplay may contain player names and chat. Review before sharing." };
+            _writer = Task.Run(() => WriteSession(queue, directory, manifest, started));
+            _writers.RemoveAll(t => t.IsCompleted);
+            _writers.Add(_writer);
+        }
+    }
+    public void RecordFrame(Mat frame, Rect region, Rect viewport, double captureMs)
+    {
+        lock (_gate)
+        {
+            if (_queue == null) return;
+            long now = Stopwatch.GetTimestamp();
+            bool context = region.Width == viewport.Width && region.Height == viewport.Height;
+            long previous = context ? _lastContext : _lastFrame;
+            if (previous != 0 && Stopwatch.GetElapsedTime(previous, now).TotalMilliseconds < (context ? 1000 : 100)) return;
+            if (context) _lastContext = now; else _lastFrame = now;
+            long id = ++_nextId;
+            long bytes = frame.Total() * frame.ElemSize();
+            if (_queue.Count >= 24 || Interlocked.Read(ref _queuedBytes) + bytes > QueueByteLimit) { _dropped++; return; }
+            var clone = frame.Clone();
+            Interlocked.Add(ref _queuedBytes, bytes);
+            if (!_queue.TryAdd(new Entry(id, now, "frame", new { Region = region, Viewport = viewport, CaptureMs = captureMs, Context = context }, clone, _dropped)))
+            { clone.Dispose(); Interlocked.Add(ref _queuedBytes, -bytes); _dropped++; }
+        }
+    }
+    public void RecordEvent(string kind, object data)
+    {
+        lock (_gate)
+        {
+            if (_queue == null) return;
+            if (!_queue.TryAdd(new Entry(_nextId, Stopwatch.GetTimestamp(), kind, data, DroppedBefore: _dropped))) _dropped++;
+        }
+    }
+    public void RecordTick(TelemetryData t, bool isMouseDown, Mat? rawFrame)
+    {
+        RecordEvent("decision", new { t.State, t.Action, MouseDown = isMouseDown, t.BarLeft, t.BarRight,
+            t.FishX, t.BarVelocity, t.FishVelocity, t.LoopLatencyMs, t.VisionLatencyMs,
+            t.TotalCatches, t.TotalFails, t.SessionUptimeSeconds });
+    }
+    public void StopSession(string outcome = "Unknown", object? statistics = null)
+    {
+        lock (_gate)
+        {
+            if (_queue == null) return;
+            // Completion metadata is delivered separately, so queue saturation cannot drop the outcome.
+            var queue = _queue;
+            _queue = null;
+            _completion[queue] = (outcome, _dropped, statistics, Stopwatch.GetTimestamp());
+            queue.CompleteAdding();
+        }
+    }
+    private readonly ConcurrentDictionary<BlockingCollection<Entry>, (string Outcome, long Dropped, object? Statistics, long End)> _completion = new();
+    private void WriteSession(BlockingCollection<Entry> queue, string directory, object manifest, long start)
+    {
         try
         {
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(manifest, Json));
+            using var journal = new BoundedEventJournal(directory);
+            var frameIndex = new Dictionary<string, object>(StringComparer.Ordinal);
+            int frames = 0;
+            var rolling = new Queue<(string File, long Timestamp, long Bytes)>();
+            var preserved = new Queue<(string File, long Bytes)>();
+            long preservedBytes = 0;
+            long rollingBytes = 0;
+            long preserveUntil = 0;
+            int successes = 0;
+            foreach (var entry in queue.GetConsumingEnumerable())
+            {
+                if (entry.Kind.Contains("outcome", StringComparison.Ordinal))
+                {
+                    bool success = JsonSerializer.Serialize(entry.Data, Json).Contains("ConfirmedSuccess", StringComparison.Ordinal);
+                    if (!success || ++successes % 10 == 0)
+                    {
+                        preserveUntil = entry.Timestamp + 5 * Stopwatch.Frequency;
+                        while (rolling.TryDequeue(out var buffered))
+                        { preserved.Enqueue((buffered.File, buffered.Bytes)); preservedBytes += buffered.Bytes; rollingBytes -= buffered.Bytes; }
+                    }
+                }
+                using (entry.Frame)
+                {
+                    if (entry.Frame != null) Interlocked.Add(ref _queuedBytes, -(entry.Frame.Total() * entry.Frame.ElemSize()));
+                    string? filename = entry.Frame == null ? null : $"frame_{entry.Id:D8}.png";
+                    if (filename != null)
+                    {
+                        string path = Path.Combine(directory, filename);
+                        Cv2.ImWrite(path, entry.Frame!); frames++;
+                        long bytes = new FileInfo(path).Length;
+                        if (entry.Timestamp <= preserveUntil) { preserved.Enqueue((path, bytes)); preservedBytes += bytes; }
+                        else { rolling.Enqueue((path, entry.Timestamp, bytes)); rollingBytes += bytes; }
+                        while (rolling.TryPeek(out var old) && (entry.Timestamp - old.Timestamp > 15 * Stopwatch.Frequency || rolling.Count > 165 || rollingBytes > 64L * 1024 * 1024))
+                        {
+                            rolling.Dequeue(); File.Delete(old.File); rollingBytes -= old.Bytes;
+                            frameIndex.Remove(Path.GetFileName(old.File));
+                        }
+                        // Active-session evidence also has a hard cap; completed-session retention handles the global budget.
+                        while ((preservedBytes > 128L * 1024 * 1024 || preserved.Count > 5000) && preserved.TryDequeue(out var preservedOld))
+                        {
+                            File.Delete(preservedOld.File); preservedBytes -= preservedOld.Bytes;
+                            frameIndex.Remove(Path.GetFileName(preservedOld.File));
+                        }
+                    }
+                    var row = new { FrameId = entry.Id, entry.Timestamp, entry.Kind, entry.Data, File = filename, entry.DroppedBefore };
+                    if (filename != null && File.Exists(Path.Combine(directory, filename))) frameIndex[filename] = row;
+                    journal.WriteLine(JsonSerializer.Serialize(row, Json));
+                }
+            }
+            _completion.TryRemove(queue, out var completion);
+            var completed = new { Kind = "completed", completion.Outcome, completion.Statistics, DroppedEntries = completion.Dropped, JournalEntriesExpired = journal.ExpiredEntries };
+            journal.WriteLine(JsonSerializer.Serialize(completed, Json));
+            journal.Flush();
+            journal.Dispose();
+            File.WriteAllText(Path.Combine(directory, "frame-index.json"), JsonSerializer.Serialize(frameIndex.Values, Json));
+            File.WriteAllText(Path.Combine(directory, "completed.json"), JsonSerializer.Serialize(completed, Json));
+            File.WriteAllText(Path.Combine(directory, "summary.txt"), FormattableString.Invariant(
+                $"Session Outcome: {completion.Outcome}\nDuration: {Stopwatch.GetElapsedTime(start, completion.End).TotalSeconds:F2} seconds\nTotal Recorded Frames: {frames}\nDropped Entries: {completion.Dropped}\nJournal Entries Expired: {journal.ExpiredEntries}\nStatistics: {JsonSerializer.Serialize(completion.Statistics, Json)}\n"));
             EnforceRetentionPolicy();
-
-            string sessionName = $"session_{DateTime.Now:yyyyMMdd_HHmmss}";
-            _currentSessionDir = Path.Combine(_baseDir, sessionName);
-            Directory.CreateDirectory(_currentSessionDir);
-
-            // Ensure even dimensions for standard video codecs
-            int w = (frameWidth % 2 != 0) ? frameWidth - 1 : frameWidth;
-            int h = (frameHeight % 2 != 0) ? frameHeight - 1 : frameHeight;
-            _frameWidth = Math.Max(2, w);
-            _frameHeight = Math.Max(2, h);
-
-            string videoPath = Path.Combine(_currentSessionDir, "gameplay.avi");
-            _videoWriter = new VideoWriter(videoPath, FourCC.MJPG, 30, new Size(_frameWidth, _frameHeight));
-
-            string csvPath = Path.Combine(_currentSessionDir, "telemetry.csv");
-            _csvWriter = new StreamWriter(csvPath, false, Encoding.UTF8) { AutoFlush = true };
-            _csvWriter.WriteLine("ElapsedMs,State,Action,MouseDown,BarFound,FishFound,BarLeft,BarRight,BarCenter,FishX,Error,BarVelocity,FishVelocity,LoopLatencyMs,VisionLatencyMs");
-
-            _sessionStartTicks = System.Diagnostics.Stopwatch.GetTimestamp();
-            _frameCount = 0;
-            _insideBarCount = 0;
-            _outsideBarCount = 0;
-            _deadCenterCount = 0;
-            _activeReelingTicks = 0;
-            _totalAbsError = 0;
-            _isRecording = true;
         }
-        catch { }
-    }
-
-    public void RecordTick(TelemetryData t, bool isMouseDown, Mat? debugFrame)
-    {
-        if (!_isRecording || _csvWriter == null) return;
-
-        double elapsedMs = (System.Diagnostics.Stopwatch.GetTimestamp() - _sessionStartTicks) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
-
-        if (t.BarWidth > 0 && t.FishX > 0)
+        catch (Exception ex)
         {
-            _activeReelingTicks++;
-            bool inside = (t.FishX >= t.BarLeft && t.FishX <= t.BarRight);
-            if (inside) _insideBarCount++; else _outsideBarCount++;
-
-            double absErr = Math.Abs(t.Error);
-            _totalAbsError += absErr;
-            if (absErr <= 20.0) _deadCenterCount++;
+            LastError = ex.Message;
+            foreach (var entry in queue.GetConsumingEnumerable())
+            {
+                if (entry.Frame != null) Interlocked.Add(ref _queuedBytes, -(entry.Frame.Total() * entry.Frame.ElemSize()));
+                entry.Frame?.Dispose();
+            }
+            _completion.TryRemove(queue, out _);
         }
+        finally { queue.Dispose(); }
+    }
+    public static long StoredBytes(string root) => Directory.Exists(root)
+        ? Directory.EnumerateFiles(root, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
+            .Sum(f => new FileInfo(f).Length) : 0;
 
-        // Log telemetry row (safeguarded against transient file locking by OneDrive / antivirus)
+    public void EnforceRetentionPolicy(long reserveBytes = 0)
+    {
         try
         {
-            _csvWriter.WriteLine(
-                $"{elapsedMs:F1},{t.State},{t.Action.Replace(',', ';')},{(isMouseDown ? 1 : 0)}," +
-                $"{(t.BarWidth > 0 ? 1 : 0)},{(t.FishX > 0 ? 1 : 0)},{t.BarLeft},{t.BarRight},{t.BarCenter:F1}," +
-                $"{t.FishX},{t.Error:F1},{t.BarVelocity:F1},{t.FishVelocity:F1},{t.LoopLatencyMs:F1},{t.VisionLatencyMs:F1}"
-            );
-        }
-        catch { }
-
-        // Record video frame if provided
-        if (_videoWriter != null && _videoWriter.IsOpened() && debugFrame != null && !debugFrame.Empty())
-        {
-            try
+            if (!Directory.Exists(_baseDir)) return;
+            var sessions = Directory.GetDirectories(_baseDir, "session_*")
+                .Where(d => File.Exists(Path.Combine(d, "summary.txt")))
+                .Select(d => new { Path = d, Date = Directory.GetCreationTimeUtc(d),
+                    Size = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length),
+                    Marked = File.Exists(Path.Combine(d, "preserve.marker")) })
+                .OrderBy(d => d.Marked).ThenBy(d => d.Date).ToList();
+            // Include active sessions and frozen report exports in the same storage budget.
+            long bytes = StoredBytes(_baseDir);
+            int count = sessions.Count;
+            foreach (var session in sessions)
             {
-                using Mat frameToSave = new Mat();
-                if (debugFrame.Width != _frameWidth || debugFrame.Height != _frameHeight)
-                {
-                    Cv2.Resize(debugFrame, frameToSave, new Size(_frameWidth, _frameHeight));
-                }
-                else
-                {
-                    debugFrame.CopyTo(frameToSave);
-                }
-
-                // Draw overlay flight telemetry HUD on the saved video
-                string statusText = $"T={elapsedMs / 1000.0:F1}s | {(isMouseDown ? "[MOUSE DOWN]" : "[MOUSE UP]")} | Err: {t.Error:+0;-0;0}px | {t.Action}";
-                Scalar hudColor = isMouseDown ? Scalar.FromRgb(255, 82, 82) : Scalar.FromRgb(0, 230, 118);
-                Cv2.PutText(frameToSave, statusText, new Point(10, 20), HersheyFonts.HersheySimplex, 0.45, hudColor, 1);
-
-                _videoWriter.Write(frameToSave);
-                _frameCount++;
+                if (bytes + reserveBytes <= 1024L * 1024 * 1024 && count <= _maxRecordings &&
+                    (session.Marked || session.Date >= DateTime.UtcNow.AddDays(-7))) continue;
+                Directory.Delete(session.Path, true); bytes -= session.Size; count--;
             }
-            catch { }
         }
+        catch (Exception ex) { LastError = ex.Message; }
     }
+    public void Dispose() { StopSession("Stopped"); Task.WaitAll(_writers.ToArray()); }
+}
 
-    public void StopSession(string outcome = "Completed")
+public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder recorder, Func<Rect> viewport,
+    IClock? clock = null, Action? validate = null) : IFrameSource
+{
+    private readonly IClock _clock = clock ?? new MonotonicClock();
+    public Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height)
     {
-        if (!_isRecording) return;
-        _isRecording = false;
-
+        validate?.Invoke();
+        long start = _clock.Timestamp;
+        var frame = inner.CaptureClientRegion(window, x, y, width, height);
         try
         {
-            _videoWriter?.Dispose();
-            _videoWriter = null;
-
-            if (_csvWriter != null)
-            {
-                _csvWriter.Flush();
-                _csvWriter.Dispose();
-                _csvWriter = null;
-            }
-
-            if (!string.IsNullOrEmpty(_currentSessionDir) && Directory.Exists(_currentSessionDir))
-            {
-                double totalSec = (System.Diagnostics.Stopwatch.GetTimestamp() - _sessionStartTicks) / (double)System.Diagnostics.Stopwatch.Frequency;
-                double insidePct = _activeReelingTicks > 0 ? (_insideBarCount * 100.0 / _activeReelingTicks) : 0;
-                double deadCenterPct = _activeReelingTicks > 0 ? (_deadCenterCount * 100.0 / _activeReelingTicks) : 0;
-                double avgErr = _activeReelingTicks > 0 ? (_totalAbsError / _activeReelingTicks) : 0;
-
-                string summaryPath = Path.Combine(_currentSessionDir, "summary.txt");
-                File.WriteAllText(summaryPath, 
-                    $"Session Outcome: {outcome}\n" +
-                    $"Duration: {totalSec:F2} seconds\n" +
-                    $"Total Recorded Frames: {_frameCount}\n" +
-                    $"Active Reeling Ticks: {_activeReelingTicks}\n" +
-                    $"Safe Zone Retention: {insidePct:F1}% ({_insideBarCount}/{_activeReelingTicks} ticks)\n" +
-                    $"Dead-Center Retention (<=20px): {deadCenterPct:F1}% ({_deadCenterCount}/{_activeReelingTicks} ticks)\n" +
-                    $"Average Tracking Error: {avgErr:F1} px\n"
-                );
-            }
+            validate?.Invoke();
+            double captureMs = _clock.ElapsedMilliseconds(start);
+            if (frame == null || frame.Empty() || captureMs > 250)
+                throw new GameplayInterruptedException("Invalid or stale capture. Resume explicitly when the game is visible.");
+            recorder.RecordFrame(frame, new Rect(x, y, width, height), viewport(), captureMs);
+            return frame;
         }
-        catch { }
+        catch { frame?.Dispose(); throw; }
     }
-
-    public void Dispose()
-    {
-        StopSession("Engine Disposed");
-    }
+    public void Dispose() => inner.Dispose();
 }

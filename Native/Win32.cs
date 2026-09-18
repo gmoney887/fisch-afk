@@ -132,6 +132,12 @@ public static partial class Win32
     public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll")]
+    public static extern bool IsIconic(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
@@ -443,8 +449,7 @@ public static partial class Win32
             IntPtr fg = GetForegroundWindow();
             if (fg != targetHwnd && !IsWindowOrChild(fg, targetHwnd))
             {
-                ForceSetForegroundWindow(targetHwnd);
-                System.Threading.Thread.Sleep(15);
+                throw new FischMacroCS.Core.GameplayInterruptedException("Game focus changed before mouse down. Resume explicitly.");
             }
         }
 

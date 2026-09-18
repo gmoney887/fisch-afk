@@ -29,7 +29,7 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_startup.log");
+        string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow constructor start\n"); } catch { }
 
         try
@@ -48,7 +48,7 @@ public partial class MainWindow : Window
             _keyboardHook = new GlobalKeyboardHook();
             _keyboardHook.OnToggle += () => Dispatcher.BeginInvoke(ToggleMacro);
             _keyboardHook.OnReEquip += () => _engine.ReEquipRod();
-            _keyboardHook.OnStop += () => Dispatcher.BeginInvoke(() => { if (_engine.IsRunning) ToggleMacro(); });
+            _keyboardHook.OnStop += () => _engine.Stop();
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] GlobalKeyboardHook OK\n");
 
             PopulateSettingsUI();
@@ -69,7 +69,7 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
 
         _hwnd = new WindowInteropHelper(this).Handle;
-        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_startup.log");
+        string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] OnSourceInitialized HWND=0x{_hwnd:X}\n"); } catch { }
 
         _hwndSource = HwndSource.FromHwnd(_hwnd);
@@ -127,8 +127,7 @@ public partial class MainWindow : Window
             }
             else if (id == HOTKEY_ID_END)
             {
-                if (_engine.IsRunning)
-                    ToggleMacro();
+                _engine.Stop();
                 handled = true;
             }
         }
@@ -138,6 +137,7 @@ public partial class MainWindow : Window
     private void PopulateSettingsUI()
     {
         TxtRodSlot.Text = _settings.RodSlot;
+        ChkAdaptiveDynamics.IsChecked = _settings.EnableAdaptiveRodDynamics;
         TxtPostCatch.Text = _settings.PostCatchDelayMs.ToString();
         TxtCastLead.Text = _settings.CastPredictiveLeadMs.ToString();
 
@@ -226,6 +226,19 @@ public partial class MainWindow : Window
     }
 
     private bool _isStopping = false;
+    private void Observe_Click(object sender, RoutedEventArgs e)
+    {
+        if (_engine.IsRunning || _closing) return;
+        _engine.Start(observeOnly: true);
+        UpdateUIState(_engine.IsRunning);
+    }
+
+    private void AdaptiveDynamicsChanged(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null || _engine == null) return;
+        _settings.EnableAdaptiveRodDynamics = ChkAdaptiveDynamics.IsChecked == true;
+        _settings.Save();
+    }
 
     private async void ToggleMacro()
     {
@@ -465,6 +478,13 @@ public partial class MainWindow : Window
 
                 // Update Recording Indicator
                 TxtRecordingIndicator.Visibility = _engine.Recorder.IsRecording ? Visibility.Visible : Visibility.Collapsed;
+                if (_engine.Recorder.LastError is string recorderError)
+                {
+                    TxtRecordingIndicator.Visibility = Visibility.Visible;
+                    TxtRecordingIndicator.Text = "REC ERROR";
+                    TxtRecordingIndicator.ToolTip = recorderError;
+                }
+                else { TxtRecordingIndicator.Text = "● REC"; TxtRecordingIndicator.ToolTip = null; }
 
                 // Update Live Action Overlay on Camera Preview
                 if (t.State == MacroState.Reeling && !string.IsNullOrEmpty(t.Action))
@@ -537,6 +557,22 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show("Unable to open recordings folder: " + ex.Message);
+        }
+    }
+
+    private void BtnSubmitRecording_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new SubmitRecordingDialog(_engine)
+            {
+                Owner = this
+            };
+            dialog.ShowDialog();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show("Unable to open submission dialog: " + ex.Message, "Submit Error", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -915,14 +951,14 @@ public partial class MainWindow : Window
 
         if (!success)
         {
-            MessageBox.Show("Roblox window not detected! Please ensure Roblox is running and in windowed mode.", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("Aquarium reward was not confirmed. Review the recording; no claim was counted.", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         else
         {
             string recMsg = !string.IsNullOrEmpty(_engine.LastAquariumReplicationDir)
                 ? $"\n\nDiagnostic snapshots saved to:\n{_engine.LastAquariumReplicationDir}"
                 : "";
-            MessageBox.Show($"🏆 Aquarium profit successfully claimed! Modal closed and rod re-equipped.{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Aquarium reward and modal closure confirmed.{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -1332,7 +1368,7 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_startup.log");
+        string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow_Loaded start\n"); } catch { }
 
         _ = CheckForUpdatesAsync();
@@ -1426,16 +1462,27 @@ public partial class MainWindow : Window
         TxtSplashStatus.Text = $"Active Rod Pull Power: {_engine.EstimatedRodPull:F0} px/s²";
     }
 
-    private void Window_Closing(object sender, CancelEventArgs e)
+    private bool _closing;
+    private bool _shutdownComplete;
+    private async void Window_Closing(object sender, CancelEventArgs e)
     {
-        string logPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "debug_startup.log");
+        if (_shutdownComplete) return;
+        e.Cancel = true;
+        if (_closing) return;
+        _closing = true;
+        IsEnabled = false;
+        string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Window_Closing called! StackTrace:\n{Environment.StackTrace}\n"); } catch { }
 
         _keyboardHook?.Dispose();
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_TOGGLE);
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_REEQUIP);
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_END);
-        _engine.Dispose();
-        System.Windows.Application.Current.Shutdown();
+        _crateCts?.Cancel();
+        _engine.OnTelemetry -= Engine_OnTelemetry;
+        // Keep the dispatcher pumping until coordinator callbacks and recorder writes finish.
+        await Task.Run(_engine.Dispose);
+        _shutdownComplete = true;
+        Close();
     }
 }
