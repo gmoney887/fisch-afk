@@ -410,6 +410,9 @@
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
                                 <TextBlock Text="📊 SESSION ANALYTICS" FontSize="9" FontWeight="Black" Foreground="#64748B"/>
                                 <TextBlock x:Name="TxtStreakBadge" Text="🔥 Streak: 0" FontSize="9" FontWeight="Bold" Foreground="#10B981" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                <Border x:Name="BadgeWatchdog" Background="#0C1929" BorderBrush="#0284C7" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="Autonomous Self-Healing Watchdog: detects stalls, clears stuck states, and automatically stop/starts to keep fishing 24/7">
+                                    <TextBlock x:Name="TxtWatchdogBadge" Text="🛡️ Heals: 0" FontSize="9" FontWeight="Bold" Foreground="#38BDF8"/>
+                                </Border>
                             </StackPanel>
                             <Button x:Name="BtnResetStats" Click="BtnResetStats_Click" Content="↺ Reset" DockPanel.Dock="Right"
                                     Background="#1A202C" Foreground="#94A3B8" BorderBrush="#2D3748" BorderThickness="1"
@@ -544,8 +547,8 @@
                                     <Border x:Name="BadgeState" Background="#374151" CornerRadius="4" Padding="6,2" Margin="0,0,4,0" HorizontalAlignment="Left">
                                         <TextBlock x:Name="TxtState" Text="READY" FontSize="11" FontWeight="Bold" Foreground="#9CA3AF"/>
                                     </Border>
-                                    <Border x:Name="BadgeRodState" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="4" Padding="5,2" HorizontalAlignment="Left" ToolTip="Live Computer Vision status of fishing rod in hand">
-                                        <TextBlock x:Name="TxtRodState" Text="ROD: EQUIPPED" FontSize="9" FontWeight="Bold" Foreground="#34D399"/>
+                                    <Border x:Name="BadgeRodState" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="5,2" HorizontalAlignment="Left" ToolTip="Live Computer Vision status of fishing rod in hand">
+                                        <TextBlock x:Name="TxtRodState" Text="ROD: STANDBY" FontSize="9" FontWeight="Bold" Foreground="#64748B"/>
                                     </Border>
                                 </WrapPanel>
                             </StackPanel>
@@ -576,35 +579,31 @@
                     </Grid>
                 </Border>
 
-                <!-- PRE-FLIGHT DIAGNOSTIC RESULTS CARD (Collapsible, shown during/after diagnostic) -->
-                <Border Grid.Row="3" x:Name="BorderPreFlightResults" Visibility="Collapsed" Background="#0C101A" BorderBrush="#1C273C" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                <!-- PRE-FLIGHT DIAGNOSTIC RESULTS (Condensed strip by default, expandable on demand or issue) -->
+                <Border Grid.Row="3" x:Name="BorderPreFlightResults" Visibility="Collapsed" Background="#0C101A" BorderBrush="#1C273C" BorderThickness="1" CornerRadius="6" Padding="6,5" Margin="0,0,0,6">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Header Row with Dismiss/Close Button -->
-                        <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
-                                <TextBlock Text="🩺 PRE-FLIGHT DIAGNOSTIC" FontSize="10" FontWeight="Black" Foreground="#38BDF8"/>
-                                <TextBlock x:Name="TxtPreFlightDuration" Text="(3.2s)" FontSize="9" FontWeight="SemiBold" Foreground="#64748B" Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            </StackPanel>
-                            <Button x:Name="BtnClosePreFlight" Click="BtnClosePreFlight_Click" Content="✕" DockPanel.Dock="Right"
-                                    Background="Transparent" Foreground="#94A3B8" BorderThickness="0" FontSize="11" FontWeight="Bold" Padding="4,0" Cursor="Hand" ToolTip="Dismiss diagnostic report"/>
-                        </DockPanel>
-
-                        <!-- Overall Verdict Banner -->
-                        <Border Grid.Row="1" x:Name="BannerPreFlightVerdict" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="5" Padding="8,5" Margin="0,0,0,6">
+                        <!-- Condensed Verdict Banner (Status + Time + Details Toggle + Dismiss) -->
+                        <Border Grid.Row="0" x:Name="BannerPreFlightVerdict" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="5" Padding="8,4">
                             <DockPanel LastChildFill="True">
-                                <TextBlock x:Name="TxtPreFlightVerdictIcon" Text="✅" FontSize="12" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
-                                <TextBlock x:Name="TxtPreFlightVerdict" Text="ALL SYSTEMS NOMINAL — READY FOR AFK 🎣" FontSize="10.5" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="TxtPreFlightVerdictIcon" Text="✅" FontSize="11" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left"/>
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtPreFlightDuration" Text="(0.5s)" FontSize="8.5" FontWeight="SemiBold" Foreground="#94A3B8" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <Button x:Name="BtnTogglePreFlightDetails" Click="BtnTogglePreFlightDetails_Click" Content="Details ▾"
+                                            Background="Transparent" Foreground="#38BDF8" BorderThickness="0" FontSize="9" FontWeight="Bold" Padding="4,1" Cursor="Hand" ToolTip="Expand/collapse detailed test breakdown" Margin="0,0,4,0"/>
+                                    <Button x:Name="BtnClosePreFlight" Click="BtnClosePreFlight_Click" Content="✕"
+                                            Background="Transparent" Foreground="#94A3B8" BorderThickness="0" FontSize="10" FontWeight="Bold" Padding="3,0" Cursor="Hand" ToolTip="Dismiss diagnostic banner"/>
+                                </StackPanel>
+                                <TextBlock x:Name="TxtPreFlightVerdict" Text="5/5 SYSTEMS NOMINAL — READY TO FISH 🎣" FontSize="9.5" FontWeight="Bold" Foreground="#34D399" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                             </DockPanel>
                         </Border>
 
-                        <!-- 5 Steps Checklist -->
-                        <StackPanel Grid.Row="2" x:Name="PanelPreFlightSteps">
+                        <!-- 5 Steps Checklist (Collapsed by default when all nominal; automatically shown if any issue occurs) -->
+                        <StackPanel Grid.Row="1" x:Name="PanelPreFlightSteps" Visibility="Collapsed" Margin="0,6,0,0">
                             <!-- Step 1: Window -->
                             <Border x:Name="StepItemWindow" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="4" Padding="6,4" Margin="0,0,0,4">
                                 <DockPanel LastChildFill="True">
@@ -680,8 +679,8 @@
                         <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="False">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left">
                                 <TextBlock Text="LIVE CV MONITOR" FontSize="10" FontWeight="Bold" Foreground="#9CA3AF" VerticalAlignment="Center"/>
-                                <Border x:Name="MonitorRodBadge" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
-                                    <TextBlock x:Name="TxtMonitorRod" Text="ROD: EQUIPPED" FontSize="8.5" FontWeight="Black" Foreground="#34D399"/>
+                                <Border x:Name="MonitorRodBadge" Background="#111622" BorderBrush="#1C2638" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="6,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="TxtMonitorRod" Text="ROD: STANDBY" FontSize="8.5" FontWeight="Black" Foreground="#64748B"/>
                                 </Border>
                                 <TextBlock x:Name="TxtRecordingIndicator" Text="● REC" FontSize="10" FontWeight="Black" Foreground="#EF4444" Margin="6,0,0,0" Visibility="Collapsed" VerticalAlignment="Center"/>
                             </StackPanel>
@@ -805,30 +804,39 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- Anti-AFK Kick -->
-                                <Border Grid.Column="0" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="0,0,3,0" BorderBrush="#1F2535" BorderThickness="1">
+                                <Border Grid.Column="0" Background="#0F121A" CornerRadius="6" Padding="4,6" Margin="0,0,2,0" BorderBrush="#1F2535" BorderThickness="1">
                                     <CheckBox x:Name="ChkAntiAfk" Content="🛡️ Anti-AFK" IsChecked="True"
                                               Checked="ChkAntiAfk_Changed" Unchecked="ChkAntiAfk_Changed"
-                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              Foreground="#CBD5E1" FontSize="9" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
                                               ToolTip="Micro-resets Roblox's 20-minute idle disconnect timer without moving your camera"/>
                                 </Border>
 
                                 <!-- Human Jitter -->
-                                <Border Grid.Column="1" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="2,0,2,0" BorderBrush="#1F2535" BorderThickness="1">
+                                <Border Grid.Column="1" Background="#0F121A" CornerRadius="6" Padding="4,6" Margin="2,0,2,0" BorderBrush="#1F2535" BorderThickness="1">
                                     <CheckBox x:Name="ChkJitter" Content="🎲 Jitter" IsChecked="True"
                                               Checked="ChkJitter_Changed" Unchecked="ChkJitter_Changed"
-                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              Foreground="#CBD5E1" FontSize="9" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
                                               ToolTip="Adds realistic micro-variance to cast hold and click timings to prevent detection"/>
                                 </Border>
 
                                 <!-- Auto Pre-Flight -->
-                                <Border Grid.Column="2" Background="#0F121A" CornerRadius="6" Padding="6,6" Margin="3,0,0,0" BorderBrush="#1F2535" BorderThickness="1">
+                                <Border Grid.Column="2" Background="#0F121A" CornerRadius="6" Padding="4,6" Margin="2,0,2,0" BorderBrush="#1F2535" BorderThickness="1">
                                     <CheckBox x:Name="ChkAutoPreFlight" Content="🩺 Pre-Flight" IsChecked="True"
                                               Checked="ChkAutoPreFlight_Changed" Unchecked="ChkAutoPreFlight_Changed"
-                                              Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
-                                              ToolTip="Automatically runs 3-second Pre-Flight health check when Start Fishing is clicked"/>
+                                              Foreground="#CBD5E1" FontSize="9" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
+                                              ToolTip="Automatically runs rapid Pre-Flight health check when Start Fishing is clicked"/>
+                                </Border>
+
+                                <!-- Self-Healing Watchdog -->
+                                <Border Grid.Column="3" Background="#0F121A" CornerRadius="6" Padding="4,6" Margin="2,0,0,0" BorderBrush="#1F2535" BorderThickness="1">
+                                    <CheckBox x:Name="ChkWatchdog" Content="🔄 Watchdog" IsChecked="True"
+                                              Checked="ChkWatchdog_Changed" Unchecked="ChkWatchdog_Changed"
+                                              Foreground="#38BDF8" FontSize="9" FontWeight="Bold" VerticalAlignment="Center" Cursor="Hand"
+                                              ToolTip="Autonomous Self-Healing: monitors fishing progress, clears stalls, and automatically restarts"/>
                                 </Border>
                             </Grid>
 

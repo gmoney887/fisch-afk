@@ -47,8 +47,13 @@ public class TelemetryData : IDisposable
     public int AntiAfkCount { get; set; }
 
     // Tool & Rod Vision Status
-    public bool IsRodEquipped { get; set; } = true;
-    public string RodStatusText { get; set; } = "ROD: EQUIPPED";
+    public bool IsRodEquipped { get; set; } = false;
+    public string RodStatusText { get; set; } = "ROD: STANDBY";
+
+    // Autonomous Self-Healing Watchdog Status
+    public int WatchdogRecoveryCount { get; set; } = 0;
+    public bool IsWatchdogActive { get; set; } = true;
+    public string WatchdogStatusText { get; set; } = "WATCHDOG: ARMED";
 
     public void Dispose()
     {
@@ -81,9 +86,17 @@ public class FishingEngine : IDisposable
     public int TotalCatches { get; private set; } = 0;
     public int TotalFails { get; private set; } = 0;
     public int CurrentStreak { get; private set; } = 0;
+    public int WatchdogRecoveryCount { get; private set; } = 0;
     private readonly Stopwatch _sessionStopwatch = new();
-    private bool _lastKnownRodEquipped = true;
-    private string _lastKnownRodStatus = "ROD: EQUIPPED";
+    private bool _lastKnownRodEquipped = false;
+    private string _lastKnownRodStatus = "ROD: STANDBY";
+
+    // Feature 6: Autonomous Self-Healing Watchdog
+    private long _lastProgressTicks = 0;
+    private int _consecutiveCastFails = 0;
+    private readonly object _recoveryLock = new();
+    private bool _isRecovering = false;
+    private Task? _watchdogTask;
 
     public double SessionUptimeSeconds => _sessionStopwatch.Elapsed.TotalSeconds;
     public double CatchesPerHour => (SessionUptimeSeconds > 5) ? (TotalCatches * 3600.0 / SessionUptimeSeconds) : 0.0;
@@ -94,6 +107,7 @@ public class FishingEngine : IDisposable
         TotalCatches = 0;
         TotalFails = 0;
         CurrentStreak = 0;
+        WatchdogRecoveryCount = 0;
         _sessionStopwatch.Restart();
     }
 
@@ -172,6 +186,10 @@ public class FishingEngine : IDisposable
         telem.CatchesPerHour = CatchesPerHour;
         telem.WinRate = WinRate;
         telem.AntiAfkCount = _antiAfkCount;
+        telem.WatchdogRecoveryCount = WatchdogRecoveryCount;
+        telem.IsWatchdogActive = Config.EnableWatchdogRecovery && IsRunning;
+        telem.WatchdogStatusText = _isRecovering ? "WATCHDOG: HEALING" : (Config.EnableWatchdogRecovery ? "WATCHDOG: ARMED" : "WATCHDOG: OFF");
+
         telem.IsRodEquipped = _lastKnownRodEquipped;
         telem.RodStatusText = _lastKnownRodStatus;
     }
@@ -344,22 +362,53 @@ public class FishingEngine : IDisposable
     {
         try
         {
-            // Center-anchored height-scaled search point for red [X] button
-            int cx = (clientW / 2) + (int)Math.Round(clientH * 0.1522);
-            int cy = (clientH / 2) + (int)Math.Round(clientH * 0.172);
-            int searchRadius = Math.Max(25, (int)Math.Round(clientH * 0.045));
+            // Center-anchored height-scaled search point for red [X] button in upper right header
+            int cx = (clientW / 2) + (int)Math.Round(clientH * 0.175);
+            int cy = (clientH / 2) - (int)Math.Round(clientH * 0.22);
+            int searchRadius = Math.Max(30, (int)Math.Round(clientH * 0.075));
 
-            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, Math.Max(0, cx - searchRadius), Math.Max(0, cy - searchRadius), searchRadius * 2, searchRadius * 2);
-            if (snap == null || snap.Empty()) return false;
+            int cropX = Math.Clamp(cx - searchRadius, 0, clientW - 1);
+            int cropY = Math.Clamp(cy - searchRadius, 0, clientH - 1);
+            int cropW = Math.Clamp(searchRadius * 2, 1, clientW - cropX);
+            int cropH = Math.Clamp(searchRadius * 2, 1, clientH - cropY);
 
-            using var bgr = new Mat();
-            if (snap.Channels() == 4)
-                Cv2.CvtColor(snap, bgr, ColorConversionCodes.BGRA2BGR);
-            else
-                snap.CopyTo(bgr);
+            using var snap = _shakeCapture.CaptureClientRegion(robloxHwnd, cropX, cropY, cropW, cropH);
+            if (snap != null && !snap.Empty())
+            {
+                using var bgr = new Mat();
+                if (snap.Channels() == 4)
+                    Cv2.CvtColor(snap, bgr, ColorConversionCodes.BGRA2BGR);
+                else
+                    snap.CopyTo(bgr);
 
-            var (found, _) = _vision.DynamicUISnapWithStatus(bgr, searchRadius, searchRadius, VisionProcessor.UIColorType.RedCloseButton, searchRadius);
-            return found;
+                var (found, _) = _vision.DynamicUISnapWithStatus(bgr, cx - cropX, cy - cropY, VisionProcessor.UIColorType.RedCloseButton, searchRadius);
+                if (found) return true;
+            }
+
+            // Secondary CV check: verify dark slate modal container presence near upper center
+            int midX = clientW / 2;
+            int midY = (clientH / 2) - (int)Math.Round(clientH * 0.10);
+            int checkW = Math.Max(40, (int)Math.Round(clientH * 0.20));
+            int checkH = Math.Max(30, (int)Math.Round(clientH * 0.12));
+            int mX = Math.Clamp(midX - (checkW / 2), 0, clientW - 1);
+            int mY = Math.Clamp(midY - (checkH / 2), 0, clientH - 1);
+
+            using var centerSnap = _shakeCapture.CaptureClientRegion(robloxHwnd, mX, mY, checkW, checkH);
+            if (centerSnap != null && !centerSnap.Empty())
+            {
+                using var cBgr = new Mat();
+                if (centerSnap.Channels() == 4)
+                    Cv2.CvtColor(centerSnap, cBgr, ColorConversionCodes.BGRA2BGR);
+                else
+                    centerSnap.CopyTo(cBgr);
+
+                using var darkMask = new Mat();
+                // Dark slate modal background (R, G, B in 15..75)
+                Cv2.InRange(cBgr, new Scalar(15, 15, 15), new Scalar(75, 75, 75), darkMask);
+                int darkCount = Cv2.CountNonZero(darkMask);
+                double darkDensity = (double)darkCount / (checkW * checkH);
+                if (darkDensity >= 0.45) return true;
+            }
         }
         catch { }
         return false;
@@ -442,11 +491,6 @@ public class FishingEngine : IDisposable
                 Thread.Sleep(80);
                 waitBag += 80;
             }
-            if (!IsBagOpen(robloxHwnd, clientW, clientH))
-            {
-                Win32.SendKeyPress('g');
-                Thread.Sleep(500);
-            }
         }
 
         if (ct.IsCancellationRequested)
@@ -459,7 +503,7 @@ public class FishingEngine : IDisposable
         // 3. Search for 'crate' in Equipment bag
         onProgress?.Invoke("🔍 Searching 'crate' in equipment list...");
         int searchClientX = (clientW / 2) + (int)Math.Round(clientH * 0.0498);
-        int searchClientY = (clientH / 2) + (int)Math.Round(clientH * 0.202);
+        int searchClientY = (clientH / 2) - (int)Math.Round(clientH * 0.202);
         Win32.POINT sPt = new Win32.POINT { X = searchClientX, Y = searchClientY };
         if (Win32.ClientToScreen(robloxHwnd, ref sPt))
         {
@@ -473,7 +517,6 @@ public class FishingEngine : IDisposable
         Win32.SendKeyString("crate", 45);
         Thread.Sleep(300);
 
-
         if (ct.IsCancellationRequested)
         {
             if (IsBagOpen(robloxHwnd, clientW, clientH)) Win32.SendKeyPress('g');
@@ -482,13 +525,13 @@ public class FishingEngine : IDisposable
         }
 
         // 4. Open crates (per quantity available):
-        // Aspect-ratio independent anchor math for inventory/dialog coordinates
+        // Center-anchored height-scaled coordinates for Fisch equipment grid and dialogs
         int tileX = (clientW / 2) - (int)Math.Round(clientH * 0.1458);
-        int tileY = (clientH / 2) + (int)Math.Round(clientH * 0.272);
+        int tileY = (clientH / 2) - (int)Math.Round(clientH * 0.065);
         int outsideX = (clientW / 2);
-        int outsideY = (clientH / 2) - (int)Math.Round(clientH * 0.250);
+        int outsideY = (clientH / 2) - (int)Math.Round(clientH * 0.280);
         int qtyX = (clientW / 2);
-        int qtyY = (clientH / 2) + (int)Math.Round(clientH * 0.071);
+        int qtyY = (clientH / 2) + (int)Math.Round(clientH * 0.020);
         int yesBaseX = (clientW / 2) - (int)Math.Round(clientH * 0.1173);
         int yesBaseY = (clientH / 2) + (int)Math.Round(clientH * 0.071);
 
@@ -513,11 +556,6 @@ public class FishingEngine : IDisposable
                     {
                         Thread.Sleep(100);
                         bagWait += 100;
-                    }
-                    if (!IsBagOpen(robloxHwnd, clientW, clientH))
-                    {
-                        Win32.SendKeyPress('g');
-                        Thread.Sleep(500);
                     }
                 }
 
@@ -662,6 +700,9 @@ public class FishingEngine : IDisposable
         if (IsRunning) return;
 
         _cts = new CancellationTokenSource();
+        _isRecovering = false;
+        _consecutiveCastFails = 0;
+        _lastProgressTicks = Stopwatch.GetTimestamp();
         Win32.timeBeginPeriod(1);
         SessionLogger.Instance.LogState(CurrentState, MacroState.Casting, "User Started Macro");
         CurrentState = MacroState.Casting;
@@ -670,6 +711,7 @@ public class FishingEngine : IDisposable
         _sessionStopwatch.Start();
 
         _workerTask = Task.Run(() => WorkerLoop(_cts.Token));
+        _watchdogTask = Task.Run(() => WatchdogLoop(_cts.Token));
     }
 
     public void Stop()
@@ -678,6 +720,7 @@ public class FishingEngine : IDisposable
 
         _cts?.Cancel();
         try { _workerTask?.Wait(500); } catch { }
+        try { _watchdogTask?.Wait(500); } catch { }
 
         SetMouseDown(false);
         Win32.timeEndPeriod(1);
@@ -753,7 +796,12 @@ public class FishingEngine : IDisposable
             int bottomH = Math.Max(50, (int)Math.Round(clientH * 0.25));
             int bottomY = clientH - bottomH;
             using var bottomSnap = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
-            if (bottomSnap == null || bottomSnap.Empty()) return true;
+            if (bottomSnap == null || bottomSnap.Empty())
+            {
+                _lastKnownRodEquipped = false;
+                _lastKnownRodStatus = "ROD: NOT DETECTED";
+                return false;
+            }
 
             using var bgr = new Mat();
             if (bottomSnap.Channels() == 4)
@@ -768,11 +816,13 @@ public class FishingEngine : IDisposable
         }
         catch 
         {
-            return true;
+            _lastKnownRodEquipped = false;
+            _lastKnownRodStatus = "ROD: STANDBY";
+            return false;
         }
     }
 
-    public void EnsureRodEquipped(IntPtr robloxHwnd, int clientW, int clientH)
+    public void EnsureRodEquipped(IntPtr robloxHwnd, int clientW, int clientH, bool force = false)
     {
         if (IsRodEquipped(robloxHwnd, clientW, clientH))
         {
@@ -787,7 +837,7 @@ public class FishingEngine : IDisposable
 
         // Send hotkey once
         Win32.SendKeyPress(rodKey);
-        Thread.Sleep(180);
+        Thread.Sleep(200);
 
         if (IsRodEquipped(robloxHwnd, clientW, clientH))
         {
@@ -795,22 +845,153 @@ public class FishingEngine : IDisposable
             return;
         }
 
-        // If hotkey was ignored (e.g. chat focus active), click the slot directly
+        // If keypress did not equip or force requested, click the slot directly
         SessionLogger.Instance.Log("ROD", $"EnsureRodEquipped: Keypress did not equip. Clicking hotbar slot {slotNum} dynamically...");
         ClickHotbarSlot(robloxHwnd, clientW, clientH, slotNum);
-        Thread.Sleep(180);
+        Thread.Sleep(250);
 
         if (IsRodEquipped(robloxHwnd, clientW, clientH))
         {
             SessionLogger.Instance.Log("ROD", "EnsureRodEquipped: Rod successfully equipped via hardware click.");
         }
+        else
+        {
+            SessionLogger.Instance.Log("ROD", "EnsureRodEquipped: Slot clicked. Waiting for game equip animation.");
+        }
 
         // Return cursor to safe water
-        int waterClientX = clientW / 2;
-        int waterClientY = (int)Math.Round(clientH * 0.38);
-        if (Win32.SafeClientToScreen(robloxHwnd, waterClientX, waterClientY, out int sx, out int sy))
+        EnsureCursorInWater(robloxHwnd, new Win32.RECT { Left = 0, Top = 0, Right = clientW, Bottom = clientH });
+    }
+
+    /// <summary>
+    /// Autonomous Self-Healing Recovery Routine:
+    /// Invoked whenever fishing has stopped, timed out, or stalled.
+    /// 1. Releases all mouse buttons and clears any active key presses.
+    /// 2. Sends Escape to dismiss any open Roblox pause menu, chat prompt, or accidental popup.
+    /// 3. Focuses the Roblox window.
+    /// 4. Closes equipment/backpack ('g') if open.
+    /// 5. Inquires OpenCV and forces the rod to equip in hand (keypress + slot click fallback).
+    /// 6. Re-aims cursor in open water.
+    /// 7. Resets consecutive fail counters and progress timers.
+    /// 8. Seamlessly transitions state to Casting.
+    /// </summary>
+    public void RecoverAndRestart(string reason)
+    {
+        if (!IsRunning || CurrentState == MacroState.Stopped || (_cts != null && _cts.IsCancellationRequested)) return;
+
+        lock (_recoveryLock)
         {
-            Win32.SetCursorPos(sx, sy);
+            if (_isRecovering) return;
+            _isRecovering = true;
+        }
+
+        try
+        {
+            WatchdogRecoveryCount++;
+            SessionLogger.Instance.Log("WATCHDOG", $"🚨 SELF-HEALING RECOVERY TRIGGERED: {reason} (Total recoveries: {WatchdogRecoveryCount})");
+
+            var telemRecover = new TelemetryData
+            {
+                State = CurrentState,
+                Action = $"🔄 SELF-HEALING: {reason}"
+            };
+            PopulateTelemetryStats(telemRecover);
+            OnTelemetry?.Invoke(telemRecover);
+
+            // 1. Release mouse and navigation keys
+            SetMouseDown(false);
+            Win32.mouse_event((int)Win32.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
+            Win32.keybd_event(0xDC, 0, Win32.KEYEVENTF_KEYUP, 0); // Backslash Up
+            Win32.keybd_event(0x0D, 0, Win32.KEYEVENTF_KEYUP, 0); // Enter Up
+            Thread.Sleep(50);
+
+            // 2. Clear any open Roblox UI prompt (Escape key)
+            Win32.keybd_event(0x1B, 0, 0, 0); // ESC Down
+            Thread.Sleep(20);
+            Win32.keybd_event(0x1B, 0, Win32.KEYEVENTF_KEYUP, 0); // ESC Up
+            Thread.Sleep(150);
+
+            IntPtr robloxHwnd = Win32.FindRobloxWindow();
+            if (robloxHwnd != IntPtr.Zero && Win32.GetClientRect(robloxHwnd, out Win32.RECT clientRect) && clientRect.Width > 0 && clientRect.Height > 0)
+            {
+                int winW = clientRect.Width;
+                int winH = clientRect.Height;
+
+                // 3. Force Roblox into foreground
+                Win32.ForceSetForegroundWindow(robloxHwnd);
+                Thread.Sleep(150);
+
+                // 4. Dismiss equipment bag if open
+                if (IsBagOpen(robloxHwnd, winW, winH))
+                {
+                    SessionLogger.Instance.Log("WATCHDOG", "Equipment bag was open. Closing bag via 'g'...");
+                    Win32.SendKeyPress('g');
+                    Thread.Sleep(250);
+                }
+
+                // 5. Force re-equip rod
+                EnsureRodEquipped(robloxHwnd, winW, winH, force: true);
+                Thread.Sleep(200);
+
+                // 6. Ensure cursor is aimed safely at open water
+                EnsureCursorInWater(robloxHwnd, clientRect);
+                Thread.Sleep(150);
+            }
+
+            // 7. Reset progress ticks and failure counters
+            _consecutiveCastFails = 0;
+            _lastProgressTicks = Stopwatch.GetTimestamp();
+
+            // 8. Transition cleanly to Casting
+            Transition(MacroState.Casting, $"Self-healing recovery completed: {reason}");
+            SessionLogger.Instance.Log("WATCHDOG", "✅ Self-healing recovery routine finished. Casting cycle restarted.");
+        }
+        catch (Exception ex)
+        {
+            SessionLogger.Instance.LogError("RecoverAndRestart error", ex);
+        }
+        finally
+        {
+            lock (_recoveryLock)
+            {
+                _isRecovering = false;
+            }
+        }
+    }
+
+    private void WatchdogLoop(CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                Thread.Sleep(2000);
+                if (ct.IsCancellationRequested || !IsRunning || !Config.EnableWatchdogRecovery) continue;
+
+                long nowTicks = Stopwatch.GetTimestamp();
+                if (_lastProgressTicks == 0)
+                {
+                    _lastProgressTicks = nowTicks;
+                    continue;
+                }
+
+                double elapsedSec = (nowTicks - _lastProgressTicks) / (double)Stopwatch.Frequency;
+                int timeoutSec = Math.Max(25, Config.WatchdogStallTimeoutSeconds);
+
+                if (elapsedSec >= timeoutSec && !_isRecovering)
+                {
+                    SessionLogger.Instance.Log("WATCHDOG", $"No fishing activity/progress detected for {elapsedSec:F0}s (threshold {timeoutSec}s). Triggering recovery...");
+                    RecoverAndRestart($"Inactivity stall ({elapsedSec:F0}s elapsed with no catch/bite)");
+                }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                SessionLogger.Instance.LogError("WatchdogLoop error", ex);
+            }
         }
     }
 
@@ -839,7 +1020,7 @@ public class FishingEngine : IDisposable
         }
         else
         {
-            EnsureRodEquipped(robloxHwnd, winW, winH);
+            EnsureRodEquipped(robloxHwnd, winW, winH, force: true);
         }
     }
 
@@ -852,6 +1033,7 @@ public class FishingEngine : IDisposable
         }
 
         ReEquipRod(clickSlot: true);
+        EnsureCursorInWater(robloxHwnd, clientRect);
 
         SetMouseDown(true);
         Thread.Sleep(Config.CastHoldMs);
@@ -880,6 +1062,7 @@ public class FishingEngine : IDisposable
         }
 
         ReEquipRod(clickSlot: true);
+        EnsureCursorInWater(robloxHwnd, clientRect);
 
         int winW = clientRect.Width;
         int winH = clientRect.Height;
@@ -1030,8 +1213,27 @@ public class FishingEngine : IDisposable
         if (_isMouseDown != down)
         {
             _isMouseDown = down;
-            SessionLogger.Instance.LogInput(down ? "MouseDown" : "MouseUp", -1, -1);
-            Win32.mouse_event(down ? Win32.MOUSEEVENTF_LEFTDOWN : Win32.MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
+            IntPtr robloxHwnd = Win32.FindRobloxWindow();
+            int sx = -1, sy = -1, cx = -1, cy = -1;
+            if (Win32.GetCursorPos(out Win32.POINT pt))
+            {
+                sx = pt.X;
+                sy = pt.Y;
+                if (robloxHwnd != IntPtr.Zero && Win32.ScreenToClient(robloxHwnd, ref pt))
+                {
+                    cx = pt.X;
+                    cy = pt.Y;
+                }
+            }
+            SessionLogger.Instance.LogInput(down ? "MouseDown" : "MouseUp", sx, sy, cx, cy);
+            if (down)
+            {
+                Win32.SendHardwareMouseDown(sx, sy, cx, cy, robloxHwnd);
+            }
+            else
+            {
+                Win32.SendHardwareMouseUp(sx, sy, cx, cy, robloxHwnd);
+            }
         }
     }
 
@@ -1070,6 +1272,20 @@ public class FishingEngine : IDisposable
         return (Stopwatch.GetTimestamp() - startTicks) * 1000.0 / Stopwatch.Frequency;
     }
 
+    private void EnsureCursorInWater(IntPtr hwnd, Win32.RECT clientRect)
+    {
+        Win32.POINT clientTopLeft = new Win32.POINT { X = 0, Y = 0 };
+        if (Win32.ClientToScreen(hwnd, ref clientTopLeft))
+        {
+            int safeClientX = clientRect.Width / 2;
+            int safeClientY = (int)Math.Round(clientRect.Height * 0.38);
+            int safeScreenX = clientTopLeft.X + safeClientX;
+            int safeScreenY = clientTopLeft.Y + safeClientY;
+
+            Win32.SendHardwareMouseMove(safeScreenX, safeScreenY, safeClientX, safeClientY, hwnd);
+        }
+    }
+
     private void EnsureCursorInGameView(IntPtr hwnd, Win32.RECT clientRect)
     {
         if (Win32.GetCursorPos(out Win32.POINT mousePt))
@@ -1080,24 +1296,27 @@ public class FishingEngine : IDisposable
                 int screenLeft = clientTopLeft.X;
                 int screenTop = clientTopLeft.Y;
                 int screenRight = screenLeft + clientRect.Width;
-                int screenBottom = screenTop + clientRect.Height;
 
                 IntPtr winUnderCursor = Win32.WindowFromPoint(mousePt);
                 Win32.GetWindowThreadProcessId(winUnderCursor, out uint curPid);
                 uint macroPid = (uint)Environment.ProcessId;
                 bool isCoveredByMacro = (curPid == macroPid);
 
-                int hotbarMargin = (int)Math.Max(clientRect.Height * 0.14, 85);
-                bool isInsideRoblox = (mousePt.X >= screenLeft + 60 && mousePt.X <= screenRight - 60 &&
-                                       mousePt.Y >= screenTop + 60 && mousePt.Y <= screenBottom - hotbarMargin);
+                // Safe water zone: upper-middle gameplay area.
+                // Lower 45% (Y > 0.55 * height) contains character avatar, boat deck, tooltips, and hotbars.
+                // Upper 18% avoids the topbar menu.
+                bool isInsideWater = (mousePt.X >= screenLeft + (int)(clientRect.Width * 0.20) &&
+                                       mousePt.X <= screenRight - (int)(clientRect.Width * 0.20) &&
+                                       mousePt.Y >= screenTop + (int)(clientRect.Height * 0.20) &&
+                                       mousePt.Y <= screenTop + (int)(clientRect.Height * 0.52));
 
-                if (isInsideRoblox && !isCoveredByMacro)
+                if (isInsideWater && !isCoveredByMacro)
                 {
                     // Cursor is already safely inside the open Roblox water area. Do not move it!
                     return;
                 }
 
-                // If cursor is outside or occluded by macro, target upper-center area of Roblox
+                // If cursor is outside safe water or occluded by macro, target center water area in front of avatar
                 int safeX = screenLeft + (clientRect.Width / 2);
                 int safeY = screenTop + (int)(clientRect.Height * 0.38);
 
@@ -1108,7 +1327,7 @@ public class FishingEngine : IDisposable
                     safeX = screenLeft + Math.Clamp(clientRect.Width / 4, 80, 400);
                 }
 
-                Win32.SetCursorPos(safeX, safeY);
+                Win32.SendHardwareMouseMove(safeX, safeY, safeX - screenLeft, safeY - screenTop, hwnd);
             }
         }
     }
@@ -1196,13 +1415,13 @@ public class FishingEngine : IDisposable
                 // Ensure Roblox is foreground
                 if (Win32.GetForegroundWindow() != robloxHwnd)
                 {
-                    Win32.SetForegroundWindow(robloxHwnd);
+                    Win32.ForceSetForegroundWindow(robloxHwnd);
                     Thread.Sleep(150);
                 }
 
                 // 1. Ensure the fishing rod is strictly equipped in hand before casting!
                 EnsureRodEquipped(robloxHwnd, winW, winH);
-                EnsureCursorInGameView(robloxHwnd, clientRect);
+                EnsureCursorInWater(robloxHwnd, clientRect);
 
                 bool barEverFound = false;
 
@@ -1332,6 +1551,32 @@ public class FishingEngine : IDisposable
                     SetMouseDown(false);
                 }
 
+                // Verify that the cast actually initiated in Roblox
+                if (Config.EnableDynamicCastRelease && !barEverFound)
+                {
+                    _consecutiveCastFails++;
+                    SessionLogger.Instance.Log("CAST", $"Cast bar was NOT detected during hold! (Consecutive fails: {_consecutiveCastFails})");
+
+                    if (_consecutiveCastFails >= 2)
+                    {
+                        RecoverAndRestart($"Cast bar detection failed {_consecutiveCastFails} times consecutively");
+                        continue;
+                    }
+
+                    EnsureRodEquipped(robloxHwnd, winW, winH, force: true);
+                    EnsureCursorInWater(robloxHwnd, clientRect);
+                    Thread.Sleep(250);
+                    // Stay in Casting state to retry immediately
+                    continue;
+                }
+
+                _consecutiveCastFails = 0;
+                _lastProgressTicks = Stopwatch.GetTimestamp();
+
+                // If bar was found, we are 100% certain the rod is in hand and bobber is in water!
+                _lastKnownRodEquipped = true;
+                _lastKnownRodStatus = "ROD: EQUIPPED";
+
                 // Cast has finished holding and was released with the verified rod in hand.
                 // The bobber is in flight/water. Proceed directly to Luring!
                 SessionLogger.Instance.Log("CAST", $"Cast hold completed ({GetElapsedMs(_stateStartTime):F0}ms, barEverFound={barEverFound}). Bobber is in water. Transitioning to Luring.");
@@ -1375,6 +1620,7 @@ public class FishingEngine : IDisposable
                     _luringConfirmCount++;
                     if (_luringConfirmCount >= 2)
                     {
+                        _lastProgressTicks = Stopwatch.GetTimestamp();
                         EnsureCursorInGameView(robloxHwnd, clientRect);
                         Transition(MacroState.Reeling, "Reel minigame bar detected");
                         continue;
@@ -1387,10 +1633,10 @@ public class FishingEngine : IDisposable
 
                 CheckAquariumClaimHeartbeat();
 
-                // Timeout check: re-cast if no bite within LureTimeoutMs
+                // Timeout check: self-heal and re-cast if no bite within LureTimeoutMs
                 if (GetElapsedMs(_stateStartTime) > Config.LureTimeoutMs)
                 {
-                    Transition(MacroState.Casting, $"Lure timeout ({Config.LureTimeoutMs}ms reached)");
+                    RecoverAndRestart($"Lure timeout ({Config.LureTimeoutMs / 1000}s without bite)");
                     continue;
                 }
 
@@ -1746,19 +1992,23 @@ public class FishingEngine : IDisposable
                     SetMouseDown(_pulseState);
                 }
 
-                // Check lifecycle: terminate reeling if bar disappeared > 1000ms
+                // Check lifecycle: terminate reeling if bar disappeared > 450ms or max reel timeout exceeded
                 if (GetElapsedMs(_lastBarSeenTime) > 450 || GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
                 {
                     if (GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
                     {
                         TotalFails++;
                         CurrentStreak = 0;
+                        detect.AnnotatedFrame?.Dispose();
+                        RecoverAndRestart($"Reel minigame stall ({Config.ReelTimeoutMs / 1000}s exceeded)");
+                        continue;
                     }
                     else if (GetElapsedMs(_stateStartTime) >= 1200) // Minigame lasted at least 1.2s and concluded successfully
                     {
                         TotalCatches++;
                         CurrentStreak++;
                         _catchesSinceLastCrateOpen++;
+                        _lastProgressTicks = Stopwatch.GetTimestamp();
                     }
 
                     Transition(MacroState.PostCatch, "Minigame ended (Bar disappeared)");
@@ -1918,6 +2168,7 @@ public class FishingEngine : IDisposable
 
                 if (GetElapsedMs(_stateStartTime) > GetJitteredMs(Config.PostCatchDelayMs, 60))
                 {
+                    _lastProgressTicks = Stopwatch.GetTimestamp();
                     Transition(MacroState.Casting, "PostCatch delay elapsed");
                     continue;
                 }

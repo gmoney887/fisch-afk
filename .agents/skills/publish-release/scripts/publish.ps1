@@ -16,16 +16,17 @@ Write-Host "========================================================" -Foregroun
 Write-Host "  Fat Dad's Fisch AFK Pro - Automated Release Engine   " -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor Cyan
 
-# 1. Locate dotnet SDK
-$dotnet = "dotnet"
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    $userDotnet = "$HOME\.dotnet\dotnet.exe"
-    if (Test-Path $userDotnet) {
-        $dotnet = $userDotnet
-    } else {
-        throw "Could not find dotnet CLI. Please ensure .NET SDK is installed."
-    }
+# 1. Locate dotnet SDK (prefer user-installed SDK to avoid broken PATH shims)
+$dotnet = ""
+$userDotnet = "$HOME\.dotnet\dotnet.exe"
+if (Test-Path $userDotnet) {
+    $dotnet = $userDotnet
+} elseif (Get-Command dotnet -ErrorAction SilentlyContinue) {
+    $dotnet = "dotnet"
+} else {
+    throw "Could not find dotnet CLI. Please ensure .NET SDK is installed."
 }
+Write-Host "      Using dotnet: $dotnet" -ForegroundColor DarkGray
 
 # 2. Parse / Update Version in FischMacroCS.csproj
 $csprojPath = Join-Path $repoRoot "FischMacroCS.csproj"

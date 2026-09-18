@@ -156,7 +156,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            SelectComboItem(CmbShakeMode, _settings.EnableShakeClicks ? "Visual (Auto-Click Icon)" : "Disabled");
+            SelectComboItem(CmbShakeMode, _settings.EnableShakeClicks ? "UI Navigation (Key Shake)" : "Disabled");
         }
 
         // Anti-AFK & Jitter
@@ -171,6 +171,7 @@ public partial class MainWindow : Window
         // Auto-Open Crates ('g' Inventory)
         ChkAutoOpenCrates.IsChecked = _settings.EnableAutoOpenCrates;
         ChkAutoPreFlight.IsChecked = _settings.AutoRunPreFlightOnStart;
+        ChkWatchdog.IsChecked = _settings.EnableWatchdogRecovery;
         TxtCrateInterval.Text = _settings.CrateIntervalCatches.ToString();
         TxtCrateMaxTypes.Text = _settings.CrateMaxTypes.ToString();
 
@@ -180,6 +181,7 @@ public partial class MainWindow : Window
         TxtWinRate.Text = $"{_engine.WinRate:F0}%";
         TxtSessionUptime.Text = TimeSpan.FromSeconds(_engine.SessionUptimeSeconds).ToString(@"hh\:mm\:ss");
         TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
+        TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
 
         ChkAlwaysOnTop.IsChecked = _settings.AlwaysOnTop;
         this.Topmost = _settings.AlwaysOnTop;
@@ -225,7 +227,7 @@ public partial class MainWindow : Window
 
     private bool _isStopping = false;
 
-    private void ToggleMacro()
+    private async void ToggleMacro()
     {
         if (_isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
 
@@ -235,15 +237,12 @@ public partial class MainWindow : Window
             if (_engine.CurrentState == MacroState.Reeling && !_engine.IsStopQueued)
             {
                 _engine.IsStopQueued = true;
-                Dispatcher.Invoke(() =>
-                {
-                    if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
-                        border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
-                    if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
-                        txt.Text = "QUEUED STOP";
-                    if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
-                        subTxt.Text = "Stopping after catch (F6 force)";
-                });
+                if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
+                    border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+                if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
+                    txt.Text = "QUEUED STOP";
+                if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
+                    subTxt.Text = "Stopping after catch (F6 force)";
                 return;
             }
 
@@ -251,46 +250,36 @@ public partial class MainWindow : Window
             _engine.IsStopQueued = false;
             
             // Instantly transition UI to "STOPPING..." state
-            Dispatcher.Invoke(() =>
-            {
-                if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
-                    border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
-                if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
-                    txt.Text = "STOPPING...";
-                if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
-                    subTxt.Text = "Please wait";
-            });
+            if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border borderStop)
+                borderStop.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+            if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txtStop)
+                txtStop.Text = "STOPPING...";
+            if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxtStop)
+                subTxtStop.Text = "Please wait";
 
             // Queue actual shutdown asynchronously so UI thread doesn't hang
-            System.Threading.Tasks.Task.Run(() =>
+            await Task.Run(() =>
             {
                 _engine.Stop();
                 _isStopping = false;
-                Dispatcher.Invoke(() => UpdateUIState(false));
             });
+            UpdateUIState(false);
         }
         else
         {
-            if (_settings.AutoRunPreFlightOnStart && BorderPreFlightResults.Visibility != Visibility.Visible)
+            if (_settings.AutoRunPreFlightOnStart && !_hasPreFlightPassed)
             {
-                _ = Task.Run(async () =>
-                {
-                    bool passed = false;
-                    await Dispatcher.InvokeAsync(async () =>
-                    {
-                        passed = await RunPreFlightDiagnosticAsync();
-                    });
+                if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txtPre)
+                    txtPre.Text = "STARTING...";
+                if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxtPre)
+                    subTxtPre.Text = "Running pre-flight";
 
-                    if (passed)
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            _engine.Start();
-                            UpdateUIState(true);
-                        });
-                    }
-                });
-                return;
+                bool passed = await RunPreFlightDiagnosticAsync();
+                if (!passed)
+                {
+                    UpdateUIState(false);
+                    return;
+                }
             }
 
             _engine.Start();
@@ -302,6 +291,8 @@ public partial class MainWindow : Window
     {
         Dispatcher.Invoke(() =>
         {
+            BtnToggle.IsEnabled = true;
+            BtnToggle.Opacity = 1.0;
             if (running)
             {
                 if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
@@ -342,6 +333,21 @@ public partial class MainWindow : Window
                 TxtBarPos.Text = "Waiting...";
                 TxtFishPos.Text = "Waiting...";
                 TxtLatency.Text = "Vision: -- | Loop: --";
+
+                if (TxtRodState != null && BadgeRodState != null)
+                {
+                    TxtRodState.Text = "ROD: STANDBY";
+                    TxtRodState.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
+                    BadgeRodState.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
+                    BadgeRodState.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+                }
+                if (TxtMonitorRod != null && MonitorRodBadge != null)
+                {
+                    TxtMonitorRod.Text = "ROD: STANDBY";
+                    TxtMonitorRod.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
+                    MonitorRodBadge.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
+                    MonitorRodBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+                }
             }
         });
     }
@@ -444,6 +450,16 @@ public partial class MainWindow : Window
                 TxtWinRate.Text = $"{_engine.WinRate:F0}%";
                 TxtSessionUptime.Text = TimeSpan.FromSeconds(_engine.SessionUptimeSeconds).ToString(@"hh\:mm\:ss");
                 TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
+                if (TxtWatchdogBadge != null)
+                {
+                    TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
+                    if (_engine.WatchdogRecoveryCount > 0 && BadgeWatchdog != null)
+                    {
+                        BadgeWatchdog.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
+                        BadgeWatchdog.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+                        TxtWatchdogBadge.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+                    }
+                }
 
                 // Update Recording Indicator
                 TxtRecordingIndicator.Visibility = _engine.Recorder.IsRecording ? Visibility.Visible : Visibility.Collapsed;
@@ -683,6 +699,8 @@ public partial class MainWindow : Window
         _engine.Config.EnableAutoOpenCrates = _settings.EnableAutoOpenCrates;
 
         _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
+        _settings.EnableWatchdogRecovery = ChkWatchdog.IsChecked == true;
+        _engine.Config.EnableWatchdogRecovery = _settings.EnableWatchdogRecovery;
 
         if (int.TryParse(TxtCrateInterval.Text, out int ci) && ci >= 1)
         {
@@ -711,7 +729,7 @@ public partial class MainWindow : Window
         _settings.Save();
         RegisterHotkeys();
 
-        MessageBox.Show($"Configuration saved!\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+        MessageBox.Show($"Configuration saved!\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Heal Watchdog: [{(_settings.EnableWatchdogRecovery ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
     private void CmbMinigameTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -729,6 +747,24 @@ public partial class MainWindow : Window
         TxtWinRate.Text = "100%";
         TxtSessionUptime.Text = "00:00:00";
         TxtStreakBadge.Text = "🔥 Streak: 0";
+        if (TxtWatchdogBadge != null)
+        {
+            TxtWatchdogBadge.Text = "🛡️ Heals: 0";
+            if (BadgeWatchdog != null)
+            {
+                BadgeWatchdog.Background = new SolidColorBrush(Color.FromRgb(12, 25, 41));
+                BadgeWatchdog.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
+                TxtWatchdogBadge.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+            }
+        }
+    }
+
+    private void ChkWatchdog_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null || _engine == null) return;
+        bool val = ChkWatchdog.IsChecked == true;
+        _settings.EnableWatchdogRecovery = val;
+        _engine.Config.EnableWatchdogRecovery = val;
     }
 
     private void ChkAntiAfk_Changed(object sender, RoutedEventArgs e)
@@ -827,6 +863,10 @@ public partial class MainWindow : Window
     {
         if (!IsLoaded || _settings == null) return;
         _settings.AutoRunPreFlightOnStart = ChkAutoPreFlight.IsChecked == true;
+        if (_settings.AutoRunPreFlightOnStart)
+        {
+            _hasPreFlightPassed = false;
+        }
         _settings.Save();
     }
 
@@ -836,11 +876,26 @@ public partial class MainWindow : Window
     }
 
     private bool _isDiagnosticRunning = false;
+    private bool _hasPreFlightPassed = false;
 
     private async void BtnPreFlight_Click(object sender, RoutedEventArgs e)
     {
         if (_engine.IsRunning || _isDiagnosticRunning) return;
         await RunPreFlightDiagnosticAsync();
+    }
+
+    private void BtnTogglePreFlightDetails_Click(object sender, RoutedEventArgs e)
+    {
+        if (PanelPreFlightSteps.Visibility == Visibility.Visible)
+        {
+            PanelPreFlightSteps.Visibility = Visibility.Collapsed;
+            BtnTogglePreFlightDetails.Content = "Details ▾";
+        }
+        else
+        {
+            PanelPreFlightSteps.Visibility = Visibility.Visible;
+            BtnTogglePreFlightDetails.Content = "Details ▴";
+        }
     }
 
     private async Task<bool> RunPreFlightDiagnosticAsync()
@@ -852,8 +907,14 @@ public partial class MainWindow : Window
         BtnPreFlight.Opacity = 0.5;
         BtnToggle.IsEnabled = false;
         BtnToggle.Opacity = 0.5;
+        if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txtPre)
+            txtPre.Text = "PRE-FLIGHT...";
+        if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxtPre)
+            subTxtPre.Text = "Verifying setup";
 
         BorderPreFlightResults.Visibility = Visibility.Visible;
+        PanelPreFlightSteps.Visibility = Visibility.Collapsed;
+        BtnTogglePreFlightDetails.Content = "Details ▾";
         TxtPreFlightDuration.Text = "(Running...)";
 
         // Reset Verdict Banner to Running Blue
@@ -870,50 +931,67 @@ public partial class MainWindow : Window
         ResetStepUI(StepItemToggle, IconStepToggle, MetricStepToggle, DescStepToggle, "Sending momentary '1' keypress and verifying CV detection...");
         ResetStepUI(StepItemSafety, IconStepSafety, MetricStepSafety, DescStepSafety, "Auditing water target, slot click, and dialog coordinates...");
 
-        using var diag = new PreFlightDiagnostic(_settings);
-
-        PreFlightReport report = await Task.Run(async () =>
+        try
         {
-            return await diag.RunDiagnosticAsync(step =>
+            using var diag = new PreFlightDiagnostic(_settings);
+
+            PreFlightReport report = await Task.Run(async () =>
             {
-                Dispatcher.Invoke(() => UpdateStepUI(step));
+                return await diag.RunDiagnosticAsync(step =>
+                {
+                    Dispatcher.Invoke(() => UpdateStepUI(step));
+                });
             });
-        });
 
-        // Update overall verdict
-        TxtPreFlightDuration.Text = $"({report.TotalDurationMs / 1000.0:F1}s)";
+            // Update overall verdict
+            TxtPreFlightDuration.Text = $"({report.TotalDurationMs / 1000.0:F1}s)";
 
-        if (report.OverallPass)
-        {
-            BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
-            BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
-            TxtPreFlightVerdictIcon.Text = "✅";
-            TxtPreFlightVerdict.Text = "ALL SYSTEMS NOMINAL — READY FOR UNATTENDED AFK 🎣";
-            TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+            if (report.OverallPass)
+            {
+                BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
+                BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+                TxtPreFlightVerdictIcon.Text = "✅";
+                TxtPreFlightVerdict.Text = "5/5 SYSTEMS NOMINAL — READY TO FISH 🎣";
+                TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+                PanelPreFlightSteps.Visibility = Visibility.Collapsed;
+                BtnTogglePreFlightDetails.Content = "Details ▾";
+            }
+            else
+            {
+                BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(69, 26, 26));
+                BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                TxtPreFlightVerdictIcon.Text = "⚠️";
+                TxtPreFlightVerdict.Text = "ATTENTION: " + report.Summary;
+                TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+                PanelPreFlightSteps.Visibility = Visibility.Visible;
+                BtnTogglePreFlightDetails.Content = "Details ▴";
+            }
+
+            // Render annotated snapshot on live preview monitor if available
+            if (report.AnnotatedSnapshot != null && !report.AnnotatedSnapshot.Empty())
+            {
+                RenderPreviewFrame(report.AnnotatedSnapshot);
+                report.AnnotatedSnapshot.Dispose();
+            }
+
+            _hasPreFlightPassed = report.OverallPass;
+            return report.OverallPass;
         }
-        else
+        catch (Exception ex)
         {
-            BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(69, 26, 26));
-            BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
-            TxtPreFlightVerdictIcon.Text = "⚠️";
-            TxtPreFlightVerdict.Text = "ATTENTION: " + report.Summary;
-            TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+            SessionLogger.Instance.Log("PREFLIGHT", $"Diagnostic error: {ex.Message}");
+            _hasPreFlightPassed = false;
+            return false;
         }
-
-        // Render annotated snapshot on live preview monitor if available
-        if (report.AnnotatedSnapshot != null && !report.AnnotatedSnapshot.Empty())
+        finally
         {
-            RenderPreviewFrame(report.AnnotatedSnapshot);
-            report.AnnotatedSnapshot.Dispose();
+            BtnPreFlight.IsEnabled = true;
+            BtnPreFlight.Opacity = 1.0;
+            BtnToggle.IsEnabled = true;
+            BtnToggle.Opacity = 1.0;
+            _isDiagnosticRunning = false;
+            UpdateUIState(false);
         }
-
-        BtnPreFlight.IsEnabled = true;
-        BtnPreFlight.Opacity = 1.0;
-        BtnToggle.IsEnabled = true;
-        BtnToggle.Opacity = 1.0;
-        _isDiagnosticRunning = false;
-
-        return report.OverallPass;
     }
 
     private void ResetStepUI(Border item, TextBlock icon, TextBlock metric, TextBlock desc, string defaultDesc)

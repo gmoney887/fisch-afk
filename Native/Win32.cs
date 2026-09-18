@@ -128,6 +128,10 @@ public static partial class Win32
     public static extern bool ClientToScreen(IntPtr hWnd, ref POINT lpPoint);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ScreenToClient(IntPtr hWnd, ref POINT lpPoint);
+
+    [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
@@ -394,6 +398,138 @@ public static partial class Win32
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Dispatches a high-reliability hardware-emulated mouse move that updates the OS cursor,
+    /// DirectInput/RawInput state via SendInput, and Roblox window message queue via WM_MOUSEMOVE.
+    /// </summary>
+    public static void SendHardwareMouseMove(int screenX, int screenY, int clientX = -1, int clientY = -1, IntPtr targetHwnd = default)
+    {
+        int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vWidth = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        int vHeight = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+        screenX = Math.Clamp(screenX, vLeft, vLeft + vWidth - 1);
+        screenY = Math.Clamp(screenY, vTop, vTop + vHeight - 1);
+
+        SetCursorPos(screenX, screenY);
+
+        int normX = (int)Math.Round(((screenX - vLeft) * 65535.0) / (vWidth - 1));
+        int normY = (int)Math.Round(((screenY - vTop) * 65535.0) / (vHeight - 1));
+
+        INPUT[] moveInputs = new INPUT[1];
+        moveInputs[0].type = INPUT_MOUSE;
+        moveInputs[0].mi.dx = normX;
+        moveInputs[0].mi.dy = normY;
+        moveInputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendInput(1, moveInputs, Marshal.SizeOf<INPUT>());
+
+        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        {
+            PostMessage(targetHwnd, WM_MOUSEMOVE, IntPtr.Zero, MakeLParam(clientX, clientY));
+        }
+    }
+
+    /// <summary>
+    /// Dispatches a hardware-emulated Left Mouse Down that satisfies DirectInput, RawInput,
+    /// SendInput, and direct window messaging.
+    /// </summary>
+    public static void SendHardwareMouseDown(int screenX = -1, int screenY = -1, int clientX = -1, int clientY = -1, IntPtr targetHwnd = default)
+    {
+        if (targetHwnd != IntPtr.Zero)
+        {
+            IntPtr fg = GetForegroundWindow();
+            if (fg != targetHwnd && !IsWindowOrChild(fg, targetHwnd))
+            {
+                ForceSetForegroundWindow(targetHwnd);
+                System.Threading.Thread.Sleep(15);
+            }
+        }
+
+        int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vWidth = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        int vHeight = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+        if (screenX < 0 || screenY < 0)
+        {
+            if (GetCursorPos(out POINT pt))
+            {
+                screenX = pt.X;
+                screenY = pt.Y;
+            }
+            else
+            {
+                screenX = vLeft + (vWidth / 2);
+                screenY = vTop + (vHeight / 2);
+            }
+        }
+
+        screenX = Math.Clamp(screenX, vLeft, vLeft + vWidth - 1);
+        screenY = Math.Clamp(screenY, vTop, vTop + vHeight - 1);
+
+        SetCursorPos(screenX, screenY);
+
+        int normX = (int)Math.Round(((screenX - vLeft) * 65535.0) / (vWidth - 1));
+        int normY = (int)Math.Round(((screenY - vTop) * 65535.0) / (vHeight - 1));
+
+        INPUT[] downInputs = new INPUT[1];
+        downInputs[0].type = INPUT_MOUSE;
+        downInputs[0].mi.dx = normX;
+        downInputs[0].mi.dy = normY;
+        downInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendInput(1, downInputs, Marshal.SizeOf<INPUT>());
+
+        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        {
+            PostMessage(targetHwnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, MakeLParam(clientX, clientY));
+        }
+    }
+
+    /// <summary>
+    /// Dispatches a hardware-emulated Left Mouse Up that satisfies DirectInput, RawInput,
+    /// SendInput, and direct window messaging.
+    /// </summary>
+    public static void SendHardwareMouseUp(int screenX = -1, int screenY = -1, int clientX = -1, int clientY = -1, IntPtr targetHwnd = default)
+    {
+        int vLeft = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        int vTop = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        int vWidth = Math.Max(1, GetSystemMetrics(SM_CXVIRTUALSCREEN));
+        int vHeight = Math.Max(1, GetSystemMetrics(SM_CYVIRTUALSCREEN));
+
+        if (screenX < 0 || screenY < 0)
+        {
+            if (GetCursorPos(out POINT pt))
+            {
+                screenX = pt.X;
+                screenY = pt.Y;
+            }
+            else
+            {
+                screenX = vLeft + (vWidth / 2);
+                screenY = vTop + (vHeight / 2);
+            }
+        }
+
+        screenX = Math.Clamp(screenX, vLeft, vLeft + vWidth - 1);
+        screenY = Math.Clamp(screenY, vTop, vTop + vHeight - 1);
+
+        int normX = (int)Math.Round(((screenX - vLeft) * 65535.0) / (vWidth - 1));
+        int normY = (int)Math.Round(((screenY - vTop) * 65535.0) / (vHeight - 1));
+
+        INPUT[] upInputs = new INPUT[1];
+        upInputs[0].type = INPUT_MOUSE;
+        upInputs[0].mi.dx = normX;
+        upInputs[0].mi.dy = normY;
+        upInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        SendInput(1, upInputs, Marshal.SizeOf<INPUT>());
+
+        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        {
+            PostMessage(targetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+        }
     }
 
     /// <summary>

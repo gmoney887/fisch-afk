@@ -19,11 +19,15 @@ public class Settings
     public int CastHoldMs { get; set; } = 760; // Calibrated universal sweet spot for 100% PERFECT! cast
     public int PostCastDelayMs { get; set; } = 1000;
     public int PostCatchDelayMs { get; set; } = 1500; // 1500ms allows Roblox catch celebration & rod reset animation to complete
-    public int LureTimeoutMs { get; set; } = 45000;
-    public int ReelTimeoutMs { get; set; } = 45000;
+    public int LureTimeoutMs { get; set; } = 25000;
+    public int ReelTimeoutMs { get; set; } = 35000;
+
+    // Autonomous Self-Healing Watchdog
+    public bool EnableWatchdogRecovery { get; set; } = true;
+    public int WatchdogStallTimeoutSeconds { get; set; } = 50;
 
     public bool EnableShakeClicks { get; set; } = true;
-    public string ShakeMode { get; set; } = "Visual"; // "Visual", "Navigation", "Disabled"
+    public string ShakeMode { get; set; } = "Navigation"; // "Navigation" (recommended UI Key Shake), "Visual", "Disabled"
     public int ShakeClickIntervalMs { get; set; } = 50;
     public int ShakeRepeatBypass { get; set; } = 8;
     public double ShakeAreaMarginX { get; set; } = 0.20;
@@ -95,9 +99,15 @@ public class Settings
                     if (settings.CastPredictiveLeadMs <= 0)
                         settings.CastPredictiveLeadMs = 25;
                     if (string.IsNullOrEmpty(settings.ShakeMode))
-                        settings.ShakeMode = settings.EnableShakeClicks ? "Visual" : "Disabled";
+                        settings.ShakeMode = settings.EnableShakeClicks ? "Navigation" : "Disabled";
                     if (string.IsNullOrEmpty(settings.RodProfile))
                         settings.RodProfile = "Standard";
+                    if (settings.LureTimeoutMs > 30000)
+                        settings.LureTimeoutMs = 25000;
+                    if (settings.ReelTimeoutMs > 40000)
+                        settings.ReelTimeoutMs = 35000;
+                    if (settings.WatchdogStallTimeoutSeconds <= 0)
+                        settings.WatchdogStallTimeoutSeconds = 50;
                     return settings;
                 }
             }

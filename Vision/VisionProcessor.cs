@@ -231,39 +231,60 @@ public class VisionProcessor
 
         int[] colHist = new int[cropW];
 
-        for (int nx = trackSearchX1; nx <= trackSearchX2; nx++)
+        int searchW = trackSearchX2 - trackSearchX1 + 1;
+        int searchH = searchY2 - searchY1;
+        if (searchW > 0 && searchH > 0 && trackSearchX1 >= 0 && trackSearchX1 + searchW <= cropW && searchY1 >= 0 && searchY1 + searchH <= cropH)
         {
-            int colMatches = 0;
-            for (int ny = searchY1; ny < searchY2; ny++)
+            Rect needleSearchRoi = new Rect(trackSearchX1, searchY1, searchW, searchH);
+            using var searchZone = new Mat(crop, needleSearchRoi);
+            using var needleMask = new Mat();
+
+            if (theme == MinigameTheme.Feline || theme == MinigameTheme.Golden)
             {
-                Vec3b pixel = crop.Get<Vec3b>(ny, nx);
-                byte pb = pixel.Item0, pg = pixel.Item1, pr = pixel.Item2;
-
-                bool isNeedleColor = false;
-
-                if (theme == MinigameTheme.Feline || theme == MinigameTheme.Golden)
-                {
-                    // Pink / Golden themes use a stark white vertical needle line
-                    isNeedleColor = (pr >= 200 && pg >= 200 && pb >= 200);
-                }
-                else if (theme == MinigameTheme.Trident)
-                {
-                    // Trident (Green) uses a stark black vertical needle line
-                    isNeedleColor = (pr <= 50 && pg <= 50 && pb <= 50);
-                }
-                else
-                {
-                    // Default Slate Blue: B > R and B > G
-                    isNeedleColor = (pb >= 70 && pb <= 125) &&
-                                    (pg >= 50 && pg <= 110) &&
-                                    (pr >= 40 && pr <= 100) &&
-                                    (pb >= pr + 10) && (pb >= pg + 5);
-                }
-
-                if (isNeedleColor)
-                    colMatches++;
+                // Pink / Golden themes use a stark white vertical needle line (R, G, B >= 200)
+                Cv2.InRange(searchZone, new Scalar(200, 200, 200), new Scalar(255, 255, 255), needleMask);
             }
-            colHist[nx] = colMatches;
+            else if (theme == MinigameTheme.Trident)
+            {
+                // Trident (Green) uses a stark black vertical needle line (R, G, B <= 50)
+                Cv2.InRange(searchZone, new Scalar(0, 0, 0), new Scalar(50, 50, 50), needleMask);
+            }
+            else
+            {
+                // Default Slate Blue: B in [70, 125], G in [50, 110], R in [40, 100], and B >= R+10 & B >= G+5
+                using var broadMask = new Mat();
+                Cv2.InRange(searchZone, new Scalar(70, 50, 40), new Scalar(125, 110, 100), broadMask);
+
+                // Channel dominance via native OpenCV matrix subtraction
+                Mat[] channels = Cv2.Split(searchZone);
+                using (var bChan = channels[0])
+                using (var gChan = channels[1])
+                using (var rChan = channels[2])
+                using (var diffR = new Mat())
+                using (var diffG = new Mat())
+                using (var condR = new Mat())
+                using (var condG = new Mat())
+                using (var condCombined = new Mat())
+                {
+                    Cv2.Subtract(bChan, rChan, diffR);
+                    Cv2.Subtract(bChan, gChan, diffG);
+                    Cv2.Compare(diffR, 10, condR, CmpTypes.GE);
+                    Cv2.Compare(diffG, 5, condG, CmpTypes.GE);
+                    Cv2.BitwiseAnd(condR, condG, condCombined);
+                    Cv2.BitwiseAnd(broadMask, condCombined, needleMask);
+                }
+                foreach (var ch in channels) ch.Dispose();
+            }
+
+            // Native OpenCV SIMD column reduction: sums matching pixels per column
+            using var colScores = new Mat();
+            Cv2.Reduce(needleMask, colScores, ReduceDimension.Row, ReduceTypes.Sum, MatType.CV_32S);
+
+            int nCols = colScores.Cols;
+            for (int i = 0; i < nCols; i++)
+            {
+                colHist[trackSearchX1 + i] = colScores.At<int>(0, i) / 255;
+            }
         }
 
         // Peak Prominence & Narrow Width Isolation:
@@ -453,12 +474,12 @@ public class VisionProcessor
             double bestConfidence = 0;
 
             // Active interactive search zone: center-anchored height-scaled to cover active gameplay area
-            // Eliminates black bars and outer margins on 21:9 and 32:9 Super Ultrawide screens
-            int maxHalfW = (int)Math.Round(cropH * 0.85);
+            // Eliminates black bars, outer margins, hotbar/tooltips (lower 34%), and topbar (top 16%)
+            int maxHalfW = (int)Math.Round(cropH * 0.75);
             int searchX1 = Math.Max(0, (cropW / 2) - maxHalfW);
             int searchW = Math.Min(cropW - searchX1, maxHalfW * 2);
-            int searchY1 = (int)Math.Round(cropH * 0.08);
-            int searchH = Math.Max(100, (int)Math.Round(cropH * 0.82));
+            int searchY1 = (int)Math.Round(cropH * 0.18);
+            int searchH = Math.Max(100, (int)Math.Round(cropH * 0.48)); // Range: 18% -> 66% viewport height
             using var searchZone = new Mat(crop, new Rect(searchX1, searchY1, searchW, searchH));
 
             // =========================================================================
@@ -495,7 +516,7 @@ public class VisionProcessor
                     Cv2.MatchTemplate(halfZone, halfTmpl, coarseRes, TemplateMatchModes.CCoeffNormed);
                     Cv2.MinMaxLoc(coarseRes, out _, out double coarseVal, out _, out Point coarseLoc);
 
-                    if (coarseVal >= 0.38)
+                    if (coarseVal >= 0.42)
                     {
                         // Stage 1B: Refine with full-resolution patch around candidate
                         int candX = searchX1 + (coarseLoc.X * 2);
@@ -522,7 +543,7 @@ public class VisionProcessor
                             Cv2.MatchTemplate(roi, fullScaledTmpl, refineRes, TemplateMatchModes.CCoeffNormed);
                             Cv2.MinMaxLoc(refineRes, out _, out double refVal, out _, out Point refLoc);
 
-                            if (refVal > bestConfidence && refVal >= 0.45)
+                            if (refVal > bestConfidence && refVal >= 0.58)
                             {
                                 bestConfidence = refVal;
                                 bestRect = new Rect(roiX + refLoc.X, roiY + refLoc.Y, fullTmplW, fullTmplH);
@@ -530,7 +551,7 @@ public class VisionProcessor
                                                        absOffsetY + roiY + refLoc.Y + (fullTmplH / 2));
 
                                 // If nominal scale achieved high confidence, break early for fast <30ms reaction
-                                if (refVal >= 0.70)
+                                if (refVal >= 0.72)
                                     break;
                             }
                         }
@@ -538,65 +559,7 @@ public class VisionProcessor
                 }
             }
 
-            // =========================================================================
-            // PASS 2: Morphological Connected-Component Detector (Fallback)
-            // Groups "S-H-A-K-E" into cohesive text block and validates dark button disc
-            // =========================================================================
-            if (bestConfidence < 0.65)
-            {
-                using var gray = new Mat();
-                Cv2.CvtColor(searchZone, gray, ColorConversionCodes.BGR2GRAY);
-
-                using var hsv = new Mat();
-                Cv2.CvtColor(searchZone, hsv, ColorConversionCodes.BGR2HSV);
-
-                using var whiteMask = new Mat();
-                Cv2.InRange(hsv, new Scalar(0, 0, 215), new Scalar(180, 45, 255), whiteMask);
-
-                int kw = Math.Max(16, (int)(22 * scaleFactor));
-                int kh = Math.Max(4, (int)(6 * scaleFactor));
-                using var closeKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kw, kh));
-                using var closed = new Mat();
-                Cv2.MorphologyEx(whiteMask, closed, MorphTypes.Close, closeKernel);
-
-                Cv2.FindContours(closed, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-
-                foreach (var cnt in contours)
-                {
-                    Rect rect = Cv2.BoundingRect(cnt);
-                    double aspect = (double)rect.Width / Math.Max(1, rect.Height);
-
-                    // Dimension filters calibrated for "SHAKE" text block
-                    if (rect.Width < (30 * scaleFactor) || rect.Width > (220 * scaleFactor) ||
-                        rect.Height < (10 * scaleFactor) || rect.Height > (60 * scaleFactor) ||
-                        aspect < 1.8 || aspect > 6.0)
-                        continue;
-
-                    // Verify dark button disc behind and around the text
-                    int midX = Math.Clamp(rect.X + (rect.Width / 2), 0, searchW - 1);
-                    int aboveY = Math.Max(0, rect.Y - (int)(10 * scaleFactor));
-                    int belowY = Math.Min(searchH - 1, rect.Y + rect.Height + (int)(10 * scaleFactor));
-
-                    byte lumaAbove = gray.Get<byte>(aboveY, midX);
-                    byte lumaBelow = gray.Get<byte>(belowY, midX);
-                    double avgBgLuma = (lumaAbove + lumaBelow) / 2.0;
-
-                    // True Fisch shake button has dark background (avgBgLuma < 100)
-                    if (avgBgLuma >= 100)
-                        continue;
-
-                    double score = (1.0 - (avgBgLuma / 100.0)) * 0.85;
-                    if (score > bestConfidence)
-                    {
-                        bestConfidence = score;
-                        bestRect = new Rect(searchX1 + rect.X, searchY1 + rect.Y, rect.Width, rect.Height);
-                        bestCenter = new Point(absOffsetX + searchX1 + rect.X + (rect.Width / 2),
-                                               absOffsetY + searchY1 + rect.Y + (rect.Height / 2));
-                    }
-                }
-            }
-
-            if (bestRect.HasValue && bestConfidence >= 0.50)
+            if (bestRect.HasValue && bestConfidence >= 0.58)
             {
                 result.Found = true;
                 result.Center = bestCenter;
@@ -705,46 +668,127 @@ public class VisionProcessor
             Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
 
             // Cast bar cap is ALWAYS green in Fisch, regardless of the rod/reeling theme
-            using var mask = new Mat();
-            Cv2.InRange(hsv, new Scalar(35, 60, 60), new Scalar(85, 255, 255), mask); 
+            using var greenMask = new Mat();
+            Cv2.InRange(hsv, new Scalar(40, 60, 60), new Scalar(85, 255, 255), greenMask);
 
-            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            Cv2.FindContours(greenMask, out Point[][] greenContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
 
             double scale = fullClientH > 0 ? (fullClientH / 1080.0) : (roiH / 540.0);
             scale = Math.Clamp(scale, 0.35, 3.5);
 
-            int minCapW = Math.Max(3, (int)Math.Round(4 * scale));
+            int minCapW = Math.Max(6, (int)Math.Round(6 * scale));
             int maxCapW = Math.Max(40, (int)Math.Round(65 * scale));
             int minCapH = Math.Max(2, (int)Math.Round(2 * scale));
             int maxCapH = Math.Max(20, (int)Math.Round(35 * scale));
-            int minRoomUnder = Math.Max(30, (int)Math.Round(80 * scale));
 
-            Rect? bestCapRect = null;
-            var validCaps = new List<Rect>();
-            foreach (var c in contours)
+            Rect? bestCap = null;
+            Rect bestWhiteContour = default;
+            double bestScore = -1.0;
+            int bestTotalBarH = 0;
+            int bestScanX = 0;
+            int bestScanW = 0;
+
+            foreach (var c in greenContours)
             {
-                Rect rBox = Cv2.BoundingRect(c);
-                // Cap is a small horizontal-ish block
-                // Billboard GUI scales with camera zoom! On 4k zoomed out, it can be as small as 4-5px.
-                if (rBox.Width >= minCapW && rBox.Width <= maxCapW && rBox.Height >= minCapH && rBox.Height <= maxCapH)
+                Rect r = Cv2.BoundingRect(c);
+                if (r.Width >= minCapW && r.Width <= maxCapW && r.Height >= minCapH && r.Height <= maxCapH && 
+                    r.Width >= r.Height * 0.45 && (r.Width * r.Height) >= 20)
                 {
-                    // Verify sufficient vertical room underneath for the tall bar
-                    int checkY = rBox.Y + rBox.Height + 5;
-                    if (checkY + minRoomUnder < roiH)
+                    int capCenterX = r.X + r.Width / 2;
+                    int capBottomY = r.Y + r.Height;
+                    int expectedBarH = (int)Math.Round(r.Width * 20.0);
+                    int scanW = Math.Max(4, Math.Min(r.Width, 14));
+                    int scanX = Math.Clamp(capCenterX - scanW / 2, 0, roiW - scanW);
+                    int scanH = Math.Min(roiH - capBottomY, (int)Math.Round(expectedBarH * 1.85));
+                    if (scanH < 20) continue;
+
+                    using var colMat = new Mat(roi, new Rect(scanX, capBottomY, scanW, scanH));
+                    using var gray = new Mat();
+                    Cv2.CvtColor(colMat, gray, ColorConversionCodes.BGR2GRAY);
+                    using var whiteMask = new Mat();
+                    Cv2.Threshold(gray, whiteMask, 195, 255, ThresholdTypes.Binary);
+
+                    int kernelH = Math.Max(5, (int)Math.Round(15 * scale));
+                    using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(1, kernelH));
+                    using var closedMask = new Mat();
+                    Cv2.MorphologyEx(whiteMask, closedMask, MorphTypes.Close, kernel);
+
+                    Cv2.FindContours(closedMask, out Point[][] wContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+                    foreach (var wc in wContours)
                     {
-                        validCaps.Add(rBox);
+                        Rect wr = Cv2.BoundingRect(wc);
+                        int minRunH = Math.Max(5, (int)Math.Round(6 * scale));
+                        int whiteBottom = wr.Y + wr.Height;
+
+                        bool isCapContact = wr.Y <= Math.Max(2, (int)Math.Round(3 * scale)) && wr.Height >= Math.Max(50, (int)Math.Round(60 * scale));
+
+                        // Solid vertical white column under green cap indicates active cast power bar
+                        if (wr.Height >= minRunH && (wr.Height >= 30 || whiteBottom >= (int)(expectedBarH * 0.40) || isCapContact))
+                        {
+                            int totalBarH = isCapContact
+                                ? wr.Height
+                                : Math.Max(whiteBottom, (int)Math.Round(r.Width * 14.0));
+                            double aspectMatch = isCapContact
+                                ? 1.0
+                                : (1.0 - Math.Min(1.0, Math.Abs(whiteBottom - expectedBarH) / (double)expectedBarH));
+                            double score = (wr.Height * 3.0) + (aspectMatch * 100.0) + (isCapContact ? 100.0 : 0.0);
+
+                            if (score > bestScore)
+                            {
+                                bestScore = score;
+                                bestCap = r;
+                                bestWhiteContour = new Rect(scanX + wr.X, capBottomY + wr.Y, wr.Width, wr.Height);
+                                bestTotalBarH = totalBarH;
+                                bestScanX = scanX;
+                                bestScanW = scanW;
+                            }
+                        }
                     }
                 }
             }
-            if (validCaps.Count > 0)
-            {
-                // Select top-most cap candidate
-                validCaps.Sort((a, b) => a.Y.CompareTo(b.Y));
-                bestCapRect = validCaps[0];
-            }
 
-            if (!bestCapRect.HasValue)
+            int minFillH = Math.Max(10, (int)Math.Round(12 * scale));
+            int fillH = bestWhiteContour.Height;
+
+            if (bestCap.HasValue && bestScore >= 200.0 && fillH >= minFillH)
             {
+                var cap = bestCap.Value;
+                int localTargetY = cap.Y + (cap.Height / 2);
+                int localTargetX = cap.X + (cap.Width / 2);
+
+                res.Found = true;
+                res.GreenY = roiOffsetY + localTargetY;
+                res.WhiteTop = roiOffsetY + bestWhiteContour.Y;
+                res.WhiteBottom = roiOffsetY + bestWhiteContour.Y + bestWhiteContour.Height;
+                res.FillPercent = Math.Clamp((double)fillH * 100.0 / bestTotalBarH, 0.0, 100.0);
+                res.BarBounds = new Rect(roiOffsetX + bestScanX, roiOffsetY + cap.Y + cap.Height, bestScanW, bestTotalBarH);
+
+                if (generateDebug)
+                {
+                    Mat dbg = roi.Clone();
+                    // Draw Target Line & Cap
+                    Cv2.Rectangle(dbg, new Rect(cap.X, cap.Y, cap.Width, cap.Height), Scalar.FromRgb(0, 255, 128), 2);
+                    Cv2.Line(dbg, new Point(localTargetX - 35, localTargetY), new Point(localTargetX + 35, localTargetY), Scalar.FromRgb(0, 255, 128), 3);
+                    Cv2.PutText(dbg, "TARGET 100%", new Point(localTargetX + 40, localTargetY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
+
+                    // Draw Bar Container outline
+                    Cv2.Rectangle(dbg, new Rect(bestScanX, cap.Y + cap.Height, bestScanW, bestTotalBarH), Scalar.FromRgb(80, 80, 80), 1);
+
+                    // Draw White Fill Level line
+                    int whiteY = bestWhiteContour.Y;
+                    Cv2.Line(dbg, new Point(localTargetX - 25, whiteY), new Point(localTargetX + 25, whiteY), Scalar.FromRgb(0, 229, 255), 2);
+
+                    // Power percentage badge
+                    Scalar badgeColor = res.FillPercent >= 95.0 ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(0, 229, 255);
+                    string text = $"⚡ CAST POWER: {res.FillPercent:F0}% {(res.FillPercent >= 95.0 ? "[PERFECT!]" : "")}";
+                    Cv2.PutText(dbg, text, new Point(10, 25), HersheyFonts.HersheySimplex, 0.55, badgeColor, 2);
+                    res.AnnotatedFrame = dbg;
+                }
+            }
+            else
+            {
+                res.Found = false;
+                res.FillPercent = 0.0;
                 if (generateDebug)
                 {
                     Mat dbg = roi.Clone();
@@ -752,121 +796,6 @@ public class VisionProcessor
                         HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(148, 163, 184), 1);
                     res.AnnotatedFrame = dbg;
                 }
-                return res;
-            }
-
-            var rCap = bestCapRect.Value;
-
-            // Target Y is the vertical center of the cap block
-            int localTargetY = rCap.Y + (rCap.Height / 2);
-            int localTargetX = rCap.X + (rCap.Width / 2);
-            res.GreenY = roiOffsetY + localTargetY;
-
-            // Bar column extends downwards from beneath the green cap (~25% of full window height, ~340px)
-            int expectedBarLen = fullClientH > 0 ? (int)(fullClientH * 0.25) : (int)(roiH * (0.25 / 0.45));
-            int searchYStart = rCap.Y + rCap.Height;
-            int barTopY = rCap.Y + rCap.Height; // Approximate highest point the white fill can reach (just under the cap)
-            int barBottomY = roiH - 1;
-            int barHeight = barBottomY - barTopY;
-            if (barHeight <= Math.Max(25, (int)Math.Round(50 * scale))) return res;
-
-            int capCenterX = rCap.X + rCap.Width / 2;
-            int scanW = Math.Max(4, rCap.Width - 4);
-            int scanX = Math.Clamp(capCenterX - scanW / 2, 0, roiW - scanW);
-
-            using Mat barCol = new Mat(roi, new Rect(scanX, barTopY, scanW, barHeight));
-            using Mat gray = new Mat();
-            Cv2.CvtColor(barCol, gray, ColorConversionCodes.BGR2GRAY);
-            using Mat whiteMask = new Mat();
-            Cv2.Threshold(gray, whiteMask, 200, 255, ThresholdTypes.Binary);
-
-            // Largest White Run Algorithm:
-            // Finds the tallest continuous vertical block of white pixels.
-            // Floating text (e.g. "Tunaaaaa") is only ~12-15px tall.
-            // Glowing bubble lens flare is separated or short.
-            // The true cast bar fill is the largest continuous solid white column.
-            int bestRunStart = -1;
-            int bestRunLength = 0;
-            int currentRunStart = -1;
-            int currentRunLength = 0;
-
-            for (int y = 0; y < barHeight; y++)
-            {
-                int whiteCount = 0;
-                for (int x = 0; x < scanW; x++)
-                {
-                    if (whiteMask.At<byte>(y, x) > 0) whiteCount++;
-                }
-
-                if (whiteCount >= Math.Max(1, scanW / 2))
-                {
-                    if (currentRunStart < 0) currentRunStart = y;
-                    currentRunLength++;
-                }
-                else
-                {
-                    if (currentRunLength > bestRunLength)
-                    {
-                        bestRunLength = currentRunLength;
-                        bestRunStart = currentRunStart;
-                    }
-                    currentRunStart = -1;
-                    currentRunLength = 0;
-                }
-            }
-
-            if (currentRunLength > bestRunLength)
-            {
-                bestRunLength = currentRunLength;
-                bestRunStart = currentRunStart;
-            }
-
-            int minRunLength = Math.Max(3, (int)Math.Round(6 * scale));
-            int firstWhiteRow = (bestRunLength >= minRunLength) ? bestRunStart : -1;
-
-            if (firstWhiteRow >= 0)
-            {
-                res.Found = true;
-                res.WhiteTop = roiOffsetY + barTopY + firstWhiteRow;
-                res.WhiteBottom = roiOffsetY + barBottomY;
-                int fillHeight = barHeight - firstWhiteRow;
-                res.FillPercent = Math.Clamp(fillHeight * 100.0 / barHeight, 0.0, 100.0);
-            }
-            else
-            {
-                res.Found = false;
-                res.FillPercent = 0.0;
-            }
-
-            res.BarBounds = new Rect(roiOffsetX + scanX, roiOffsetY + barTopY, scanW, barHeight);
-
-            if (generateDebug)
-            {
-                Mat dbg = roi.Clone();
-                if (res.Found)
-                {
-                    int drawTargetY = localTargetY;
-                    int drawTargetX = localTargetX;
-
-                    // Draw Target Line & Cap
-                    Cv2.Rectangle(dbg, new Rect(rCap.X, rCap.Y, rCap.Width, rCap.Height), Scalar.FromRgb(0, 255, 128), 2);
-                    Cv2.Line(dbg, new Point(drawTargetX - 35, drawTargetY), new Point(drawTargetX + 35, drawTargetY), Scalar.FromRgb(0, 255, 128), 3);
-                    Cv2.PutText(dbg, "TARGET 100%", new Point(drawTargetX + 40, drawTargetY + 4), HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(0, 255, 128), 1);
-
-                    int whiteY = barTopY + firstWhiteRow;
-                    Cv2.Line(dbg, new Point(drawTargetX - 25, whiteY), new Point(drawTargetX + 25, whiteY), Scalar.FromRgb(0, 229, 255), 2);
-
-                    // Power percentage badge
-                    Scalar badgeColor = res.FillPercent >= 95.0 ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(0, 229, 255);
-                    string text = $"⚡ CAST POWER: {res.FillPercent:F0}% {(res.FillPercent >= 95.0 ? "[PERFECT!]" : "")}";
-                    Cv2.PutText(dbg, text, new Point(10, 25), HersheyFonts.HersheySimplex, 0.55, badgeColor, 2);
-                }
-                else
-                {
-                    Cv2.PutText(dbg, "SEARCHING FOR CAST POWER BAR...", new Point(10, 25),
-                        HersheyFonts.HersheySimplex, 0.45, Scalar.FromRgb(148, 163, 184), 1);
-                }
-                res.AnnotatedFrame = dbg;
             }
 
             return res;
@@ -1131,11 +1060,49 @@ public class VisionProcessor
             activePx = Cv2.CountNonZero(maskCyan);
         }
 
-        // Density-based detection: active pixels must cover at least 4.5% of the sampled interior
-        // with a scaled noise floor (for tiny window scales)
         double activeDensity = (double)activePx / totalSampleArea;
         int minActivePxFloor = Math.Max(4, (int)Math.Round(6 * (vpH / 1080.0)));
-        bool isEquipped = activeDensity >= 0.045 && activePx >= minActivePxFloor;
+        bool isCyanEquipped = activeDensity >= 0.045 && activePx >= minActivePxFloor;
+
+        // Method 2: Roblox Desktop PC White Outline Border
+        // When an item is equipped on PC, Roblox draws a solid 1px white border (RGB ~255,255,255) around the slot square.
+        bool isWhiteBorderEquipped = false;
+        int borderPad = Math.Max(2, (int)Math.Round(vpH * 0.003));
+        int slotSquareH = Math.Min(slotRect.Width, slotRect.Height);
+        int squareTop = slotRect.Bottom - slotSquareH;
+        int borderX = Math.Clamp(slotRect.X - borderPad, 0, w - 1);
+        int borderY = Math.Clamp(squareTop - borderPad, 0, h - 1);
+        int borderW = Math.Clamp(slotRect.Width + (2 * borderPad), 1, w - borderX);
+        int borderH = Math.Clamp(slotSquareH + (2 * borderPad), 1, h - borderY);
+
+        if (borderW > 10 && borderH > 10)
+        {
+            using var slotBoxMat = new Mat(frame, new Rect(borderX, borderY, borderW, borderH));
+            using var slotBoxBgr = new Mat();
+            if (slotBoxMat.Channels() == 4)
+                Cv2.CvtColor(slotBoxMat, slotBoxBgr, ColorConversionCodes.BGRA2BGR);
+            else
+                slotBoxMat.CopyTo(slotBoxBgr);
+
+            using var slotBoxHsv = new Mat();
+            Cv2.CvtColor(slotBoxBgr, slotBoxHsv, ColorConversionCodes.BGR2HSV);
+
+            using var maskWhite = new Mat();
+            Cv2.InRange(slotBoxHsv, new Scalar(0, 0, 215), new Scalar(180, 40, 255), maskWhite);
+
+            Cv2.FindContours(maskWhite, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            foreach (var cnt in contours)
+            {
+                Rect r = Cv2.BoundingRect(cnt);
+                if (r.Width >= (slotRect.Width * 0.72) && r.Height >= (slotSquareH * 0.72))
+                {
+                    isWhiteBorderEquipped = true;
+                    break;
+                }
+            }
+        }
+
+        bool isEquipped = isCyanEquipped || isWhiteBorderEquipped;
 
         result.HotbarFound = true;
         result.HotbarBounds = hotbarRect;

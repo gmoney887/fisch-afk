@@ -10,6 +10,12 @@ namespace FischMacroCS.Tests;
 public class CastBarVisionTests
 {
     private readonly VisionProcessor _vision = new();
+    private readonly Xunit.Abstractions.ITestOutputHelper _output;
+
+    public CastBarVisionTests(Xunit.Abstractions.ITestOutputHelper output)
+    {
+        _output = output;
+    }
 
     private string GetFixturePath(string filename)
     {
@@ -135,7 +141,7 @@ public class CastBarVisionTests
     }
 
     [Fact]
-    public void DetectCastBarROI_InspectCastingScreenshots()
+    public void DetectCastBarROI_RealScreenshots_AccuratelyDistinguishesCastingFromIdle()
     {
         string dir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "screenshots", "casting"));
         if (!Directory.Exists(dir)) return;
@@ -146,21 +152,33 @@ public class CastBarVisionTests
             using var full = Cv2.ImRead(file);
             if (full.Empty()) continue;
 
+            string fn = Path.GetFileName(file);
             int winW = full.Width;
             int winH = full.Height;
-            int roiX = (int)(winW * 0.50);
-            int roiY = (int)(winH * 0.30);
-            int roiW = (int)(winW * 0.12);
-            int roiH = (int)(winH * 0.45);
+            int roiHalfW = (int)Math.Round(winH * 0.28);
+            int roiX = Math.Max(0, (winW / 2) - roiHalfW);
+            int roiW = Math.Min(winW - roiX, roiHalfW * 2);
+            int roiY = (int)Math.Round(winH * 0.25);
+            int roiH = (int)Math.Round(winH * 0.50);
 
             using var roi = new Mat(full, new Rect(roiX, roiY, roiW, roiH));
-            var res = _vision.DetectCastBarROI(roi, winH, roiX, roiY, MinigameTheme.Default, false);
+            var res = _vision.DetectCastBarROI(roi, winH, roiX, roiY, MinigameTheme.Default, true);
 
-            // If a cast bar was found, it must have a valid positive fill percent and green cap coordinate
-            if (res.Found)
+            _output.WriteLine($"Screenshot: {fn} -> Found={res.Found}, Fill={res.FillPercent:F1}%, BarBounds={res.BarBounds}");
+
+            if (fn.Contains("222731751"))
             {
-                Assert.True(res.FillPercent > 0.0);
-                Assert.True(res.GreenY > 0);
+                // Non-casting frame (minigame ended / idle player): must NOT detect a cast bar
+                Assert.False(res.Found, $"Non-casting frame {fn} must not trigger cast bar detection!");
+                Assert.Equal(0.0, res.FillPercent);
+            }
+            else
+            {
+                // Active casting frames (including text occlusions and clan tags): must detect cast bar
+                Assert.True(res.Found, $"Cast bar must be detected in active casting frame {fn}!");
+                Assert.InRange(res.FillPercent, 40.0, 100.0);
+                Assert.True(res.BarBounds.Height >= 140, $"Bar height {res.BarBounds.Height} in {fn} must be >= 140px!");
+                Assert.True(res.GreenY > 0, $"Green target Y must be positive in {fn}!");
             }
         }
     }

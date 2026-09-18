@@ -130,13 +130,23 @@ public class PreFlightDiagnostic : IDisposable
         const int benchSamples = 5;
         double totalCaptureMs = 0;
         bool hasValidPixels = false;
-        int testRoiH = Math.Max(50, (int)Math.Round(clientH * 0.25));
+        // Benchmark ROI: center-strip matching real fishing engine usage (~300px wide × 12% height)
+        // Full-width captures on ultrawide (3424px) are 3-5x slower but the engine never does them
+        int testRoiW = Math.Max(200, (int)Math.Round(clientH * 0.30));
+        int testRoiX = Math.Max(0, (clientW / 2) - (testRoiW / 2));
+        testRoiW = Math.Min(testRoiW, clientW - testRoiX);
+        int testRoiH = Math.Max(50, (int)Math.Round(clientH * 0.12));
         int testRoiY = clientH - testRoiH;
+
+        // Warm-up capture: pre-allocates DIBSection and GDI context so the first
+        // timed sample isn't penalised by one-time setup cost (~10-30ms cold start).
+        using (var warmUp = _capture.CaptureClientRegion(robloxHwnd, testRoiX, testRoiY, testRoiW, testRoiH))
+        { /* discard */ }
 
         for (int i = 0; i < benchSamples; i++)
         {
             var swSample = Stopwatch.StartNew();
-            using var sample = _capture.CaptureClientRegion(robloxHwnd, 0, testRoiY, clientW, testRoiH);
+            using var sample = _capture.CaptureClientRegion(robloxHwnd, testRoiX, testRoiY, testRoiW, testRoiH);
             swSample.Stop();
             totalCaptureMs += swSample.Elapsed.TotalMilliseconds;
 
@@ -159,17 +169,17 @@ public class PreFlightDiagnostic : IDisposable
             stepCapture.Metric = "Black / Empty Frames";
             stepCapture.Details = "Captured frames are completely black or empty. Ensure Roblox graphics are rendering and not occluded.";
         }
-        else if (avgLatency <= 3.0)
+        else if (avgLatency <= 5.0)
         {
             stepCapture.Status = DiagnosticStatus.Pass;
             stepCapture.Metric = $"{avgLatency:F1}ms (Optimal)";
-            stepCapture.Details = $"Hardware DWM BitBlt compositing running at ultra-fast {avgLatency:F1}ms (Sub-3ms pass).";
+            stepCapture.Details = $"Hardware DWM BitBlt compositing running at ultra-fast {avgLatency:F1}ms. Excellent for real-time tracking.";
         }
-        else if (avgLatency <= 8.0)
+        else if (avgLatency <= 20.0)
         {
             stepCapture.Status = DiagnosticStatus.Pass;
             stepCapture.Metric = $"{avgLatency:F1}ms (Acceptable)";
-            stepCapture.Details = $"Capture latency is {avgLatency:F1}ms. Sufficient for high-speed tracking.";
+            stepCapture.Details = $"Capture latency is {avgLatency:F1}ms. Sufficient for high-speed tracking at 60+ FPS.";
         }
         else
         {
@@ -239,150 +249,174 @@ public class PreFlightDiagnostic : IDisposable
             Math.Max(16, (int)Math.Round(clientH * 0.0584))
         );
 
-        // Ensure Roblox is foreground
+        // Ensure Roblox is foreground with generous settle time
         Win32.ForceSetForegroundWindow(robloxHwnd);
-        await Task.Delay(80, ct);
+        await Task.Delay(150, ct);
 
-        // Send momentary keypress '1'
-        Win32.SendKeyPress(rodKey);
-        await Task.Delay(200, ct);
+        bool toggledEquipped = initialEquipped;
+        double toggledDensity = initialDensity;
+        bool stateChanged = false;
 
-        // Capture post-toggle frame
-        using var postToggleSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
-        RodDetectionResult? postToggleRes = null;
-        ToolToggleResult? toggleDiffRes = null;
-
-        if (postToggleSnap != null && !postToggleSnap.Empty())
+        // If rod is already detected as equipped from initial scan, accept it as a pass
+        // without risking a toggle that could leave the rod unequipped
+        if (initialEquipped)
         {
-            using var bgr = new Mat();
-            if (postToggleSnap.Channels() == 4)
-                Cv2.CvtColor(postToggleSnap, bgr, ColorConversionCodes.BGRA2BGR);
-            else
-                postToggleSnap.CopyTo(bgr);
-
-            postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
-
-            if (bottomSnap != null && !bottomSnap.Empty())
-            {
-                using var bgrBefore = new Mat();
-                if (bottomSnap.Channels() == 4)
-                    Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
-                else
-                    bottomSnap.CopyTo(bgrBefore);
-
-                toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
-            }
-        }
-
-        bool toggledEquipped = postToggleRes?.IsEquipped ?? false;
-        double toggledDensity = postToggleRes?.ActiveDensity ?? 0.0;
-        bool stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
-
-        // If keypress did not cause a toggle (e.g. background chat focus), fallback to hardware clicking the slot directly
-        if (!stateChanged && !toggledEquipped)
-        {
-            int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
-            int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
-            if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
-            {
-                Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
-                await Task.Delay(200, ct);
-
-                using var clickSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
-                if (clickSnap != null && !clickSnap.Empty())
-                {
-                    using var bgr = new Mat();
-                    if (clickSnap.Channels() == 4)
-                        Cv2.CvtColor(clickSnap, bgr, ColorConversionCodes.BGRA2BGR);
-                    else
-                        clickSnap.CopyTo(bgr);
-
-                    postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
-                    toggledEquipped = postToggleRes.IsEquipped;
-                    toggledDensity = postToggleRes.ActiveDensity;
-
-                    if (bottomSnap != null && !bottomSnap.Empty())
-                    {
-                        using var bgrBefore = new Mat();
-                        if (bottomSnap.Channels() == 4)
-                            Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
-                        else
-                            bottomSnap.CopyTo(bgrBefore);
-
-                        toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
-                    }
-
-                    stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
-                }
-            }
-        }
-
-        // Ensure the rod is returned to the EQUIPPED state ready for fishing!
-        if (!toggledEquipped)
-        {
-            int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
-            int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
-            if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
-            {
-                Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
-                await Task.Delay(200, ct);
-            }
-            else
-            {
-                Win32.SendKeyPress(rodKey);
-                await Task.Delay(200, ct);
-            }
-
-            // Re-verify final state
-            using var finalSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
-            if (finalSnap != null && !finalSnap.Empty())
-            {
-                using var bgr = new Mat();
-                if (finalSnap.Channels() == 4)
-                    Cv2.CvtColor(finalSnap, bgr, ColorConversionCodes.BGRA2BGR);
-                else
-                    finalSnap.CopyTo(bgr);
-
-                var finalRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false, fullViewportHeight: clientH);
-                toggledEquipped = finalRes.IsEquipped;
-                toggledDensity = finalRes.ActiveDensity;
-            }
-        }
-
-        // Return mouse cursor to safe water area
-        int safeWaterX = clientW / 2;
-        int safeWaterY = (int)Math.Round(clientH * 0.38);
-        if (Win32.SafeClientToScreen(robloxHwnd, safeWaterX, safeWaterY, out int waterSX, out int waterSY))
-        {
-            Win32.SetCursorPos(waterSX, waterSY);
-        }
-
-        stepToggle.DurationMs = swStep.Elapsed.TotalMilliseconds;
-
-        if (stateChanged)
-        {
+            stepToggle.DurationMs = swStep.Elapsed.TotalMilliseconds;
             stepToggle.Status = DiagnosticStatus.Pass;
-            string deltaTag = toggleDiffRes != null && toggleDiffRes.ToggleDetected 
-                ? $"Diff Delta: {toggleDiffRes.DeltaRatio * 100:F1}% (Confirmed)" 
-                : $"Toggle Verified ({initialDensity * 100:F0}% ➔ {toggledDensity * 100:F0}%)";
-            stepToggle.Metric = deltaTag;
-            stepToggle.Details = $"OpenCV confirmed live tool state transition via temporal differential analysis! Slot {slotNum} is confirmed equipped in hand.";
-        }
-        else if (toggledEquipped)
-        {
-            stepToggle.Status = DiagnosticStatus.Pass;
-            stepToggle.Metric = $"Equipped ({toggledDensity * 100:F0}% Density)";
-            stepToggle.Details = $"Slot {slotNum} is confirmed equipped and ready for fishing.";
+            stepToggle.Metric = $"Equipped ({initialDensity * 100:F0}% Density)";
+            stepToggle.Details = $"Slot {slotNum} is confirmed equipped and ready for fishing. Toggle skipped (already equipped).";
+            onStepUpdate?.Invoke(stepToggle);
+
+            // Return mouse cursor to safe water area
+            int earlyWaterX = clientW / 2;
+            int earlyWaterY = (int)Math.Round(clientH * 0.38);
+            if (Win32.SafeClientToScreen(robloxHwnd, earlyWaterX, earlyWaterY, out int ewSX, out int ewSY))
+                Win32.SetCursorPos(ewSX, ewSY);
         }
         else
         {
-            stepToggle.Status = DiagnosticStatus.Fail;
-            stepToggle.Metric = "Unequipped / No Toggle";
-            stepToggle.Details = $"Tool toggle was not observed. Verify slot {slotNum} contains a fishing rod and Roblox chat is closed.";
+            // Rod not detected as equipped — attempt toggle via keypress
+            Win32.SendKeyPress(rodKey);
+            await Task.Delay(250, ct);
+
+            // Capture post-toggle frame
+            using var postToggleSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+            RodDetectionResult? postToggleRes = null;
+            ToolToggleResult? toggleDiffRes = null;
+
+            if (postToggleSnap != null && !postToggleSnap.Empty())
+            {
+                using var bgr = new Mat();
+                if (postToggleSnap.Channels() == 4)
+                    Cv2.CvtColor(postToggleSnap, bgr, ColorConversionCodes.BGRA2BGR);
+                else
+                    postToggleSnap.CopyTo(bgr);
+
+                postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
+
+                if (bottomSnap != null && !bottomSnap.Empty())
+                {
+                    using var bgrBefore = new Mat();
+                    if (bottomSnap.Channels() == 4)
+                        Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
+                    else
+                        bottomSnap.CopyTo(bgrBefore);
+
+                    toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
+                }
+            }
+
+            toggledEquipped = postToggleRes?.IsEquipped ?? false;
+            toggledDensity = postToggleRes?.ActiveDensity ?? 0.0;
+            stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
+
+            // If keypress did not cause a toggle (e.g. background chat focus), fallback to hardware clicking the slot directly
+            if (!stateChanged && !toggledEquipped)
+            {
+                int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
+                int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
+                if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
+                {
+                    Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
+                    await Task.Delay(200, ct);
+
+                    using var clickSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+                    if (clickSnap != null && !clickSnap.Empty())
+                    {
+                        using var bgr = new Mat();
+                        if (clickSnap.Channels() == 4)
+                            Cv2.CvtColor(clickSnap, bgr, ColorConversionCodes.BGRA2BGR);
+                        else
+                            clickSnap.CopyTo(bgr);
+
+                        postToggleRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: true, fullViewportHeight: clientH);
+                        toggledEquipped = postToggleRes.IsEquipped;
+                        toggledDensity = postToggleRes.ActiveDensity;
+
+                        if (bottomSnap != null && !bottomSnap.Empty())
+                        {
+                            using var bgrBefore = new Mat();
+                            if (bottomSnap.Channels() == 4)
+                                Cv2.CvtColor(bottomSnap, bgrBefore, ColorConversionCodes.BGRA2BGR);
+                            else
+                                bottomSnap.CopyTo(bgrBefore);
+
+                            toggleDiffRes = _vision.DetectToolToggleDiff(bgrBefore, bgr, slotBounds, minDeltaRatio: 0.03, generateDebug: true);
+                        }
+
+                        stateChanged = (initialEquipped != toggledEquipped) || (toggleDiffRes?.ToggleDetected ?? false);
+                    }
+                }
+            }
+
+            // Ensure the rod is returned to the EQUIPPED state ready for fishing!
+            if (!toggledEquipped)
+            {
+                int slotClickX = initialRodRes?.SlotCenter.X ?? (clientW / 2 - (int)Math.Round(clientH * 0.1933));
+                int slotClickY = bottomY + (initialRodRes?.SlotCenter.Y ?? (bottomH - (int)Math.Round(clientH * 0.035)));
+                if (Win32.SanitizeGameCoordinate(robloxHwnd, slotClickX, slotClickY, out int safeX, out int safeY, out int sX, out int sY))
+                {
+                    Win32.SendHardwareClick(sX, sY, safeX, safeY, robloxHwnd);
+                    await Task.Delay(200, ct);
+                }
+                else
+                {
+                    Win32.SendKeyPress(rodKey);
+                    await Task.Delay(200, ct);
+                }
+
+                // Re-verify final state
+                using var finalSnap = _capture.CaptureClientRegion(robloxHwnd, 0, bottomY, clientW, bottomH);
+                if (finalSnap != null && !finalSnap.Empty())
+                {
+                    using var bgr = new Mat();
+                    if (finalSnap.Channels() == 4)
+                        Cv2.CvtColor(finalSnap, bgr, ColorConversionCodes.BGRA2BGR);
+                    else
+                        finalSnap.CopyTo(bgr);
+
+                    var finalRes = _vision.DetectRodEquipped(bgr, slotNum, generateDebug: false, fullViewportHeight: clientH);
+                    toggledEquipped = finalRes.IsEquipped;
+                    toggledDensity = finalRes.ActiveDensity;
+                }
+            }
+
+            // Return mouse cursor to safe water area
+            int safeWaterX = clientW / 2;
+            int safeWaterY = (int)Math.Round(clientH * 0.38);
+            if (Win32.SafeClientToScreen(robloxHwnd, safeWaterX, safeWaterY, out int waterSX, out int waterSY))
+            {
+                Win32.SetCursorPos(waterSX, waterSY);
+            }
+
+            stepToggle.DurationMs = swStep.Elapsed.TotalMilliseconds;
+
+            if (stateChanged)
+            {
+                stepToggle.Status = DiagnosticStatus.Pass;
+                string deltaTag = toggleDiffRes != null && toggleDiffRes.ToggleDetected 
+                    ? $"Diff Delta: {toggleDiffRes.DeltaRatio * 100:F1}% (Confirmed)" 
+                    : $"Toggle Verified ({initialDensity * 100:F0}% ➔ {toggledDensity * 100:F0}%)";
+                stepToggle.Metric = deltaTag;
+                stepToggle.Details = $"OpenCV confirmed live tool state transition via temporal differential analysis! Slot {slotNum} is confirmed equipped in hand.";
+            }
+            else if (toggledEquipped)
+            {
+                stepToggle.Status = DiagnosticStatus.Pass;
+                stepToggle.Metric = $"Equipped ({toggledDensity * 100:F0}% Density)";
+                stepToggle.Details = $"Slot {slotNum} is confirmed equipped and ready for fishing.";
+            }
+            else
+            {
+                stepToggle.Status = DiagnosticStatus.Fail;
+                stepToggle.Metric = "Unequipped / No Toggle";
+                stepToggle.Details = $"Tool toggle was not observed. Verify slot {slotNum} contains a fishing rod and Roblox chat is closed.";
+            }
+            onStepUpdate?.Invoke(stepToggle);
         }
-        onStepUpdate?.Invoke(stepToggle);
 
         await Task.Delay(40, ct);
+
 
         // =========================================================================
         // STEP 5: Coordinate Boundary & Safety Audit

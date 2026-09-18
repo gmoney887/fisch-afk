@@ -14,13 +14,43 @@
 *.sln.docstates
 *.userprefs
 
-# Application Specific
-recordings/
-logs/
-scratch/
+# =============================================
+# Personal / User Data — NEVER commit these
+# =============================================
+
+# Session logs (contain input coordinates, timing, PII-adjacent data)
 *.log
+logs/
+
+# Runtime config files (contain user-specific paths, settings, keys)
+config.json
+settings.json
+
+# Recordings (contain screen captures of user's desktop/game)
+recordings/
+*.webm
+*.mp4
+*.avi
+
+# Screenshots — Roblox and debug (contain user's screen, usernames, game state)
+/screenshots/
+**/RobloxScreenShot*
+**/roblox_screenshot_*
+
+# Test fixtures containing real user screenshots
+# (only synthetic/generated test images should be committed)
+FischMacroCS.Tests/Fixtures/roblox_screenshot_*.png
+FischMacroCS.Tests/Fixtures/user_screen_*.png
+FischMacroCS.Tests/Fixtures/click_target_crop.png
+
+# Debug output files
+debug_startup.log
+find_roblox.log
+record_cast_result.txt
+
+# Scratch / temp
+scratch/
 
 # Temp / OS
 .DS_Store
 Thumbs.db
-/screenshots
