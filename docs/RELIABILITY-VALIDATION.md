@@ -33,6 +33,14 @@ Bounded pull/release tuning is an explicit **Trial adaptive dynamics** setting, 
 
 ## Remaining work and evidence
 
+### 2026-09-19 CI and live reel-entry correction
+
+The preview's GitHub CI run failed because one test required ignored `user_screen_latest.png`. That test now uses a reviewed masked hotbar fixture. The full suite passes **171 tests** both locally and in a fresh source-only snapshot without ignored screenshots. Output folders are excluded from project compilation so diagnostic harnesses and extracted build snapshots cannot introduce duplicate assembly attributes.
+
+The recorded rod-equipment pause occurred during an active reel with its hotbar hidden. Before casting, reacting to a missed cast meter, or starting non-reeling recovery, the engine now requires two fresh detections of both bar and fish and transitions to Reeling when confirmed. It avoids re-equipping/casting into that reel. Actual stalled-reel recovery retains its bounded recovery path. Tests cover the two recorded frames, incomplete evidence, transient evidence and cancellation between observations. A live fishing trial of this correction remains required; no release was published for it.
+
+### Remaining acceptance gaps
+
 - **No reviewed aquarium/crate templates exist.** First-PC demonstrations now expose incorrect crate geometry and a quantity field instead of the assumed Max button. Reward dismissal and the equipment/activation sequence also need revision. See [live observations](LIVE-OBSERVATIONS-2026-09-18.md); do not enable the current contracts by simply adding templates.
 - Three first-PC passive sessions captured 52 frames without reported drops. Aquarium claim evidence, focus-loss pauses, and an End stop were observed. The macro obscures crate reward text. Passive stop does not validate held-input release latency, and no actual automated fishing trial has been reviewed. Native computer-use runtime tools are unavailable in this task. Both two-hour trials and the entire second-PC evidence set remain outstanding.
 - Casting response estimation and extraction of the whole reel decision loop into a replayable pure controller are unfinished. Pull/release candidates are not demonstrated improvements. Current replay comparison stores detector outputs; it is not a complete multi-version evaluation runner.

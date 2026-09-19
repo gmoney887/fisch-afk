@@ -46,10 +46,10 @@ public class RodDetectorTests
     public void DetectRodEquipped_RealUltrawideScreen_UnequippedSlot1_CorrectlyDetectsUnequipped()
     {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string fixturePath = Path.Combine(baseDir, "Fixtures", "user_screen_latest.png");
+        string fixturePath = Path.Combine(baseDir, "Fixtures", "hotbar_ultrawide_unequipped.png");
         if (!File.Exists(fixturePath))
         {
-            fixturePath = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "user_screen_latest.png"));
+            fixturePath = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "hotbar_ultrawide_unequipped.png"));
         }
         Assert.True(File.Exists(fixturePath), "Fixture must exist");
 

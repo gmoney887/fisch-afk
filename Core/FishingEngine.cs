@@ -764,10 +764,38 @@ public class FishingEngine : IDisposable
     /// 7. Resets consecutive fail counters and progress timers.
     /// 8. Seamlessly transitions state to Casting.
     /// </summary>
+    private bool TryResumeVisibleReel()
+    {
+        ValidateGameplay();
+        int width = _activeGeometry.Width, height = _activeGeometry.Height;
+        int halfWidth = Math.Min(width / 2, (int)(height * .55));
+        int left = width / 2 - halfWidth;
+        int top = (int)(height * .74), bottom = (int)(height * .91);
+        bool confirmed = ReelEntryGuard.Confirm(() =>
+        {
+            using var frame = _capture.CaptureClientRegion(_activeWindow, left, top, halfWidth * 2, bottom - top);
+            if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid reel capture.");
+            return _vision.ProcessTrack(frame, left, top, height / 1080.0, Config.SelectedTheme, false);
+        }, Delay, _operationCancellation);
+        if (!confirmed) return false;
+        SetMouseDown(false);
+        _consecutiveCastFails = 0;
+        _lastProgressTicks = _clock.Timestamp;
+        _lastKnownRodEquipped = true;
+        _lastKnownRodStatus = "ROD: REELING";
+        _recorder.RecordEvent("reel-entry", new { Evidence = "Bar and fish detected in two fresh frames before cast/recovery" });
+        Transition(MacroState.Reeling, "Existing reel detected; skipping cast/re-equip");
+        return true;
+    }
+
     public void RecoverAndRestart(string reason)
     {
         if (!_coordinator.IsOwner) { _ = _coordinator.Enqueue(() => { RecoverAndRestart(reason); return true; }); return; }
         if (!IsRunning || CurrentState == MacroState.Stopped || (_cts != null && _cts.IsCancellationRequested)) return;
+
+        // A missed cast meter can still lead to a bite. Never toggle the rod during that reel.
+        // Keep actual reel-stall recovery bounded; a frozen reel must not reset its timeout forever.
+        if (CurrentState != MacroState.Reeling && TryResumeVisibleReel()) return;
 
         lock (_recoveryLock)
         {
@@ -1225,6 +1253,7 @@ public class FishingEngine : IDisposable
             // ==============================================================
             if (CurrentState == MacroState.Casting)
             {
+                if (TryResumeVisibleReel()) continue;
                 // Capture initial game preview frame so camera monitor is instantly live with dynamic rod vision
                 Mat? castFrame = null;
                 if (Config.ShowVisionPreview)
@@ -1400,6 +1429,7 @@ public class FishingEngine : IDisposable
                 // Verify that the cast actually initiated in Roblox
                 if (Config.EnableDynamicCastRelease && !barEverFound)
                 {
+                    if (TryResumeVisibleReel()) continue;
                     _consecutiveCastFails++;
                     SessionLogger.Instance.Log("CAST", $"Cast bar was NOT detected during hold! (Consecutive fails: {_consecutiveCastFails})");
 
