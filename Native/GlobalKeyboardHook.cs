@@ -8,6 +8,9 @@ public class GlobalKeyboardHook : IDisposable
     private const int WH_KEYBOARD_LL = 13;
     private const int WM_KEYDOWN = 0x0100;
     private const int WM_SYSKEYDOWN = 0x0104;
+    private const int WM_KEYUP = 0x0101;
+    private const int WM_SYSKEYUP = 0x0105;
+    private readonly Core.KeyEdgeTracker _edges = new();
 
     public delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -54,6 +57,7 @@ public class GlobalKeyboardHook : IDisposable
 
     public void Uninstall()
     {
+        _edges.Reset();
         if (_hookId != IntPtr.Zero)
         {
             UnhookWindowsHookEx(_hookId);
@@ -63,9 +67,14 @@ public class GlobalKeyboardHook : IDisposable
 
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
-        if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+        if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN
+            || wParam == (IntPtr)WM_KEYUP || wParam == (IntPtr)WM_SYSKEYUP))
         {
             int vkCode = Marshal.ReadInt32(lParam);
+            bool down = wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN;
+            bool injected = (Marshal.ReadInt32(lParam, 8) & 0x10) != 0;
+            if (!_edges.Observe(vkCode, down, injected))
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
             if (vkCode == ToggleVk)
             {

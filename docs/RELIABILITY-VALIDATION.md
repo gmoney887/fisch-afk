@@ -1,5 +1,9 @@
 # Reliable gameplay feedback loop: implementation and validation
 
+## Current AFK behavior supersedes the original interruption policy
+
+The later user requirement is persistent Start until explicit Stop. Recovery now retries with bounded pacing/cooldowns instead of terminating after three attempts or requiring manual resume. Reconnect and Fisch Continue handling are included in the current AFK work. The original milestone description and dated observations below are historical where they conflict with this behavior. Current expected features, scenario evidence and unresolved live gates are maintained in [FEATURE-ACCEPTANCE.md](FEATURE-ACCEPTANCE.md) and [AFK-REGRESSION-MATRIX.md](AFK-REGRESSION-MATRIX.md). The original release requirements, including both-PC evidence, remain unproven; neither the current offline suite nor a short first-PC trial establishes release readiness.
+
 The user's four-stage plan is the source of intent. Preserve the entire dirty working tree. Keep C#/.NET, WPF, OpenCvSharp, CPU-only Windows x64 delivery, and one visible Roblox session per PC. Users join, choose a position, and equip a rod. Navigation, rejoining, purchases, and progression remain outside this milestone. Never publish without an explicit request.
 
 ## Acceptance requirements

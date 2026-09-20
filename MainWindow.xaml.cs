@@ -24,7 +24,7 @@ public partial class MainWindow : Window
 
     private IntPtr _hwnd = IntPtr.Zero;
     private HwndSource? _hwndSource = null;
-    private int _isTelemetryPending = 0;
+    private readonly TelemetryDispatchGate _telemetryGate = new(minimumIntervalMs: 100);
     private WriteableBitmap? _previewBitmap = null;
 
     public MainWindow()
@@ -47,8 +47,8 @@ public partial class MainWindow : Window
 
             _keyboardHook = new GlobalKeyboardHook();
             _keyboardHook.OnToggle += () => Dispatcher.BeginInvoke(ToggleMacro);
-            _keyboardHook.OnReEquip += () => _engine.ReEquipRod();
-            _keyboardHook.OnStop += () => _engine.Stop();
+            _keyboardHook.OnReEquip += () => { if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod(); };
+            _keyboardHook.OnStop += EmergencyStop;
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] GlobalKeyboardHook OK\n");
 
             PopulateSettingsUI();
@@ -100,9 +100,9 @@ public partial class MainWindow : Window
         }
 
         // Secondary fallback to Win32 RegisterHotKey
-        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_TOGGLE, Win32.MOD_NONE, toggleVk);
-        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_REEQUIP, Win32.MOD_NONE, reequipVk);
-        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_END, Win32.MOD_NONE, (uint)Win32.VK_END);
+        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_TOGGLE, 0x4000, toggleVk);
+        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_REEQUIP, 0x4000, reequipVk);
+        Win32.RegisterHotKey(_hwnd, HOTKEY_ID_END, 0x4000, (uint)Win32.VK_END);
 
         // Update UI labels
         TxtHeaderHotkey.Text = $"[{_settings.ToggleHotkey.ToUpperInvariant()}] START/STOP";
@@ -114,6 +114,8 @@ public partial class MainWindow : Window
     {
         if (msg == Win32.WM_HOTKEY)
         {
+            // The installed low-level hook already dispatched this key.
+            if (_keyboardHook.IsInstalled) { handled = true; return IntPtr.Zero; }
             int id = wParam.ToInt32();
             if (id == HOTKEY_ID_TOGGLE)
             {
@@ -122,12 +124,12 @@ public partial class MainWindow : Window
             }
             else if (id == HOTKEY_ID_REEQUIP)
             {
-                _engine.ReEquipRod();
+                if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod();
                 handled = true;
             }
             else if (id == HOTKEY_ID_END)
             {
-                _engine.Stop();
+                EmergencyStop();
                 handled = true;
             }
         }
@@ -184,7 +186,9 @@ public partial class MainWindow : Window
         TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
 
         ChkAlwaysOnTop.IsChecked = _settings.AlwaysOnTop;
-        this.Topmost = _settings.AlwaysOnTop;
+        this.Topmost = _settings.KeepOnTop;
+        ChkAfkPerformance.IsChecked = _settings.AfkPerformanceMode;
+        ApplyAfkDisplay();
     }
 
     private void ApplyAppVersion()
@@ -193,8 +197,8 @@ public partial class MainWindow : Window
         {
             var asm = System.Reflection.Assembly.GetExecutingAssembly();
             var infoVerAttr = (System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(asm, typeof(System.Reflection.AssemblyInformationalVersionAttribute));
-            string rawVer = infoVerAttr?.InformationalVersion?.Split('+')[0] 
-                            ?? asm.GetName().Version?.ToString(3) 
+            string rawVer = infoVerAttr?.InformationalVersion?.Split('+')[0]
+                            ?? asm.GetName().Version?.ToString(3)
                             ?? "1.0.0";
             if (!rawVer.StartsWith("v", StringComparison.OrdinalIgnoreCase)) rawVer = "v" + rawVer;
 
@@ -226,9 +230,11 @@ public partial class MainWindow : Window
     }
 
     private bool _isStopping = false;
+    private bool _isObserving;
     private void Observe_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.IsRunning || _closing) return;
+        if (_engine.IsRunning || _closing || _isDiagnosticRunning) return;
+        _isObserving = true;
         _engine.Start(observeOnly: true);
         UpdateUIState(_engine.IsRunning);
     }
@@ -242,7 +248,7 @@ public partial class MainWindow : Window
 
     private async void ToggleMacro()
     {
-        if (_isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
+        if (_closing || _isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
 
         if (_engine.IsRunning)
         {
@@ -251,7 +257,7 @@ public partial class MainWindow : Window
             {
                 _engine.IsStopQueued = true;
                 if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
-                    border.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+                    border.Background = CachedBrush(Color.FromRgb(245, 158, 11)); // Amber
                 if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
                     txt.Text = "QUEUED STOP";
                 if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
@@ -261,10 +267,10 @@ public partial class MainWindow : Window
 
             _isStopping = true;
             _engine.IsStopQueued = false;
-            
+
             // Instantly transition UI to "STOPPING..." state
             if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border borderStop)
-                borderStop.Background = new SolidColorBrush(Color.FromRgb(245, 158, 11)); // Amber
+                borderStop.Background = CachedBrush(Color.FromRgb(245, 158, 11)); // Amber
             if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txtStop)
                 txtStop.Text = "STOPPING...";
             if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxtStop)
@@ -273,7 +279,7 @@ public partial class MainWindow : Window
             // Queue actual shutdown asynchronously so UI thread doesn't hang
             await Task.Run(() =>
             {
-                _engine.Stop();
+                _engine.Stop("Start/Stop control or toggle hotkey");
                 _isStopping = false;
             });
             UpdateUIState(false);
@@ -290,7 +296,7 @@ public partial class MainWindow : Window
                     subTxtPre.Text = "Running pre-flight";
 
                 bool passed = await RunPreFlightDiagnosticAsync();
-                if (!passed)
+                if (!passed || _closing)
                 {
                     UpdateUIState(false);
                     return;
@@ -311,24 +317,25 @@ public partial class MainWindow : Window
             if (running)
             {
                 if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
-                    border.Background = new SolidColorBrush(Color.FromRgb(239, 68, 68)); // Friendly coral/red (#EF4444)
+                    border.Background = CachedBrush(Color.FromRgb(239, 68, 68)); // Friendly coral/red (#EF4444)
                 if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
-                    txt.Text = "STOP FISHING";
+                    txt.Text = _isObserving ? "STOP RECORDING" : "STOP FISHING";
                 if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
                     subTxt.Text = $"Press {_settings.ToggleHotkey.ToUpperInvariant()}";
 
                 if (TxtTasksIdleBadge != null)
                 {
-                    TxtTasksIdleBadge.Text = "(Busy Fishing)";
-                    TxtTasksIdleBadge.Foreground = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                    TxtTasksIdleBadge.Text = _isObserving ? "(Recording)" : "(Busy Fishing)";
+                    TxtTasksIdleBadge.Foreground = CachedBrush(Color.FromRgb(239, 68, 68));
                 }
 
                 SetIdleButtonsEnabled(false);
             }
             else
             {
+                _isObserving = false;
                 if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
-                    border.Background = new SolidColorBrush(Color.FromRgb(16, 185, 129)); // Friendly emerald green (#10B981)
+                    border.Background = CachedBrush(Color.FromRgb(16, 185, 129)); // Friendly emerald green (#10B981)
                 if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
                     txt.Text = "START FISHING";
                 if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
@@ -337,13 +344,13 @@ public partial class MainWindow : Window
                 if (TxtTasksIdleBadge != null)
                 {
                     TxtTasksIdleBadge.Text = "(Idle Only)";
-                    TxtTasksIdleBadge.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+                    TxtTasksIdleBadge.Foreground = CachedBrush(Color.FromRgb(52, 211, 153));
                 }
 
                 SetIdleButtonsEnabled(true);
 
                 TxtState.Text = "READY";
-                BadgeState.Background = new SolidColorBrush(Color.FromRgb(55, 65, 81));
+                BadgeState.Background = CachedBrush(Color.FromRgb(55, 65, 81));
                 TxtAction.Text = "Idle";
                 TxtBarPos.Text = "Waiting...";
                 TxtFishPos.Text = "Waiting...";
@@ -352,16 +359,16 @@ public partial class MainWindow : Window
                 if (TxtRodState != null && BadgeRodState != null)
                 {
                     TxtRodState.Text = "ROD: STANDBY";
-                    TxtRodState.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
-                    BadgeRodState.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
-                    BadgeRodState.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+                    TxtRodState.Foreground = CachedBrush(Color.FromRgb(100, 116, 139));
+                    BadgeRodState.Background = CachedBrush(Color.FromRgb(17, 22, 34));
+                    BadgeRodState.BorderBrush = CachedBrush(Color.FromRgb(28, 38, 56));
                 }
                 if (TxtMonitorRod != null && MonitorRodBadge != null)
                 {
                     TxtMonitorRod.Text = "ROD: STANDBY";
-                    TxtMonitorRod.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
-                    MonitorRodBadge.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
-                    MonitorRodBadge.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+                    TxtMonitorRod.Foreground = CachedBrush(Color.FromRgb(100, 116, 139));
+                    MonitorRodBadge.Background = CachedBrush(Color.FromRgb(17, 22, 34));
+                    MonitorRodBadge.BorderBrush = CachedBrush(Color.FromRgb(28, 38, 56));
                 }
             }
         });
@@ -369,8 +376,9 @@ public partial class MainWindow : Window
 
     private void SetIdleButtonsEnabled(bool enabled)
     {
-        string tip = enabled 
-            ? "" 
+        BtnObserve.IsEnabled = enabled;
+        string tip = enabled
+            ? ""
             : "Cannot run while actively fishing. Stop fishing first.";
 
         if (BtnClaimAquarium != null)
@@ -399,10 +407,35 @@ public partial class MainWindow : Window
         }
     }
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Color, SolidColorBrush> BrushCache = new();
+    private static SolidColorBrush CachedBrush(Color color) => BrushCache.GetOrAdd(color, static value =>
+    {
+        var brush = new SolidColorBrush(value); brush.Freeze(); return brush;
+    });
+    private void ChkAfkPerformance_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null || _engine == null) return;
+        _settings.AfkPerformanceMode = ChkAfkPerformance.IsChecked == true;
+        ApplyAfkDisplay();
+        _settings.Save();
+    }
+
+    private void ApplyAfkDisplay()
+    {
+        Topmost = _settings.KeepOnTop;
+        ChkShowPreview.IsEnabled = ChkJitter.IsEnabled = ChkAlwaysOnTop.IsEnabled = !_settings.AfkPerformanceMode;
+        if (_settings.AfkPerformanceMode)
+        {
+            ImgPreview.Source = null;
+            TxtPreviewPlaceholder.Text = "AFK Performance: preview off";
+            TxtPreviewPlaceholder.Visibility = Visibility.Visible;
+        }
+        else TxtPreviewPlaceholder.Text = "Camera preview starts when fishing begins";
+    }
     private void Engine_OnTelemetry(TelemetryData t)
     {
         // Drop intermediate frame immediately if UI dispatcher is already processing a frame
-        if (System.Threading.Interlocked.CompareExchange(ref _isTelemetryPending, 1, 0) != 0)
+        if (!_telemetryGate.TryEnter(t.State, out bool ownsPending))
         {
             t.Dispose();
             return;
@@ -420,26 +453,26 @@ public partial class MainWindow : Window
                 }
                 BadgeState.Background = t.State switch
                 {
-                    MacroState.Reeling => new SolidColorBrush(Color.FromRgb(16, 185, 129)), // Emerald
-                    MacroState.Luring => new SolidColorBrush(Color.FromRgb(245, 158, 11)),  // Amber
-                    MacroState.Casting => new SolidColorBrush(Color.FromRgb(59, 130, 246)), // Blue
-                    MacroState.PostCatch => new SolidColorBrush(Color.FromRgb(139, 92, 246)), // Purple
-                    _ => new SolidColorBrush(Color.FromRgb(55, 65, 81))
+                    MacroState.Reeling => CachedBrush(Color.FromRgb(16, 185, 129)), // Emerald
+                    MacroState.Luring => CachedBrush(Color.FromRgb(245, 158, 11)),  // Amber
+                    MacroState.Casting => CachedBrush(Color.FromRgb(59, 130, 246)), // Blue
+                    MacroState.PostCatch => CachedBrush(Color.FromRgb(139, 92, 246)), // Purple
+                    _ => CachedBrush(Color.FromRgb(55, 65, 81))
                 };
 
                 // Update Rod Vision Status Badge
                 bool isRodEquipped = t.IsRodEquipped;
                 TxtRodState.Text = isRodEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
-                TxtRodState.Foreground = isRodEquipped ? new SolidColorBrush(Color.FromRgb(52, 211, 153)) : new SolidColorBrush(Color.FromRgb(248, 113, 113));
-                BadgeRodState.Background = isRodEquipped ? new SolidColorBrush(Color.FromRgb(12, 46, 36)) : new SolidColorBrush(Color.FromRgb(69, 26, 26));
-                BadgeRodState.BorderBrush = isRodEquipped ? new SolidColorBrush(Color.FromRgb(16, 185, 129)) : new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                TxtRodState.Foreground = isRodEquipped ? CachedBrush(Color.FromRgb(52, 211, 153)) : CachedBrush(Color.FromRgb(248, 113, 113));
+                BadgeRodState.Background = isRodEquipped ? CachedBrush(Color.FromRgb(12, 46, 36)) : CachedBrush(Color.FromRgb(69, 26, 26));
+                BadgeRodState.BorderBrush = isRodEquipped ? CachedBrush(Color.FromRgb(16, 185, 129)) : CachedBrush(Color.FromRgb(239, 68, 68));
 
                 if (TxtMonitorRod != null && MonitorRodBadge != null)
                 {
                     TxtMonitorRod.Text = isRodEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
-                    TxtMonitorRod.Foreground = isRodEquipped ? new SolidColorBrush(Color.FromRgb(52, 211, 153)) : new SolidColorBrush(Color.FromRgb(248, 113, 113));
-                    MonitorRodBadge.Background = isRodEquipped ? new SolidColorBrush(Color.FromRgb(22, 43, 32)) : new SolidColorBrush(Color.FromRgb(55, 20, 20));
-                    MonitorRodBadge.BorderBrush = isRodEquipped ? new SolidColorBrush(Color.FromRgb(16, 185, 129)) : new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                    TxtMonitorRod.Foreground = isRodEquipped ? CachedBrush(Color.FromRgb(52, 211, 153)) : CachedBrush(Color.FromRgb(248, 113, 113));
+                    MonitorRodBadge.Background = isRodEquipped ? CachedBrush(Color.FromRgb(22, 43, 32)) : CachedBrush(Color.FromRgb(55, 20, 20));
+                    MonitorRodBadge.BorderBrush = isRodEquipped ? CachedBrush(Color.FromRgb(16, 185, 129)) : CachedBrush(Color.FromRgb(239, 68, 68));
                 }
 
                 // Update Action
@@ -470,9 +503,9 @@ public partial class MainWindow : Window
                     TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
                     if (_engine.WatchdogRecoveryCount > 0 && BadgeWatchdog != null)
                     {
-                        BadgeWatchdog.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
-                        BadgeWatchdog.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
-                        TxtWatchdogBadge.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+                        BadgeWatchdog.Background = CachedBrush(Color.FromRgb(12, 46, 36));
+                        BadgeWatchdog.BorderBrush = CachedBrush(Color.FromRgb(16, 185, 129));
+                        TxtWatchdogBadge.Foreground = CachedBrush(Color.FromRgb(52, 211, 153));
                     }
                 }
 
@@ -493,25 +526,25 @@ public partial class MainWindow : Window
                     TxtOverlayAction.Text = t.Action.ToUpper();
                     BadgeOverlayAction.Background = t.Action switch
                     {
-                        var a when a.Contains("EMERGENCY") => new SolidColorBrush(Color.FromRgb(220, 38, 38)), // Crimson
-                        var a when a.Contains("RIGHT")     => new SolidColorBrush(Color.FromRgb(239, 68, 68)), // Red
-                        var a when a.Contains("LEFT")      => new SolidColorBrush(Color.FromRgb(59, 130, 246)),// Blue
-                        var a when a.Contains("Locked")    => new SolidColorBrush(Color.FromRgb(16, 185, 129)),// Emerald
-                        var a when a.Contains("Coast")     => new SolidColorBrush(Color.FromRgb(168, 85, 247)),// Purple
-                        var a when a.Contains("Brake")     => new SolidColorBrush(Color.FromRgb(249, 115, 22)), // Orange
-                        _ => new SolidColorBrush(Color.FromRgb(6, 182, 212))                                    // Cyan Tracking
+                        var a when a.Contains("EMERGENCY") => CachedBrush(Color.FromRgb(220, 38, 38)), // Crimson
+                        var a when a.Contains("RIGHT")     => CachedBrush(Color.FromRgb(239, 68, 68)), // Red
+                        var a when a.Contains("LEFT")      => CachedBrush(Color.FromRgb(59, 130, 246)),// Blue
+                        var a when a.Contains("Locked")    => CachedBrush(Color.FromRgb(16, 185, 129)),// Emerald
+                        var a when a.Contains("Coast")     => CachedBrush(Color.FromRgb(168, 85, 247)),// Purple
+                        var a when a.Contains("Brake")     => CachedBrush(Color.FromRgb(249, 115, 22)), // Orange
+                        _ => CachedBrush(Color.FromRgb(6, 182, 212))                                    // Cyan Tracking
                     };
 
                     TxtOverlayStats.Text = $"Fish: {t.FishX}px | Center: {t.BarCenter:F0}px | Err: {t.Error:+0;-0;0}px | Rod: {t.RodPullAccel:F0}px/s²";
 
                     bool isMouseDown = t.IsMouseDown;
                     TxtOverlayMouse.Text = isMouseDown ? "● CLICK DOWN" : "○ RELEASED";
-                    BadgeOverlayMouse.Background = isMouseDown 
-                        ? new SolidColorBrush(Color.FromRgb(220, 38, 38)) 
-                        : new SolidColorBrush(Color.FromRgb(31, 41, 55));
-                    TxtOverlayMouse.Foreground = isMouseDown 
-                        ? Brushes.White 
-                        : new SolidColorBrush(Color.FromRgb(156, 163, 175));
+                    BadgeOverlayMouse.Background = isMouseDown
+                        ? CachedBrush(Color.FromRgb(220, 38, 38))
+                        : CachedBrush(Color.FromRgb(31, 41, 55));
+                    TxtOverlayMouse.Foreground = isMouseDown
+                        ? Brushes.White
+                        : CachedBrush(Color.FromRgb(156, 163, 175));
                 }
                 else
                 {
@@ -519,7 +552,7 @@ public partial class MainWindow : Window
                 }
 
                 // Update Live Camera Preview with ZERO heap allocation (reusing single D3D WriteableBitmap backbuffer)
-                if (ChkShowPreview.IsChecked == true && t.AnnotatedFrame != null && !t.AnnotatedFrame.Empty())
+                if (_settings.PreviewEnabled && t.AnnotatedFrame != null && !t.AnnotatedFrame.Empty())
                 {
                     RenderPreviewFrame(t.AnnotatedFrame);
                 }
@@ -527,7 +560,7 @@ public partial class MainWindow : Window
             finally
             {
                 t.Dispose();
-                System.Threading.Interlocked.Exchange(ref _isTelemetryPending, 0);
+                _telemetryGate.Complete(ownsPending);
             }
         }));
     }
@@ -539,7 +572,7 @@ public partial class MainWindow : Window
 
     private void BtnReEquip_Click(object sender, RoutedEventArgs e)
     {
-        _engine.ReEquipRod();
+        if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod();
     }
 
     private void BtnOpenRecordings_Click(object sender, RoutedEventArgs e)
@@ -662,8 +695,9 @@ public partial class MainWindow : Window
     private void ChkAlwaysOnTop_Changed(object sender, RoutedEventArgs e)
     {
         bool onTop = ChkAlwaysOnTop.IsChecked == true;
-        this.Topmost = onTop;
-        if (_settings != null)
+        this.Topmost = onTop && !(_settings?.AfkPerformanceMode ?? true);
+        // XAML's default Checked event fires before saved settings are populated.
+        if (_settings != null && _engine != null)
         {
             _settings.AlwaysOnTop = onTop;
             _settings.Save();
@@ -855,9 +889,9 @@ public partial class MainWindow : Window
             TxtWatchdogBadge.Text = "🛡️ Heals: 0";
             if (BadgeWatchdog != null)
             {
-                BadgeWatchdog.Background = new SolidColorBrush(Color.FromRgb(12, 25, 41));
-                BadgeWatchdog.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
-                TxtWatchdogBadge.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+                BadgeWatchdog.Background = CachedBrush(Color.FromRgb(12, 25, 41));
+                BadgeWatchdog.BorderBrush = CachedBrush(Color.FromRgb(2, 132, 199));
+                TxtWatchdogBadge.Foreground = CachedBrush(Color.FromRgb(56, 189, 248));
             }
         }
     }
@@ -906,7 +940,7 @@ public partial class MainWindow : Window
 
     private async void BtnClaimAquarium_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null) return;
+        if (_engine == null || _isDiagnosticRunning || _closing) return;
         if (_engine.IsRunning)
         {
             MessageBox.Show("Fishing is currently running!\n\nPlease stop fishing [F6] before running standalone Aquarium claim.", "Claim Aquarium", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -978,12 +1012,21 @@ public partial class MainWindow : Window
         BorderPreFlightResults.Visibility = Visibility.Collapsed;
     }
 
+    private CancellationTokenSource? _diagnosticCts;
+    private Task<PreFlightReport>? _diagnosticTask;
+    private void EmergencyStop()
+    {
+        _diagnosticCts?.Cancel();
+        _hasPreFlightPassed = false;
+        _engine.Stop(_closing ? "Window closing" : "Emergency stop");
+    }
+
     private bool _isDiagnosticRunning = false;
     private bool _hasPreFlightPassed = false;
 
     private async void BtnPreFlight_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.IsRunning || _isDiagnosticRunning) return;
+        if (_engine.IsRunning || _isDiagnosticRunning || _closing) return;
         SyncSettingsFromUI(showNotification: false);
         await RunPreFlightDiagnosticAsync();
     }
@@ -1004,8 +1047,12 @@ public partial class MainWindow : Window
 
     private async Task<bool> RunPreFlightDiagnosticAsync()
     {
-        if (_isDiagnosticRunning) return false;
+        if (_isDiagnosticRunning || _closing) return false;
         _isDiagnosticRunning = true;
+        _hasPreFlightPassed = false;
+        using var diagnosticCts = new CancellationTokenSource();
+        _diagnosticCts = diagnosticCts;
+        SetIdleButtonsEnabled(false);
 
         BtnPreFlight.IsEnabled = false;
         BtnPreFlight.Opacity = 0.5;
@@ -1022,11 +1069,11 @@ public partial class MainWindow : Window
         TxtPreFlightDuration.Text = "(Running...)";
 
         // Reset Verdict Banner to Running Blue
-        BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(15, 56, 84));
-        BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
+        BannerPreFlightVerdict.Background = CachedBrush(Color.FromRgb(15, 56, 84));
+        BannerPreFlightVerdict.BorderBrush = CachedBrush(Color.FromRgb(2, 132, 199));
         TxtPreFlightVerdictIcon.Text = "⏳";
         TxtPreFlightVerdict.Text = "RUNNING IN-GAME PRE-FLIGHT DIAGNOSTIC...";
-        TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+        TxtPreFlightVerdict.Foreground = CachedBrush(Color.FromRgb(56, 189, 248));
 
         char slotKey = (!string.IsNullOrEmpty(_settings.RodSlot) && char.IsDigit(_settings.RodSlot[0])) ? _settings.RodSlot[0] : '1';
 
@@ -1041,34 +1088,41 @@ public partial class MainWindow : Window
         {
             using var diag = new PreFlightDiagnostic(_settings);
 
-            PreFlightReport report = await Task.Run(async () =>
+            _diagnosticTask = Task.Run(async () =>
             {
                 return await diag.RunDiagnosticAsync(step =>
                 {
                     Dispatcher.Invoke(() => UpdateStepUI(step));
-                });
+                }, diagnosticCts.Token);
             });
+            PreFlightReport report = await _diagnosticTask;
+            if (diagnosticCts.IsCancellationRequested || _closing)
+            {
+                report.AnnotatedSnapshot?.Dispose();
+                diagnosticCts.Token.ThrowIfCancellationRequested();
+                return false;
+            }
 
             // Update overall verdict
             TxtPreFlightDuration.Text = $"({report.TotalDurationMs / 1000.0:F1}s)";
 
             if (report.OverallPass)
             {
-                BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(12, 46, 36));
-                BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+                BannerPreFlightVerdict.Background = CachedBrush(Color.FromRgb(12, 46, 36));
+                BannerPreFlightVerdict.BorderBrush = CachedBrush(Color.FromRgb(16, 185, 129));
                 TxtPreFlightVerdictIcon.Text = "✅";
                 TxtPreFlightVerdict.Text = "5/5 SYSTEMS NOMINAL — READY TO FISH 🎣";
-                TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+                TxtPreFlightVerdict.Foreground = CachedBrush(Color.FromRgb(52, 211, 153));
                 PanelPreFlightSteps.Visibility = Visibility.Collapsed;
                 BtnTogglePreFlightDetails.Content = "Details ▾";
             }
             else
             {
-                BannerPreFlightVerdict.Background = new SolidColorBrush(Color.FromRgb(69, 26, 26));
-                BannerPreFlightVerdict.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+                BannerPreFlightVerdict.Background = CachedBrush(Color.FromRgb(69, 26, 26));
+                BannerPreFlightVerdict.BorderBrush = CachedBrush(Color.FromRgb(239, 68, 68));
                 TxtPreFlightVerdictIcon.Text = "⚠️";
                 TxtPreFlightVerdict.Text = "ATTENTION: " + report.Summary;
-                TxtPreFlightVerdict.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+                TxtPreFlightVerdict.Foreground = CachedBrush(Color.FromRgb(248, 113, 113));
                 PanelPreFlightSteps.Visibility = Visibility.Visible;
                 BtnTogglePreFlightDetails.Content = "Details ▴";
             }
@@ -1076,16 +1130,22 @@ public partial class MainWindow : Window
             // Render annotated snapshot on live preview monitor if available
             if (report.AnnotatedSnapshot != null && !report.AnnotatedSnapshot.Empty())
             {
-                RenderPreviewFrame(report.AnnotatedSnapshot);
+                if (_settings.PreviewEnabled) RenderPreviewFrame(report.AnnotatedSnapshot);
                 report.AnnotatedSnapshot.Dispose();
             }
 
             _hasPreFlightPassed = report.OverallPass;
-            return report.OverallPass;
+            // A reviewed disconnect can enter guarded recovery; it is not a
+            // successful readiness check and must not be cached as one.
+            return report.OverallPass || report.ReconnectAvailable || report.ContinueAvailable;
         }
         catch (Exception ex)
         {
-            SessionLogger.Instance.Log("PREFLIGHT", $"Diagnostic error: {ex.Message}");
+            string reason = ex is OperationCanceledException ? "Pre-flight cancelled. Start again explicitly." : ex.Message;
+            TxtPreFlightVerdictIcon.Text = "⚠";
+            TxtPreFlightVerdict.Text = reason;
+            TxtPreFlightDuration.Text = "(Stopped)";
+            SessionLogger.Instance.Log("PREFLIGHT", $"Diagnostic stopped: {reason}");
             _hasPreFlightPassed = false;
             return false;
         }
@@ -1095,18 +1155,21 @@ public partial class MainWindow : Window
             BtnPreFlight.Opacity = 1.0;
             BtnToggle.IsEnabled = true;
             BtnToggle.Opacity = 1.0;
+            _diagnosticCts = null;
+            _diagnosticTask = null;
             _isDiagnosticRunning = false;
+            SetIdleButtonsEnabled(!_closing);
             UpdateUIState(false);
         }
     }
 
     private void ResetStepUI(Border item, TextBlock icon, TextBlock metric, TextBlock desc, string defaultDesc)
     {
-        item.Background = new SolidColorBrush(Color.FromRgb(17, 22, 34));
-        item.BorderBrush = new SolidColorBrush(Color.FromRgb(28, 38, 56));
+        item.Background = CachedBrush(Color.FromRgb(17, 22, 34));
+        item.BorderBrush = CachedBrush(Color.FromRgb(28, 38, 56));
         icon.Text = "⏳";
         metric.Text = "Pending...";
-        metric.Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139));
+        metric.Foreground = CachedBrush(Color.FromRgb(100, 116, 139));
         desc.Text = defaultDesc;
     }
 
@@ -1140,37 +1203,37 @@ public partial class MainWindow : Window
 
         if (step.Status == DiagnosticStatus.Running)
         {
-            item.Background = new SolidColorBrush(Color.FromRgb(15, 31, 46));
-            item.BorderBrush = new SolidColorBrush(Color.FromRgb(2, 132, 199));
+            item.Background = CachedBrush(Color.FromRgb(15, 31, 46));
+            item.BorderBrush = CachedBrush(Color.FromRgb(2, 132, 199));
             icon.Text = "⏳";
             metric.Text = "Testing...";
-            metric.Foreground = new SolidColorBrush(Color.FromRgb(56, 189, 248));
+            metric.Foreground = CachedBrush(Color.FromRgb(56, 189, 248));
         }
         else if (step.Status == DiagnosticStatus.Pass)
         {
-            item.Background = new SolidColorBrush(Color.FromRgb(10, 31, 24));
-            item.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+            item.Background = CachedBrush(Color.FromRgb(10, 31, 24));
+            item.BorderBrush = CachedBrush(Color.FromRgb(16, 185, 129));
             icon.Text = "✅";
             metric.Text = step.Metric;
-            metric.Foreground = new SolidColorBrush(Color.FromRgb(52, 211, 153));
+            metric.Foreground = CachedBrush(Color.FromRgb(52, 211, 153));
             desc.Text = step.Details;
         }
         else if (step.Status == DiagnosticStatus.Warning)
         {
-            item.Background = new SolidColorBrush(Color.FromRgb(36, 26, 10));
-            item.BorderBrush = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+            item.Background = CachedBrush(Color.FromRgb(36, 26, 10));
+            item.BorderBrush = CachedBrush(Color.FromRgb(245, 158, 11));
             icon.Text = "⚠️";
             metric.Text = step.Metric;
-            metric.Foreground = new SolidColorBrush(Color.FromRgb(251, 191, 36));
+            metric.Foreground = CachedBrush(Color.FromRgb(251, 191, 36));
             desc.Text = step.Details;
         }
         else if (step.Status == DiagnosticStatus.Fail)
         {
-            item.Background = new SolidColorBrush(Color.FromRgb(46, 16, 16));
-            item.BorderBrush = new SolidColorBrush(Color.FromRgb(239, 68, 68));
+            item.Background = CachedBrush(Color.FromRgb(46, 16, 16));
+            item.BorderBrush = CachedBrush(Color.FromRgb(239, 68, 68));
             icon.Text = "❌";
             metric.Text = step.Metric;
-            metric.Foreground = new SolidColorBrush(Color.FromRgb(248, 113, 113));
+            metric.Foreground = CachedBrush(Color.FromRgb(248, 113, 113));
             desc.Text = step.Details;
         }
     }
@@ -1233,7 +1296,7 @@ public partial class MainWindow : Window
 
     private async void BtnOpenCrates_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null) return;
+        if (_engine == null || _isDiagnosticRunning || _closing) return;
         if (_engine.IsRunning)
         {
             MessageBox.Show("Fishing is currently running!\n\nPlease stop fishing [F6] before running standalone Crate unpack.", "Open Crates", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1261,12 +1324,12 @@ public partial class MainWindow : Window
         if (BtnOpenCrates != null)
         {
             BtnOpenCrates.Content = "⏹ Stop";
-            BtnOpenCrates.Background = new SolidColorBrush(Color.FromRgb(127, 29, 29)); // Crimson red
+            BtnOpenCrates.Background = CachedBrush(Color.FromRgb(127, 29, 29)); // Crimson red
         }
         if (BtnTestOpenCrates != null)
         {
             BtnTestOpenCrates.Content = "⏹ Stop";
-            BtnTestOpenCrates.Background = new SolidColorBrush(Color.FromRgb(127, 29, 29));
+            BtnTestOpenCrates.Background = CachedBrush(Color.FromRgb(127, 29, 29));
         }
 
         if (BtnToggle != null)
@@ -1302,12 +1365,12 @@ public partial class MainWindow : Window
             if (BtnOpenCrates != null)
             {
                 BtnOpenCrates.Content = "📦 Open Crates";
-                BtnOpenCrates.Background = new SolidColorBrush(Color.FromRgb(33, 21, 8));
+                BtnOpenCrates.Background = CachedBrush(Color.FromRgb(33, 21, 8));
             }
             if (BtnTestOpenCrates != null)
             {
                 BtnTestOpenCrates.Content = "Open Now";
-                BtnTestOpenCrates.Background = new SolidColorBrush(Color.FromRgb(46, 27, 14));
+                BtnTestOpenCrates.Background = CachedBrush(Color.FromRgb(46, 27, 14));
             }
 
             if (BtnToggle != null)
@@ -1316,21 +1379,15 @@ public partial class MainWindow : Window
                 BtnToggle.Opacity = 1.0;
             }
 
-            _ = Task.Delay(3500).ContinueWith(_ =>
-            {
-                Dispatcher.Invoke(() =>
-                {
-                    if (_engine != null && !_engine.IsRunning && TxtAction != null)
-                    {
-                        TxtAction.Text = "Ready";
-                    }
-                });
-            });
         }
 
         if (!success && !ct.IsCancellationRequested)
         {
-            MessageBox.Show("Roblox window not detected! Please ensure Roblox is running.", "Auto Crate Opener", MessageBoxButton.OK, MessageBoxImage.Warning);
+            string reason = _engine.PauseReason ?? _engine.LastCrateEvidence
+                ?? "Crate opening was not confirmed. Review the local recording for details.";
+            TxtAction.Text = reason;
+            if (!_closing)
+                MessageBox.Show(reason, "Auto Crate Opener", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -1470,6 +1527,7 @@ public partial class MainWindow : Window
         e.Cancel = true;
         if (_closing) return;
         _closing = true;
+        EmergencyStop();
         IsEnabled = false;
         string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Window_Closing called! StackTrace:\n{Environment.StackTrace}\n"); } catch { }
@@ -1481,6 +1539,10 @@ public partial class MainWindow : Window
         _crateCts?.Cancel();
         _engine.OnTelemetry -= Engine_OnTelemetry;
         // Keep the dispatcher pumping until coordinator callbacks and recorder writes finish.
+        if (_diagnosticTask != null)
+        {
+            try { await _diagnosticTask; } catch (Exception) { /* cancellation/error is shown by diagnostic UI */ }
+        }
         await Task.Run(_engine.Dispose);
         _shutdownComplete = true;
         Close();

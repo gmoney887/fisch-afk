@@ -1,47 +1,53 @@
-# Fisch AFK Pro (Computer Vision Auto-Angler)
+# Fat Dad's Fisch AFK Pro
 
-A high-frequency, purely visual auto-fishing macro for Roblox "Fisch", built in C# (.NET 10.0 WPF) and powered by `OpenCvSharp4`. 
+A Windows fishing assistant for Roblox Fisch, built with C#, WPF and OpenCvSharp. It observes the game window and sends mouse/keyboard input; it does not read or modify game memory.
 
-Unlike traditional memory-reading or color-bot macros, this tool relies on 100% Computer Vision to dynamically adapt to screen sizes, lag, UI drift, and varying rod physics in real-time.
+## Download and start
 
-## 🚀 Key Features
+Download the Windows x64 ZIP from [GitHub Releases](https://github.com/gmoney887/fisch-afk/releases). Preview releases are for testing; read their validation limits.
 
-*   **Sub-Millisecond Vision Loop**: Uses ultra-fast `BitBlt` ROI (Region of Interest) cropping instead of full-screen snapshots, running the vision processing loop at under 2ms.
-*   **Predictive "Perfect Cast" Logic**: Tracks the rising power bar's velocity and executes an early mouse release (e.g., 25ms lead-time) to counteract game-engine delay and perfectly land in the 97–99% sweet spot on every cast.
-*   **Dynamic UI Snapping**: Uses OpenCV template matching and dynamic color bounding-box tracking to auto-snap clicks to the exact center of UI elements (Aquarium claiming, crate opening).
-*   **Aspect-Ratio Independent Math**: All coordinate targeting uses Center-Anchored, Height-Scaled formulas, making it bulletproof against different monitor aspect ratios (e.g., Ultrawide) and windowed modes.
-*   **Fully Autonomous**: Automatically re-equips rods, unpacks inventory crates, claims Aquarium rewards, and features built-in anti-AFK movement to defeat Roblox's 20-minute idle disconnects.
-*   **Session Analytics**: Live telemetry tracking win rates, streaks, uptime, and catches-per-hour directly in a WPF dashboard.
+1. On Windows 10/11 x64, extract the entire ZIP into a new folder.
+2. Run `FischMacroCS.exe`. The portable package includes the .NET runtime; no SDK installation is needed.
+3. Open Fisch in Roblox, move to a fishing spot, and put the rod in slot **1**, or select its slot in Fishing settings.
+4. Keep **AFK Performance** and **Record sessions** enabled for the first trial. Choose the appropriate rod profile if desired.
+5. Click **Check readiness**, then **Start Fishing**. Keep Roblox visible and watch the first few catches.
 
-## 🛠 Prerequisites
+Controls:
 
-*   **OS:** Windows 10/11
-*   **Framework:** .NET 10.0 Desktop Runtime (or SDK for building)
-*   **Resolution:** Any! The macro dynamically scales its coordinates based on your active window size.
+- **F6 / Start–Stop button:** toggle fishing. During a reel, the first stop queues completion of the catch; another stop forces it.
+- **End:** emergency stop.
+- **F7:** re-equip the selected rod.
 
-## ⚙️ Building & Running
+Each PC keeps its own settings and local recordings under `%LOCALAPPDATA%\FischAFKPro`. Recordings may contain player names and chat; review them before sharing. The download does not include developer settings or recordings.
 
-**To build a portable executable:**
+## Current behavior
+
+- Predictive cast release, visual shake clicks with mouse movement, and bar/fish tracking.
+- Start remains requested through supported interruptions, with guarded input and paced recovery retries.
+- Confirmed catches and Unknown outcomes are tracked separately; companion rewards do not count as the player's catch.
+- AFK Performance reduces preview and interface overhead while retaining stored preferences.
+- Bounded local recordings and replay support diagnosis of missed detections and stopped sessions.
+
+## Preview limitations
+
+Recent live trials reported 129 confirmed catches, one Unknown and no failures across about 32 minutes. These are application counters, with selected transitions independently inspected; the Unknown still needs review. This is not a completed two-hour soak or a guarantee of unattended operation on another PC.
+
+End-to-end reconnect, idle-only heartbeat acceptance, physical hotkeys and broader PC/display configurations still need live validation. Position holding/return after drift or respawn is not implemented. Aquarium claiming and crate opening lack reviewed visual templates; leave those optional actions off for the baseline trial.
+
+## Development
+
+Requires the .NET 10 SDK on Windows:
+
 ```powershell
-.\publish_portable.bat
+dotnet build FischMacroCS.slnx -c Release
+dotnet test FischMacroCS.slnx -c Release
+./scripts/Test-WithCoverage.ps1
 ```
-This generates a ready-to-run `.exe` in the `publish\` directory that you can move anywhere.
 
-**To run via CLI (development):**
+For a local self-contained build:
+
 ```powershell
-dotnet run
+dotnet publish FischMacroCS.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish-local
 ```
 
-## 🎮 How to Use
-1. Launch Roblox and open the "Fisch" game.
-2. Ensure your Fishing Rod is assigned to slot **1** (or adjust in settings).
-3. Open the **Fat Dad's Fisch AFK Pro** app.
-4. Tweak your `Settings` if desired (Rod profile, auto-open crates toggle, aquarium claims, etc.).
-5. Hotkeys:
-   - **`[F6]`**: Start / Stop Macro
-   - **`[F7]`**: Re-Equip Fishing Rod
-   - **`[End]`**: Emergency Stop
-   *(Hotkeys are fully rebindable in the Settings panel)*
-
----
-*Disclaimer: This is a standalone computer vision tool. It does not inject into Roblox or modify game memory. Use at your own risk in accordance with game rules.*
+Required regression fixtures are included. Tests depending on optional private images explicitly skip when those images are unavailable. See [the regression matrix](docs/AFK-REGRESSION-MATRIX.md) and [feature acceptance ledger](docs/FEATURE-ACCEPTANCE.md) for evidence and open checks.

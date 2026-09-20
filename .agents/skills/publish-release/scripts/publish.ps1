@@ -57,10 +57,11 @@ Write-Host "[1/7] Target Version: v$targetVer" -ForegroundColor Green
 
 if ($targetVer -ne $currentVerStr) {
     Write-Host "      Updating FischMacroCS.csproj to $targetVer..." -ForegroundColor Yellow
+    $assemblyVer = ($targetVer -split '-')[0] + '.0'
     $csprojContent = Get-Content $csprojPath -Raw
     $csprojContent = [regex]::Replace($csprojContent, "<Version>.*?</Version>", "<Version>$targetVer</Version>")
-    $csprojContent = [regex]::Replace($csprojContent, "<AssemblyVersion>.*?</AssemblyVersion>", "<AssemblyVersion>$targetVer.0</AssemblyVersion>")
-    $csprojContent = [regex]::Replace($csprojContent, "<FileVersion>.*?</FileVersion>", "<FileVersion>$targetVer.0</FileVersion>")
+    $csprojContent = [regex]::Replace($csprojContent, "<AssemblyVersion>.*?</AssemblyVersion>", "<AssemblyVersion>$assemblyVer</AssemblyVersion>")
+    $csprojContent = [regex]::Replace($csprojContent, "<FileVersion>.*?</FileVersion>", "<FileVersion>$assemblyVer</FileVersion>")
     Set-Content -Path $csprojPath -Value $csprojContent -NoNewline
 }
 
@@ -74,18 +75,9 @@ Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundCol
 
 # 4. Publish Single-File Standalone Portable Executable
 Write-Host "[3/7] Compiling Standalone Portable Executable..." -ForegroundColor Green
-$publishDir = Join-Path $repoRoot "publish-singlefile"
+$publishDir = Join-Path $repoRoot "publish-release-$targetVer"
 
-# If a previous instance is currently running, close it to release file lock
-$running = Get-Process FischMacroCS -ErrorAction SilentlyContinue
-if ($running) {
-    $running | ForEach-Object {
-        Write-Host "      Stopping running FischMacroCS process (PID $($_.Id)) to allow binary replacement..." -ForegroundColor Yellow
-        Stop-Process -Id $_.Id -Force
-    }
-    Start-Sleep -Seconds 2
-}
-
+# Publish into a version-specific directory without interrupting other running builds.
 & $dotnet publish FischMacroCS.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $publishDir
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
@@ -98,7 +90,10 @@ $pkgName = "FischMacroCS-v$targetVer-win-x64"
 $stagingDir = Join-Path $distDir $pkgName
 $zipFile = Join-Path $distDir "$pkgName.zip"
 
-if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
+$resolvedStage = [IO.Path]::GetFullPath($stagingDir)
+$distPrefix = [IO.Path]::GetFullPath($distDir).TrimEnd('\') + '\'
+if (!$resolvedStage.StartsWith($distPrefix, [StringComparison]::OrdinalIgnoreCase)) { throw "Invalid package staging path." }
+if (Test-Path -LiteralPath $stagingDir) { throw "Package staging already exists; choose a new version or review it before retrying." }
 New-Item -ItemType Directory -Force -Path "$stagingDir\Assets" | Out-Null
 
 Copy-Item "$publishDir\FischMacroCS.exe" "$stagingDir\" -Force
@@ -113,6 +108,8 @@ $zipInfo = Get-Item $zipFile
 $zipSizeMb = [math]::Round($zipInfo.Length / 1MB, 1)
 Write-Host "      Created package: $zipFile ($zipSizeMb MB)" -ForegroundColor Cyan
 
+if ($SkipPush) { Write-Output "Verified local package: $zipFile"; return }
+
 # 6. Git Commit & Tag
 Write-Host "[5/7] Committing & Tagging in Git..." -ForegroundColor Green
 $tag = "v$targetVer"
@@ -125,14 +122,14 @@ if ($status) {
 }
 
 # Update or create annotated tag
-git tag -f -a $tag -m "Fat Dad's Fisch AFK Pro $tag"
+git tag -a $tag -m "Fat Dad's Fisch AFK Pro $tag"
 
 # 7. Push & GitHub Release
 if (-not $SkipPush) {
     Write-Host "[6/7] Pushing to GitHub (main branch & tags)..." -ForegroundColor Green
-    git push origin main --tags -f
+    git push origin main "refs/tags/$tag"
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Git push returned a non-zero exit code. Please check your GitHub remote credentials."
+        throw "Git push failed; release creation aborted."
     }
 
     Write-Host "[7/7] Publishing Release on GitHub..." -ForegroundColor Green

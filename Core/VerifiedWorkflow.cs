@@ -13,20 +13,36 @@ public interface IWorkflowVision
 }
 
 /// <summary>Only versioned, developer-reviewed templates are trusted as workflow evidence.</summary>
-public sealed class TemplateWorkflowVision : IWorkflowVision
+public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
 {
     private readonly string _directory;
+    private readonly Dictionary<string, Mat> _templates = new();
+    private readonly Dictionary<string, Mat> _scaled = new();
+    private int _height;
     public TemplateWorkflowVision(string directory) => _directory = directory;
+    public string[] MissingTemplates(IEnumerable<string> names) => names.Distinct()
+        .Where(name => !System.IO.File.Exists(System.IO.Path.Combine(_directory, name + ".png")))
+        .ToArray();
     public (bool Found, Point Center, double Confidence) Find(Mat frame, WorkflowTarget target)
     {
         string path = System.IO.Path.Combine(_directory, target.Name + ".png");
         if (!System.IO.File.Exists(path)) return (false, default, 0);
-        using var template = Cv2.ImRead(path);
+        if (!_templates.TryGetValue(target.Name, out var template))
+            _templates[target.Name] = template = Cv2.ImRead(path);
         if (template.Empty()) return (false, default, 0);
+        if (_height != frame.Height)
+        {
+            foreach (var cached in _scaled.Values) cached.Dispose();
+            _scaled.Clear(); _height = frame.Height;
+        }
         // Templates are labeled at reference height 1080 and resized to physical viewport height.
-        using var scaled = new Mat();
-        Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)(template.Width * frame.Height / 1080.0)),
-            Math.Max(1, (int)(template.Height * frame.Height / 1080.0))));
+        if (!_scaled.TryGetValue(target.Name, out var scaled))
+        {
+            scaled = new Mat();
+            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)(template.Width * frame.Height / 1080.0)),
+                Math.Max(1, (int)(template.Height * frame.Height / 1080.0))));
+            _scaled[target.Name] = scaled;
+        }
         int radius = (int)Math.Ceiling(target.RadiusInHeights * frame.Height);
         int x = frame.Width / 2 + (int)(target.XFromCenterInHeights * frame.Height);
         int y = (int)(target.YInHeights * frame.Height);
@@ -42,6 +58,12 @@ public sealed class TemplateWorkflowVision : IWorkflowVision
         double confidence = 1 - minimum;
         return (confidence >= 0.96, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
+    }
+    public void Dispose()
+    {
+        foreach (var mat in _scaled.Values) mat.Dispose();
+        foreach (var mat in _templates.Values) mat.Dispose();
+        _scaled.Clear(); _templates.Clear();
     }
 }
 
@@ -67,7 +89,17 @@ public sealed class VerifiedWorkflow(IClock clock, IWorkflowVision vision, Func<
     }
     public WorkflowResult Run(IEnumerable<WorkflowStep> steps, CancellationToken cancellation)
     {
-        foreach (var step in steps)
+        cancellation.ThrowIfCancellationRequested();
+        var sequence = steps.ToArray();
+        if (vision is TemplateWorkflowVision templates)
+        {
+            var missing = templates.MissingTemplates(sequence.SelectMany(step =>
+                new[] { step.Prerequisite.Name, step.Expected.Name }));
+            if (missing.Length > 0)
+                return new(ActionOutcome.Unknown,
+                    "Automation unavailable: reviewed visual templates are missing (" + string.Join(", ", missing) + ").");
+        }
+        foreach (var step in sequence)
         {
             bool verified = false;
             for (int attempt = 0; attempt < Math.Clamp(step.Attempts, 1, 3); attempt++)

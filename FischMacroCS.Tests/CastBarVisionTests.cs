@@ -140,17 +140,18 @@ public class CastBarVisionTests
         Assert.InRange(res.FillPercent, 45.0, 55.0);
     }
 
-    [Fact]
+    [LocalFixtureFact("screenshots/casting")]
     public void DetectCastBarROI_RealScreenshots_AccuratelyDistinguishesCastingFromIdle()
     {
-        string dir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "screenshots", "casting"));
-        if (!Directory.Exists(dir)) return;
+        string dir = LocalFixtureFactAttribute.Resolve("screenshots/casting");
+        Assert.True(Directory.Exists(dir));
 
         var files = Directory.GetFiles(dir, "*.png");
+        Assert.NotEmpty(files);
         foreach (var file in files)
         {
             using var full = Cv2.ImRead(file);
-            if (full.Empty()) continue;
+            Assert.False(full.Empty(), $"Unreadable fixture: {file}");
 
             string fn = Path.GetFileName(file);
             int winW = full.Width;
@@ -166,9 +167,9 @@ public class CastBarVisionTests
 
             _output.WriteLine($"Screenshot: {fn} -> Found={res.Found}, Fill={res.FillPercent:F1}%, BarBounds={res.BarBounds}");
 
-            if (fn.Contains("222731751"))
+            if (fn.Contains("222731751") || fn.Contains("230717375"))
             {
-                // Non-casting frame (minigame ended / idle player): must NOT detect a cast bar
+                // Independently reviewed: reeling screen or idle boat, neither contains a cast meter.
                 Assert.False(res.Found, $"Non-casting frame {fn} must not trigger cast bar detection!");
                 Assert.Equal(0.0, res.FillPercent);
             }
@@ -181,5 +182,25 @@ public class CastBarVisionTests
                 Assert.True(res.GreenY > 0, $"Green target Y must be positive in {fn}!");
             }
         }
+    }
+
+    [Theory]
+    [InlineData("cast_full_bright.png",1369,1870,450,true)]
+    [InlineData("cast_partial_large.png",1369,1947,505,true)]
+    [InlineData("cast_partial_small.png",1369,1815,600,true)]
+    [InlineData("cast_absent_boat.png",1360,1580,640,false)]
+    public void RequiredRecordedCastRegionsRejectBoatScenery(string name,int height,int x,int y,bool expected)
+    {
+        using var region = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory,"Fixtures",name));
+        Assert.False(region.Empty(),"Required CI fixture missing: " + name);
+        var result = _vision.DetectCastBarROI(region,height,x,y,MinigameTheme.Default,false);
+        Assert.Equal(expected,result.Found);
+        if (expected)
+        {
+            Assert.InRange(result.FillPercent,40,100);
+            Assert.True(result.BarBounds.Height>=140);
+            Assert.True(new Rect(x,y,region.Width,region.Height).Contains(result.BarBounds.TopLeft));
+        }
+        else Assert.Equal(0,result.FillPercent);
     }
 }

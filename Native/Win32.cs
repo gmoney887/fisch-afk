@@ -157,19 +157,10 @@ public static partial class Win32
         IntPtr fgWnd = GetForegroundWindow();
         if (fgWnd == hWnd) return;
 
-        uint fgThread = GetWindowThreadProcessId(fgWnd, out _);
-        uint curThread = GetCurrentThreadId();
-
-        if (fgThread != 0 && fgThread != curThread)
-        {
-            AttachThreadInput(curThread, fgThread, true);
-            SetForegroundWindow(hWnd);
-            AttachThreadInput(curThread, fgThread, false);
-        }
-        else
-        {
-            SetForegroundWindow(hWnd);
-        }
+        // Do not join the worker's input queue to another UI thread. Foreground
+        // activation can otherwise block behind that thread during diagnostics.
+        // Callers must verify focus and pause if Windows denies activation.
+        SetForegroundWindow(hWnd);
     }
 
     [DllImport("user32.dll")]
@@ -323,6 +314,47 @@ public static partial class Win32
     [DllImport("user32.dll", SetLastError = true)]
     public static extern uint SendInput(uint nInputs, [In] INPUT[] pInputs, int cbSize);
 
+    public static INPUT MouseInput(uint flags, int x = 0, int y = 0, uint data = 0) =>
+        new() { type = INPUT_MOUSE, mi = new MOUSEINPUT { dx = x, dy = y, mouseData = data, dwFlags = flags } };
+
+    public static void RequireInputAccepted(uint expected, uint accepted, string operation)
+    {
+        if (accepted != expected)
+            throw new FischMacroCS.Core.GameplayInterruptedException($"Windows accepted {accepted}/{expected} {operation} inputs; retrying when the game is available.");
+    }
+
+    private static void SendMouseInputs(INPUT[] inputs) =>
+        RequireInputAccepted((uint)inputs.Length, SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>()), "mouse");
+
+    public static void SendMouseEvent(uint flags, int x = 0, int y = 0, uint data = 0)
+    {
+        SendMouseInputs(new[] { MouseInput(flags, x, y, data) });
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBDINPUT
+    {
+        public ushort wVk, wScan;
+        public uint dwFlags, time;
+        public IntPtr dwExtraInfo;
+    }
+    [StructLayout(LayoutKind.Explicit)]
+    public struct INPUTUNION
+    {
+        [FieldOffset(0)] public MOUSEINPUT mouse;
+        [FieldOffset(0)] public KEYBDINPUT keyboard;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct KEYBOARDINPUT { public uint type; public INPUTUNION data; }
+    [DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)]
+    private static extern uint SendKeyboardInput(uint count, [In] KEYBOARDINPUT[] inputs, int size);
+    public static KEYBOARDINPUT KeyboardInput(byte key, uint flags) => new()
+    { type = 1, data = new INPUTUNION { keyboard = new KEYBDINPUT { wVk = key, dwFlags = flags } } };
+    public static void SendKeyboardEvent(byte key, uint flags)
+    {
+        RequireInputAccepted(1, SendKeyboardInput(1, new[] { KeyboardInput(key, flags) }, Marshal.SizeOf<KEYBOARDINPUT>()), "keyboard");
+    }
+
     /// <summary>
     /// Emits true relative mouse movement (no MOUSEEVENTF_ABSOLUTE).
     /// This generates genuine relative deltas (lLastX, lLastY) in Windows RAWMOUSE packets,
@@ -330,13 +362,7 @@ public static partial class Win32
     /// </summary>
     public static void SendRelativeMove(int dx, int dy)
     {
-        INPUT[] input = new INPUT[1];
-        input[0].type = INPUT_MOUSE;
-        input[0].mi.dx = dx;
-        input[0].mi.dy = dy;
-        input[0].mi.dwFlags = MOUSEEVENTF_MOVE; // Relative motion!
-        SendInput(1, input, Marshal.SizeOf<INPUT>());
-        mouse_event((int)MOUSEEVENTF_MOVE, dx, dy, 0, 0);
+        SendMouseEvent(MOUSEEVENTF_MOVE, dx, dy);
     }
 
     /// <summary>
@@ -430,7 +456,7 @@ public static partial class Win32
         moveInputs[0].mi.dx = normX;
         moveInputs[0].mi.dy = normY;
         moveInputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, moveInputs, Marshal.SizeOf<INPUT>());
+        SendMouseInputs(moveInputs);
 
         if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
         {
@@ -449,7 +475,7 @@ public static partial class Win32
             IntPtr fg = GetForegroundWindow();
             if (fg != targetHwnd && !IsWindowOrChild(fg, targetHwnd))
             {
-                throw new FischMacroCS.Core.GameplayInterruptedException("Game focus changed before mouse down. Resume explicitly.");
+                throw new FischMacroCS.Core.GameplayInterruptedException("Game focus changed before mouse down; waiting to reacquire gameplay.");
             }
         }
 
@@ -485,7 +511,7 @@ public static partial class Win32
         downInputs[0].mi.dx = normX;
         downInputs[0].mi.dy = normY;
         downInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, downInputs, Marshal.SizeOf<INPUT>());
+        SendMouseInputs(downInputs);
 
         if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
         {
@@ -529,11 +555,12 @@ public static partial class Win32
         upInputs[0].mi.dx = normX;
         upInputs[0].mi.dy = normY;
         upInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, upInputs, Marshal.SizeOf<INPUT>());
-
-        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        try { SendMouseInputs(upInputs); }
+        finally
         {
-            PostMessage(targetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+            // Release both input channels even when hardware delivery fails.
+            if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+                PostMessage(targetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
         }
     }
 
@@ -553,6 +580,9 @@ public static partial class Win32
                 ForceSetForegroundWindow(targetHwnd);
                 System.Threading.Thread.Sleep(15);
             }
+            fg = GetForegroundWindow();
+            if (fg != targetHwnd && !IsWindowOrChild(fg, targetHwnd))
+                throw new FischMacroCS.Core.GameplayInterruptedException("Roblox did not acquire focus; click cancelled.");
         }
 
         // Clamp screen coordinates to virtual desktop bounds to prevent off-screen throws
@@ -578,7 +608,7 @@ public static partial class Win32
         moveInputs[0].mi.dx = normX;
         moveInputs[0].mi.dy = normY;
         moveInputs[0].mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, moveInputs, Marshal.SizeOf<INPUT>());
+        SendMouseInputs(moveInputs);
 
         // Post WM_MOUSEMOVE directly to the window message queue
         if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
@@ -602,39 +632,21 @@ public static partial class Win32
         // Ensure cursor is locked on the exact target screen point
         SetCursorPos(screenX, screenY);
 
-        // 4. Mouse Down: Hardware SendInput + mouse_event + Window Message
-        INPUT[] downInputs = new INPUT[1];
-        downInputs[0].type = INPUT_MOUSE;
-        downInputs[0].mi.dx = normX;
-        downInputs[0].mi.dy = normY;
-        downInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, downInputs, Marshal.SizeOf<INPUT>());
-        mouse_event((int)MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0);
-
-        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        // 4. Mouse Down: Hardware SendInput + Window Message
+        try
         {
-            PostMessage(targetHwnd, WM_LBUTTONDOWN, (IntPtr)MK_LBUTTON, MakeLParam(clientX, clientY));
+            // Recheck focus immediately before the down edge, after hover movement.
+            SendHardwareMouseDown(screenX, screenY, clientX, clientY, targetHwnd);
+            // Hold down while performing a micro-wiggle so GuiButton.InputBegan registers.
+            System.Threading.Thread.Sleep(20);
+            SendRelativeMove(1, 0);
+            System.Threading.Thread.Sleep(10);
+            SendRelativeMove(-1, 0);
+            System.Threading.Thread.Sleep(15);
         }
-
-        // Hold down while performing a micro-wiggle so GuiButton.InputBegan registers
-        System.Threading.Thread.Sleep(20);
-        SendRelativeMove(1, 0);
-        System.Threading.Thread.Sleep(10);
-        SendRelativeMove(-1, 0);
-        System.Threading.Thread.Sleep(15);
-
-        // 5. Mouse Up: Hardware SendInput + mouse_event + Window Message
-        INPUT[] upInputs = new INPUT[1];
-        upInputs[0].type = INPUT_MOUSE;
-        upInputs[0].mi.dx = normX;
-        upInputs[0].mi.dy = normY;
-        upInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTUP | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
-        SendInput(1, upInputs, Marshal.SizeOf<INPUT>());
-        mouse_event((int)MOUSEEVENTF_LEFTUP, 0, 0, 0, 0);
-
-        if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
+        finally
         {
-            PostMessage(targetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+            SendHardwareMouseUp(screenX, screenY, clientX, clientY, targetHwnd);
         }
 
         // Re-center cursor
@@ -822,6 +834,8 @@ public static partial class Win32
 
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, out RECT pvParam, uint fWinIni);

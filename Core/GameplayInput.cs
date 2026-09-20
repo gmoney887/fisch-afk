@@ -58,8 +58,8 @@ public sealed class GameplayInput(Action validate, Action<int> delay, Action<str
     public void mouse_event(int flags, int x, int y, int data, int extra) => Send("MouseEvent", () =>
     {
         if ((flags & (int)Win32.MOUSEEVENTF_RIGHTDOWN) != 0) _right = true;
-        if ((flags & (int)Win32.MOUSEEVENTF_RIGHTUP) != 0) _right = false;
         _hardware.mouse_event(flags, x, y, data, extra);
+        if ((flags & (int)Win32.MOUSEEVENTF_RIGHTUP) != 0) _right = false;
     });
     public void keybd_event(byte key, byte scan, uint flags, int extra)
     {
@@ -89,10 +89,21 @@ public sealed class GameplayInput(Action validate, Action<int> delay, Action<str
     {
         lock (_gate)
         {
-            if (_left) _hardware.SendHardwareMouseUp(cx: _leftTarget.X, cy: _leftTarget.Y, window: _leftTarget.Window);
-            if (_right) _hardware.mouse_event((int)Win32.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
-            foreach (byte key in _keys) _hardware.keybd_event(key, 0, Win32.KEYEVENTF_KEYUP, 0);
-            _keys.Clear(); _left = _right = false;
+            // Attempt every release even if the OS rejects one. Keep failed edges owned
+            // so a subsequent Stop/finally/recovery pass can retry instead of forgetting them.
+            bool Release(Action action)
+            {
+                try { action(); return true; }
+                catch (Exception ex)
+                {
+                    SessionLogger.Instance.LogError("Input release failed; will retry", ex);
+                    return false;
+                }
+            }
+            if (_left && Release(() => _hardware.SendHardwareMouseUp(cx: _leftTarget.X, cy: _leftTarget.Y, window: _leftTarget.Window))) _left = false;
+            if (_right && Release(() => _hardware.mouse_event((int)Win32.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0))) _right = false;
+            foreach (byte key in _keys.ToArray())
+                if (Release(() => _hardware.keybd_event(key, 0, Win32.KEYEVENTF_KEYUP, 0))) _keys.Remove(key);
             record?.Invoke("ReleaseAll");
         }
     }

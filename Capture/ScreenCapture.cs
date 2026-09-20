@@ -24,6 +24,9 @@ public class ScreenCapture : FischMacroCS.Core.IFrameSource
         if (!Win32.ClientToScreen(hWnd, ref pt))
             return null;
 
+        if (!CaptureVisibility.IsUnobscured(hWnd, new Rect(pt.X, pt.Y, width, height), out string blocker))
+            throw new Core.GameplayInterruptedException($"The Roblox capture area is unavailable: {blocker}. Move overlapping windows to resume.");
+
         // Capture directly from Desktop DC to read the DWM hardware-composited frame
         IntPtr hDesktopDC = Win32.GetDC(IntPtr.Zero);
         if (hDesktopDC == IntPtr.Zero)

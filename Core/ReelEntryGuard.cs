@@ -10,8 +10,8 @@ public static class ReelEntryGuard
         for (int sample = 0; sample < 2; sample++)
         {
             cancellation.ThrowIfCancellationRequested();
-            var detection = observe();
-            if (!detection.BarFound || !detection.FishFound) return false;
+            using var detection = observe();
+            if (!detection.HasLiveReel) return false;
             if (sample == 0) delay(30);
         }
         cancellation.ThrowIfCancellationRequested();

@@ -12,20 +12,42 @@ public class PreFlightDiagnosticTests
 {
     private readonly VisionProcessor _vision = new();
 
+    [Theory]
+    [InlineData(false, false, 20, false)]
+    [InlineData(true, false, 20, false)]
+    [InlineData(false, true, 20, false)]
+    [InlineData(true, true, 0, false)]
+    [InlineData(true, true, 20, true)]
+    public void EquipmentConfirmationRequiresVisibleHotbarAndEquippedSlot(
+        bool hotbar, bool equipped, int width, bool expected)
+    {
+        var result = new RodDetectionResult
+        {
+            HotbarFound = hotbar, GeometryConfirmed = hotbar, IsEquipped = equipped,
+            SlotBounds = new Rect(100, 100, width, 20)
+        };
+        Assert.Equal(expected, PreFlightDiagnostic.IsConfirmedEquipped(result));
+        Assert.False(PreFlightDiagnostic.IsConfirmedEquipped(null));
+    }
+
     [Fact]
-    public void PreFlight_ReportStepList_ContainsAllExpectedDiagnosticProbes()
+    public async Task CancelledDiagnosticDoesNotInspectOrActivateLiveGame()
+    {
+        using var diagnostic = new PreFlightDiagnostic(new Settings());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        int updates = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            diagnostic.RunDiagnosticAsync(_ => updates++, cancellation.Token));
+        Assert.Equal(0, updates);
+    }
+
+    [Fact]
+    public async Task PreFlight_ReportStepList_ContainsAllExpectedDiagnosticProbes()
     {
         var settings = new Settings();
-        using var diag = new PreFlightDiagnostic(settings, _vision);
-
-        var report = new PreFlightReport();
-        var stepWindow = new DiagnosticStep { Id = "window", Name = "Roblox Window & Resolution", Status = DiagnosticStatus.Pending };
-        var stepCapture = new DiagnosticStep { Id = "capture", Name = "Screen Capture Latency Benchmark", Status = DiagnosticStatus.Pending };
-        var stepHotbar = new DiagnosticStep { Id = "hotbar", Name = "Dynamic Hotbar & Slot Discovery", Status = DiagnosticStatus.Pending };
-        var stepToggle = new DiagnosticStep { Id = "tool_toggle", Name = "Live Tool Toggle Probe", Status = DiagnosticStatus.Pending };
-        var stepSafety = new DiagnosticStep { Id = "coordinates", Name = "Coordinate Boundary & Safety Audit", Status = DiagnosticStatus.Pending };
-
-        report.Steps.AddRange(new[] { stepWindow, stepCapture, stepHotbar, stepToggle, stepSafety });
+        using var diag = new PreFlightDiagnostic(settings, _vision, desktop: new MissingDesktop());
+        var report = await diag.RunDiagnosticAsync();
 
         Assert.Equal(5, report.Steps.Count);
         Assert.Equal("window", report.Steps[0].Id);
@@ -33,6 +55,11 @@ public class PreFlightDiagnosticTests
         Assert.Equal("hotbar", report.Steps[2].Id);
         Assert.Equal("tool_toggle", report.Steps[3].Id);
         Assert.Equal("coordinates", report.Steps[4].Id);
+    }
+
+    private sealed class MissingDesktop : GameDesktop
+    {
+        public override IntPtr FindRobloxWindow() => IntPtr.Zero;
     }
 
     [Theory]

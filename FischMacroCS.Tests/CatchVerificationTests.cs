@@ -8,6 +8,52 @@ namespace FischMacroCS.Tests;
 
 public class CatchVerificationTests
 {
+    [Fact]
+    public void StackedPlayerAndCompanionRewardsKeepPlayerPrefixAtCropEdge()
+    {
+        using var source = Cv2.ImRead(GetFixturePath("catch_stacked_rewards.png"));
+        Assert.False(source.Empty());
+        Assert.True(_vision.DetectCatchNotification(source, 1353));
+        using var companionOnly = new Mat(source, new Rect(0, 33, source.Width, source.Height - 33));
+        Assert.False(_vision.DetectCatchNotification(companionOnly, 1353));
+    }
+
+    [Theory]
+    [InlineData(1369)]
+    [InlineData(1080)]
+    [InlineData(720)]
+    public void MaximizedPlayerCatchIsConfirmed(int viewportHeight)
+    {
+        using var source = Cv2.ImRead(GetFixturePath("catch_maximized.png"));
+        Assert.False(source.Empty());
+        double ratio = viewportHeight / 1369.0;
+        using var scaled = new Mat();
+        Cv2.Resize(source, scaled, new Size((int)Math.Round(source.Width * ratio), (int)Math.Round(source.Height * ratio)));
+        Assert.True(_vision.DetectCatchNotification(scaled, viewportHeight));
+        using var independent = Cv2.ImRead(GetFixturePath("catch_maximized_second.png"));
+        Assert.False(independent.Empty());
+        Cv2.Resize(independent, scaled, scaled.Size());
+        Assert.True(_vision.DetectCatchNotification(scaled, viewportHeight));
+        using var companion = Cv2.ImRead(GetFixturePath("companion_maximized_only.png"));
+        Assert.False(companion.Empty());
+        Cv2.Resize(companion, scaled, new Size((int)Math.Round(companion.Width * ratio), (int)Math.Round(companion.Height * ratio)));
+        Assert.False(_vision.DetectCatchNotification(scaled, viewportHeight));
+    }
+
+    [Theory]
+    [InlineData(1353)]
+    [InlineData(1080)]
+    [InlineData(720)]
+    public void CompanionBonusDoesNotConfirmPlayerCatch(int viewportHeight)
+    {
+        using var source = Cv2.ImRead(GetFixturePath("companion_bonus_only.png"));
+        Assert.False(source.Empty());
+        double ratio = viewportHeight / 1353.0;
+        using var scaled = new Mat();
+        Cv2.Resize(source, scaled, new Size((int)Math.Round(source.Width * ratio), (int)Math.Round(source.Height * ratio)));
+        Assert.False(_vision.DetectCatchNotification(scaled, viewportHeight));
+    }
+
     private readonly VisionProcessor _vision = new();
 
     private static string GetFixturePath(string filename)

@@ -8,6 +8,78 @@ namespace FischMacroCS.Tests;
 
 public class RecordingReplayTests : IDisposable
 {
+    [Theory]
+    [InlineData("catch_stacked_rewards.png", true)]
+    [InlineData("companion_bonus_only.png", false)]
+    public void ReplayCatchPredictionUsesRecordedViewportRatherThanCropHeight(string fixture, bool expected)
+    {
+        Directory.CreateDirectory(_root);
+        string file = "frame.png";
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture), Path.Combine(_root, file));
+        using var image = Cv2.ImRead(Path.Combine(_root, file));
+        Assert.False(image.Empty());
+        var frame = new ReplayFrame(file, 1, 0, new Rect(383, 1001, image.Width, image.Height), new Rect(0, 0, 2254, 1353));
+        var prediction = new ReplaySession(_root).Predict(frame);
+        Assert.Equal(expected, prediction.Catch);
+    }
+
+    private sealed class BlockedEvidence : IDisposable
+    {
+        internal readonly ManualResetEventSlim Entered = new();
+        internal readonly ManualResetEventSlim Release = new();
+        public string Value
+        {
+            get
+            {
+                Entered.Set();
+                if (!Release.Wait(TimeSpan.FromSeconds(10))) throw new TimeoutException("Test writer was not released");
+                return "writer resumed";
+            }
+        }
+        public void Dispose() { Release.Set(); Entered.Dispose(); Release.Dispose(); }
+    }
+
+    [Fact]
+    public async Task SaturatedQueueDoesNotBlockProducersOrLoseCompletionAndCanRestart()
+    {
+        using var recorder = new FlightRecorder(_root);
+        using var evidence = new BlockedEvidence();
+        recorder.StartSession(100, 80);
+        string first = recorder.CurrentSessionDirectory!;
+        recorder.RecordEvent("blocked-writer", evidence);
+        try
+        {
+            Assert.True(evidence.Entered.Wait(TimeSpan.FromSeconds(5)));
+            // Writer cannot consume until Release: this proves bounded, nonblocking production.
+            await Task.Run(() =>
+            {
+                for (int i = 0; i < 4096; i++) recorder.RecordEvent("pressure", new { Sequence = i });
+                recorder.StopSession("Stopped under pressure", new { TotalCatches = 7, UnknownCatches = 2 });
+            }).WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.False(recorder.IsRecording);
+            Assert.False(File.Exists(Path.Combine(first, "completed.json")));
+        }
+        finally { evidence.Release.Set(); }
+        // Restart before final disposal, allowing the old writer to drain concurrently.
+        recorder.StartSession(100, 80);
+        string second = recorder.CurrentSessionDirectory!;
+        using (var frame = new Mat(80, 100, MatType.CV_8UC3, Scalar.White))
+            recorder.RecordFrame(frame, new Rect(0, 0, 100, 80), new Rect(0, 0, 100, 80), 1);
+        recorder.StopSession("Next run");
+        await Task.Run(recorder.Dispose).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(recorder.LastError);
+        using var completed = JsonDocument.Parse(File.ReadAllText(Path.Combine(first, "completed.json")));
+        Assert.Equal(4096 - 24, completed.RootElement.GetProperty("DroppedEntries").GetInt64());
+        Assert.Equal("Stopped under pressure", completed.RootElement.GetProperty("Outcome").GetString());
+        Assert.Equal(7, completed.RootElement.GetProperty("Statistics").GetProperty("TotalCatches").GetInt32());
+        Assert.Equal(2, completed.RootElement.GetProperty("Statistics").GetProperty("UnknownCatches").GetInt32());
+
+        Assert.NotEqual(first, second);
+        Assert.Single(new ReplaySession(second).Frames);
+        using var restarted = JsonDocument.Parse(File.ReadAllText(Path.Combine(second, "completed.json")));
+        Assert.Equal(0, restarted.RootElement.GetProperty("DroppedEntries").GetInt64());
+    }
+
     private sealed class Clock : IClock
     {
         public long Timestamp { get; set; }

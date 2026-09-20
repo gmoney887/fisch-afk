@@ -52,12 +52,13 @@ public sealed class CatchOutcomeTracker
     }
 }
 
-/// <summary>A recovery incident ends only on verified progress, not on a completed retry.</summary>
+/// <summary>Limit each recovery burst; verified progress or a cooldown permits another burst.</summary>
 public sealed class RecoveryBudget
 {
     public int Attempts { get; private set; }
     public bool TryBegin() { if (Attempts >= 3) return false; Attempts++; return true; }
     public void ConfirmProgress() => Attempts = 0;
+    public void ResetAfterCooldown() => Attempts = 0;
 }
 
 /// <summary>One owner for all workflows. Nested calls stay on the owner thread.</summary>

@@ -4,7 +4,7 @@ using FischMacroCS.Core;
 
 namespace FischMacroCS.Vision;
 
-public class DetectionResult
+public class DetectionResult : IDisposable
 {
     public bool BarFound { get; set; }
     public int BarLeft { get; set; }
@@ -13,10 +13,15 @@ public class DetectionResult
     public int BarWidth { get; set; }
 
     public bool FishFound { get; set; }
+    public bool ReelProgressFound { get; set; }
+    public bool HasLiveReel => FishFound && (BarFound || ReelProgressFound);
+    public MinigameTheme ResolvedTheme { get; set; } = MinigameTheme.Default;
     public int FishX { get; set; }
     public double Error => FishFound && BarFound ? (FishX - BarCenter) : 0;
 
     public Mat? AnnotatedFrame { get; set; }
+    public Mat? TakeAnnotatedFrame() { var frame = AnnotatedFrame; AnnotatedFrame = null; return frame; }
+    public void Dispose() { AnnotatedFrame?.Dispose(); AnnotatedFrame = null; }
 }
 
 public class ShakeDetectionResult
@@ -43,6 +48,7 @@ public class RodDetectionResult
 {
     public bool IsEquipped { get; set; }
     public bool HotbarFound { get; set; }
+    public bool GeometryConfirmed { get; set; }
     public Rect HotbarBounds { get; set; }
     public Rect SlotBounds { get; set; }
     public Point SlotCenter { get; set; }
@@ -63,100 +69,142 @@ public class ToolToggleResult
 
 public class VisionProcessor
 {
+    private MinigameTheme? _lockedTheme;
+    private MinigameTheme? _candidateTheme;
+    private int _themeMatches;
+    public void ResetReelTheme() { _lockedTheme = _candidateTheme = null; _themeMatches = 0; }
+    private static void MaskBar(Mat hsv, Mat output, MinigameTheme theme)
+    {
+        switch (theme)
+        {
+            case MinigameTheme.Feline:
+                Cv2.InRange(hsv, new Scalar(135, 30, 200), new Scalar(179, 255, 255), output); break;
+            case MinigameTheme.Trident:
+                Cv2.InRange(hsv, new Scalar(35, 100, 200), new Scalar(90, 255, 255), output); break;
+            case MinigameTheme.Golden:
+                Cv2.InRange(hsv, new Scalar(18, 100, 200), new Scalar(35, 255, 255), output); break;
+            default:
+                Cv2.InRange(hsv, new Scalar(0, 0, 201), new Scalar(179, 55, 255), output); break;
+        }
+    }
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
+    {
+        if (crop == null || crop.Empty()) return new DetectionResult();
+        double viewportHeight = scaleFactor * 1080;
+        // Keep the established bar/needle search unchanged. The extra strip is
+        // solely for independent evidence that a dim/translucent reel is active.
+        int trackHeight = Math.Clamp((int)(viewportHeight * .91) - absOffsetY, 1, crop.Height);
+        using var track = new Mat(crop, new Rect(0, 0, crop.Width, trackHeight));
+        var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
+            theme == MinigameTheme.AutoCalibrate ? _lockedTheme ?? MinigameTheme.Default : theme, generateDebug);
+        result.ReelProgressFound = DetectReelProgress(crop, absOffsetY, viewportHeight);
+        if (theme == MinigameTheme.AutoCalibrate && !_lockedTheme.HasValue && !result.HasLiveReel)
+        {
+            // Evaluate colors separately: a union mask would merge a white bar
+            // into bright green scenery and destroy its rectangular boundary.
+            foreach (var candidate in new[] { MinigameTheme.Feline, MinigameTheme.Trident, MinigameTheme.Golden })
+            {
+                var alternative = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor, candidate, generateDebug);
+                alternative.ReelProgressFound = result.ReelProgressFound;
+                if (alternative.BarFound && alternative.FishFound)
+                { result.Dispose(); result = alternative; break; }
+                alternative.Dispose();
+            }
+        }
+        if (!result.BarFound && result.HasLiveReel)
+        {
+            var dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight);
+            if (dimBar is Rect bar)
+            {
+                result.BarFound = true;
+                result.BarLeft = absOffsetX + bar.Left;
+                result.BarRight = absOffsetX + bar.Right;
+                result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+                result.BarWidth = bar.Width;
+                if (result.AnnotatedFrame != null)
+                    Cv2.Rectangle(result.AnnotatedFrame, bar, Scalar.FromRgb(0, 230, 118), 2);
+            }
+        }
+        if (theme == MinigameTheme.AutoCalibrate && !_lockedTheme.HasValue)
+        {
+            if (result.HasLiveReel)
+            {
+                _themeMatches = _candidateTheme == result.ResolvedTheme ? _themeMatches + 1 : 1;
+                _candidateTheme = result.ResolvedTheme;
+                if (_themeMatches >= 2) _lockedTheme = result.ResolvedTheme;
+            }
+            else { _themeMatches = 0; _candidateTheme = null; }
+        }
+        return result;
+    }
+
+    private static bool DetectReelProgress(Mat crop, int offsetY, double viewportHeight)
+    {
+        int top = Math.Max(0, (int)(viewportHeight * .90) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(viewportHeight * .94) - offsetY);
+        if (bottom <= top) return false;
+        using var strip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
+        using var hsv = new Mat();
+        using var mask = new Mat();
+        Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(0, 0, 210), new Scalar(179, 40, 255), mask);
+        Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        double wideLeft = crop.Width / 2.0 - viewportHeight * .274;
+        double compactLeft = crop.Width / 2.0 - viewportHeight * .182;
+        foreach (var contour in contours)
+        {
+            var box = Cv2.BoundingRect(contour);
+            // Recorded reels use both wide and compact progress layouts, anchored at viewport center.
+            if (Math.Min(Math.Abs(box.Left - wideLeft), Math.Abs(box.Left - compactLeft)) <= viewportHeight * .012
+                && box.Width >= viewportHeight * .02 && box.Width <= viewportHeight * .56
+                && box.Height >= viewportHeight * .006 && box.Height <= viewportHeight * .018
+                // Contour coordinates cover (w-1)*(h-1); using pixel-box area
+                // unfairly rejects the same thin rectangle at smaller resolutions.
+                && Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1)) >= .8)
+                return true;
+        }
+        return false;
+    }
+
+    private static Rect? DetectDimReelBar(Mat track, int offsetY, double viewportHeight)
+    {
+        using var hsv = new Mat();
+        using var mask = new Mat();
+        Cv2.CvtColor(track, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(5, 35, 45), new Scalar(35, 140, 160), mask);
+        int kernelSize = Math.Max(3, (int)Math.Round(viewportHeight * .0035));
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kernelSize, kernelSize));
+        Cv2.MorphologyEx(mask, mask, MorphTypes.Open, kernel);
+        Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        Rect? candidate = null;
+        foreach (var contour in contours)
+        {
+            var box = Cv2.BoundingRect(contour);
+            double centerY = offsetY + box.Y + box.Height / 2.0;
+            if (box.Width < viewportHeight * .03 || box.Width > viewportHeight * .9
+                || box.Height < viewportHeight * .028 || box.Height > viewportHeight * .075
+                || centerY < viewportHeight * .78 || centerY > viewportHeight * .90
+                || Cv2.ContourArea(contour) / (box.Width * box.Height) < .8) continue;
+            // Ambiguous geometry must not become a control target.
+            if (candidate.HasValue) return null;
+            candidate = box;
+        }
+        return candidate;
+    }
+
+    private DetectionResult ProcessTrackCore(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme, bool generateDebug)
     {
         DetectionResult result = new DetectionResult();
         if (crop == null || crop.Empty()) return result;
-
-        if (theme == MinigameTheme.AutoCalibrate)
-        {
-            Scalar meanColor = Cv2.Mean(crop);
-            double b = meanColor.Val0;
-            double g = meanColor.Val1;
-            double r = meanColor.Val2;
-
-            if (r > g + 20 && r > b + 20)
-            {
-                theme = MinigameTheme.Feline; // Pink
-            }
-            else if (g > r + 10 && g > b + 10)
-            {
-                theme = MinigameTheme.Trident; // Green
-            }
-            else if (r > 100 && g > 100 && b < 80)
-            {
-                theme = MinigameTheme.Golden; // Yellow
-            }
-            else
-            {
-                theme = MinigameTheme.Default;
-            }
-        }
 
         try
         {
             int cropH = crop.Height;
             int cropW = crop.Width;
-
-        // 1. Split BGR channels and apply Theme-Specific Masks
-        Mat[] bgr = Cv2.Split(crop);
-        using var b = bgr[0];
-        using var g = bgr[1];
-        using var r = bgr[2];
-
+        using var hsv = new Mat();
+        Cv2.CvtColor(crop, hsv, ColorConversionCodes.BGR2HSV);
         using var barMask = new Mat();
-
-        if (theme == MinigameTheme.Feline)
-        {
-            // Feline (Pink): High R and B, lower G.
-            using var maskR = new Mat();
-            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
-            using var maskB = new Mat();
-            Cv2.Threshold(b, maskB, 180, 255, ThresholdTypes.Binary);
-            Cv2.BitwiseAnd(maskR, maskB, barMask);
-        }
-        else if (theme == MinigameTheme.Trident)
-        {
-            // Trident (Green): High G, low R, low B
-            using var maskG = new Mat();
-            Cv2.Threshold(g, maskG, 200, 255, ThresholdTypes.Binary);
-            using var maskR = new Mat();
-            Cv2.Threshold(r, maskR, 120, 255, ThresholdTypes.BinaryInv);
-            using var maskB = new Mat();
-            Cv2.Threshold(b, maskB, 120, 255, ThresholdTypes.BinaryInv);
-            using var tempG = new Mat();
-            Cv2.BitwiseAnd(maskG, maskR, tempG);
-            Cv2.BitwiseAnd(tempG, maskB, barMask);
-        }
-        else if (theme == MinigameTheme.Golden)
-        {
-            // Golden: High R, High G, low B
-            using var maskR = new Mat();
-            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
-            using var maskG = new Mat();
-            Cv2.Threshold(g, maskG, 180, 255, ThresholdTypes.Binary);
-            using var maskB = new Mat();
-            Cv2.Threshold(b, maskB, 120, 255, ThresholdTypes.BinaryInv);
-            using var tempY = new Mat();
-            Cv2.BitwiseAnd(maskR, maskG, tempY);
-            Cv2.BitwiseAnd(tempY, maskB, barMask);
-        }
-        else
-        {
-            // DEFAULT (Pure White Catch Bar)
-            // Removes false-positive tension red trigger on red wooden dock planks
-            using var maskB = new Mat();
-            Cv2.Threshold(b, maskB, 200, 255, ThresholdTypes.Binary);
-            using var maskG = new Mat();
-            Cv2.Threshold(g, maskG, 200, 255, ThresholdTypes.Binary);
-            using var maskR = new Mat();
-            Cv2.Threshold(r, maskR, 200, 255, ThresholdTypes.Binary);
-
-            using var maskBG = new Mat();
-            Cv2.BitwiseAnd(maskB, maskG, maskBG);
-            Cv2.BitwiseAnd(maskBG, maskR, barMask);
-        }
-
+        MaskBar(hsv, barMask, theme);
         // Morphological CLOSE with horizontal structuring element:
         // Bridges the vertical fish needle cutting through the catch bar, merging it into one complete bar
         int closeKernelW = (int)Math.Max(25, Math.Round(35 * scaleFactor));
@@ -178,6 +226,11 @@ public class VisionProcessor
         foreach (var cnt in contours)
         {
             Rect rect = Cv2.BoundingRect(cnt);
+            // The center-anchored reel fits inside this ROI even at its extremes.
+            // A clipped shape cannot establish a complete control bar: bright
+            // scenery at the capture edge otherwise keeps re-entering Reeling.
+            if (rect.Left <= 0 || rect.Top <= 0 || rect.Right >= cropW || rect.Bottom >= cropH)
+                continue;
             // Height and width bounds isolate minigame bar
             if (rect.Height >= minBarH && rect.Height <= maxBarH && rect.Width >= minBarW && rect.Width <= maxBarW)
             {
@@ -210,6 +263,7 @@ public class VisionProcessor
         }
 
         // 3. Fish Needle Search:
+        result.ResolvedTheme = theme;
         // Needle has Slate Blue silhouette (B channel dominant over R and G, ~70-88px tall)
         int minNeedleHeight = (int)Math.Max(15, Math.Round(25 * scaleFactor));
 
@@ -239,43 +293,14 @@ public class VisionProcessor
             using var searchZone = new Mat(crop, needleSearchRoi);
             using var needleMask = new Mat();
 
+            using var needleHsv = new Mat();
+            Cv2.CvtColor(searchZone, needleHsv, ColorConversionCodes.BGR2HSV);
             if (theme == MinigameTheme.Feline || theme == MinigameTheme.Golden)
-            {
-                // Pink / Golden themes use a stark white vertical needle line (R, G, B >= 200)
-                Cv2.InRange(searchZone, new Scalar(200, 200, 200), new Scalar(255, 255, 255), needleMask);
-            }
+                Cv2.InRange(needleHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), needleMask);
             else if (theme == MinigameTheme.Trident)
-            {
-                // Trident (Green) uses a stark black vertical needle line (R, G, B <= 50)
-                Cv2.InRange(searchZone, new Scalar(0, 0, 0), new Scalar(50, 50, 50), needleMask);
-            }
+                Cv2.InRange(needleHsv, new Scalar(0, 0, 0), new Scalar(179, 255, 50), needleMask);
             else
-            {
-                // Default Slate Blue: B in [70, 125], G in [50, 110], R in [40, 100], and B >= R+10 & B >= G+5
-                using var broadMask = new Mat();
-                Cv2.InRange(searchZone, new Scalar(70, 50, 40), new Scalar(125, 110, 100), broadMask);
-
-                // Channel dominance via native OpenCV matrix subtraction
-                Mat[] channels = Cv2.Split(searchZone);
-                using (var bChan = channels[0])
-                using (var gChan = channels[1])
-                using (var rChan = channels[2])
-                using (var diffR = new Mat())
-                using (var diffG = new Mat())
-                using (var condR = new Mat())
-                using (var condG = new Mat())
-                using (var condCombined = new Mat())
-                {
-                    Cv2.Subtract(bChan, rChan, diffR);
-                    Cv2.Subtract(bChan, gChan, diffG);
-                    Cv2.Compare(diffR, 10, condR, CmpTypes.GE);
-                    Cv2.Compare(diffG, 5, condG, CmpTypes.GE);
-                    Cv2.BitwiseAnd(condR, condG, condCombined);
-                    Cv2.BitwiseAnd(broadMask, condCombined, needleMask);
-                }
-                foreach (var ch in channels) ch.Dispose();
-            }
-
+                Cv2.InRange(needleHsv, new Scalar(100, 25, 70), new Scalar(125, 115, 125), needleMask);
             // Native OpenCV SIMD column reduction: sums matching pixels per column
             using var colScores = new Mat();
             Cv2.Reduce(needleMask, colScores, ReduceDimension.Row, ReduceTypes.Sum, MatType.CV_32S);
@@ -310,9 +335,9 @@ public class VisionProcessor
                 // Measuring width at half-prominence accurately detects sharp needles even across illuminated/noisy water.
                 int halfHeightThresh = baseline + Math.Max(4, prominence / 2);
                 int leftEdge = nx;
-                while (leftEdge > trackSearchX1 && colHist[leftEdge] >= halfHeightThresh) leftEdge--;
+                while (leftEdge > trackSearchX1 && nx - leftEdge <= maxNeedleWidth && colHist[leftEdge] >= halfHeightThresh) leftEdge--;
                 int rightEdge = nx;
-                while (rightEdge < trackSearchX2 && colHist[rightEdge] >= halfHeightThresh) rightEdge++;
+                while (rightEdge < trackSearchX2 && rightEdge - nx <= maxNeedleWidth && colHist[rightEdge] >= halfHeightThresh) rightEdge++;
                 int peakWidth = rightEdge - leftEdge - 1;
 
                 // Needle must be narrow (<= maxNeedleWidth) and have significant localized prominence
@@ -337,8 +362,8 @@ public class VisionProcessor
                 if (colHist[nx] > fallbackMax && colHist[nx] >= minNeedleHeight)
                 {
                     int fallbackThresh = Math.Max(minNeedleHeight / 2, (int)(colHist[nx] * 0.65));
-                    int leftScan = nx; while (leftScan > trackSearchX1 && colHist[leftScan] >= fallbackThresh) leftScan--;
-                    int rightScan = nx; while (rightScan < trackSearchX2 && colHist[rightScan] >= fallbackThresh) rightScan++;
+                    int leftScan = nx; while (leftScan > trackSearchX1 && nx - leftScan <= maxNeedleWidth && colHist[leftScan] >= fallbackThresh) leftScan--;
+                    int rightScan = nx; while (rightScan < trackSearchX2 && rightScan - nx <= maxNeedleWidth && colHist[rightScan] >= fallbackThresh) rightScan++;
                     if ((rightScan - leftScan - 1) <= maxNeedleWidth)
                     {
                         fallbackMax = colHist[nx];
@@ -403,7 +428,7 @@ public class VisionProcessor
             result.AnnotatedFrame = debug;
         }
 
-        foreach (var m in bgr) m.Dispose();
+
 
             return result;
         }
@@ -479,13 +504,12 @@ public class VisionProcessor
             Point bestCenter = default;
             double bestConfidence = 0;
 
-            // Active interactive search zone: center-anchored height-scaled to cover active gameplay area
-            // Eliminates black bars, outer margins, hotbar/tooltips (lower 34%), and topbar (top 16%)
-            int maxHalfW = (int)Math.Round(cropH * 0.75);
-            int searchX1 = Math.Max(0, (cropW / 2) - maxHalfW);
-            int searchW = Math.Min(cropW - searchX1, maxHalfW * 2);
-            int searchY1 = (int)Math.Round(cropH * 0.18);
-            int searchH = Math.Max(100, (int)Math.Round(cropH * 0.48)); // Range: 18% -> 66% viewport height
+            // Shake buttons can spawn at either edge and below the reel area.
+            // Exclude only the top controls and bottom hotbar; never trim horizontal coverage.
+            int searchX1 = 0;
+            int searchW = cropW;
+            int searchY1 = (int)Math.Round(cropH * 0.10);
+            int searchH = Math.Max(1, (int)Math.Round(cropH * 0.80));
             using var searchZone = new Mat(crop, new Rect(searchX1, searchY1, searchW, searchH));
 
             // =========================================================================
@@ -578,7 +602,7 @@ public class VisionProcessor
                 Mat debug = crop.Clone();
 
                 // Draw subtle active search zone frame
-                Cv2.Rectangle(debug, new Rect(2, 2, cropW - 4, cropH - 4), Scalar.FromRgb(30, 41, 59), 1);
+                Cv2.Rectangle(debug, new Rect(searchX1, searchY1, searchW, searchH), Scalar.FromRgb(30, 41, 59), 1);
 
                 if (result.Found && bestRect.HasValue)
                 {
@@ -698,8 +722,11 @@ public class VisionProcessor
             {
                 Rect r = Cv2.BoundingRect(c);
                 if (r.Width >= minCapW && r.Width <= maxCapW && r.Height >= minCapH && r.Height <= maxCapH && 
-                    r.Width >= r.Height * 0.45 && (r.Width * r.Height) >= 20)
+                    r.Width >= r.Height * 0.45 && (r.Width * r.Height) >= 20 &&
+                    Cv2.ContourArea(c) >= r.Width * r.Height * 0.30)
                 {
+                    // A meter cap has a compact filled shape. Thin scenery arcs (for
+                    // example a spawn shield above a white boat edge) are not caps.
                     int capCenterX = r.X + r.Width / 2;
                     int capBottomY = r.Y + r.Height;
                     int expectedBarH = (int)Math.Round(r.Width * 20.0);
@@ -815,7 +842,9 @@ public class VisionProcessor
     public enum UIColorType
     {
         GreenButton,
-        RedCloseButton
+        RedCloseButton,
+        WhiteButton,
+        WhiteText
     }
 
     public (bool Found, Point Pt) DynamicUISnapWithStatus(Mat fullFrame, int expectedX, int expectedY, UIColorType targetType, int searchRadius = 0)
@@ -851,7 +880,21 @@ public class VisionProcessor
                 Cv2.CvtColor(roi, hsvRoi, ColorConversionCodes.BGR2HSV);
             }
 
-            if (targetType == UIColorType.GreenButton)
+            if (targetType == UIColorType.WhiteText)
+            {
+                // Thin prompt lettering disappears under the button morphology filter.
+                // Callers must restrict this ROI to a separately verified text identity.
+                Cv2.InRange(hsvRoi, new Scalar(0, 0, 190), new Scalar(180, 65, 255), mask);
+                var moments = Cv2.Moments(mask, true);
+                if (moments.M00 < 3) return (false, new Point(expectedX, expectedY));
+                return (true, new Point(roiX + (int)Math.Round(moments.M10 / moments.M00),
+                    roiY + (int)Math.Round(moments.M01 / moments.M00)));
+            }
+            if (targetType == UIColorType.WhiteButton)
+            {
+                Cv2.InRange(hsvRoi, new Scalar(0, 0, 220), new Scalar(180, 35, 255), mask);
+            }
+            else if (targetType == UIColorType.GreenButton)
             {
                 // Green button in HSV: H in [35, 85], S >= 60, V >= 60
                 Cv2.InRange(hsvRoi, new Scalar(35, 60, 60), new Scalar(85, 255, 255), mask);
@@ -904,6 +947,57 @@ public class VisionProcessor
         return DynamicUISnapWithStatus(fullFrame, expectedX, expectedY, targetType, searchRadius).Pt;
     }
 
+    private static RodDetectionResult? DetectOutlinedHotbarSlot(Mat frame, int slotNum, int viewportHeight)
+    {
+        int bandHeight = Math.Min(frame.Height, Math.Max(24, (int)Math.Round(viewportHeight * 0.20)));
+        int bandY = frame.Height - bandHeight;
+        using var band = new Mat(frame, new Rect(0, bandY, frame.Width, bandHeight));
+        using var bgr = new Mat();
+        if (band.Channels() == 4) Cv2.CvtColor(band, bgr, ColorConversionCodes.BGRA2BGR);
+        else band.CopyTo(bgr);
+        using var hsv = new Mat();
+        using var white = new Mat();
+        Cv2.CvtColor(bgr, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(0, 0, 190), new Scalar(180, 50, 255), white);
+        Cv2.FindContours(white, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        var candidates = new List<(Rect Bounds, int Index, double Pitch)>();
+        foreach (var contour in contours)
+        {
+            Rect box = Cv2.BoundingRect(contour);
+            if (box.Width < Math.Max(16, viewportHeight * 0.025) || box.Width > viewportHeight * 0.16 ||
+                Math.Abs(box.Width - box.Height) > box.Width * 0.12 ||
+                bandHeight - box.Bottom > Math.Max(8, viewportHeight * 0.025)) continue;
+            int edge = Math.Max(1, (int)Math.Round(box.Width * 0.035));
+            using var top = new Mat(white, new Rect(box.X, box.Y, box.Width, edge));
+            using var bottom = new Mat(white, new Rect(box.X, box.Bottom - edge, box.Width, edge));
+            using var left = new Mat(white, new Rect(box.X, box.Y, edge, box.Height));
+            using var right = new Mat(white, new Rect(box.Right - edge, box.Y, edge, box.Height));
+            if (Cv2.CountNonZero(top) < box.Width * 0.75 || Cv2.CountNonZero(bottom) < box.Width * 0.75 ||
+                Cv2.CountNonZero(left) < box.Height * 0.75 || Cv2.CountNonZero(right) < box.Height * 0.75) continue;
+            using var interior = new Mat(white, new Rect(box.X + edge, box.Y + edge, box.Width - edge * 2, box.Height - edge * 2));
+            if (Cv2.CountNonZero(interior) > interior.Total() * 0.50) continue;
+            double pitch = box.Width + Math.Max(1, box.Width * 0.015);
+            double indexOffset = (box.X + box.Width / 2.0 - frame.Width / 2.0) / pitch;
+            int index = (int)Math.Round(indexOffset) + 5;
+            if (index < 1 || index > 9 || Math.Abs(indexOffset - (index - 5)) > 0.18) continue;
+            candidates.Add((box, index, pitch));
+        }
+        // More than one selected square is ambiguous (overlay or unknown UI).
+        if (candidates.Count != 1) return null;
+        var candidate = candidates[0];
+        int slotX = candidate.Bounds.X + (int)Math.Round((slotNum - candidate.Index) * candidate.Pitch);
+        var slot = new Rect(slotX, bandY + candidate.Bounds.Y, candidate.Bounds.Width, candidate.Bounds.Height);
+        int hotbarX = candidate.Bounds.X - (int)Math.Round((candidate.Index - 1) * candidate.Pitch);
+        int hotbarWidth = (int)Math.Round(8 * candidate.Pitch) + candidate.Bounds.Width;
+        if (hotbarX < 0 || hotbarX + hotbarWidth > frame.Width) return null;
+        return new RodDetectionResult
+        {
+            HotbarFound = true, GeometryConfirmed = true, IsEquipped = candidate.Index == slotNum,
+            HotbarBounds = new Rect(hotbarX, slot.Y, hotbarWidth, slot.Height),
+            SlotBounds = slot, SlotCenter = new Point(slot.X + slot.Width / 2, slot.Y + slot.Height / 2)
+        };
+    }
+
     public RodDetectionResult DetectRodEquipped(Mat frame, int slotNum = 1, bool generateDebug = false, int fullViewportHeight = 0)
     {
         var result = new RodDetectionResult();
@@ -919,6 +1013,21 @@ public class VisionProcessor
         int vpH = fullViewportHeight > 0 
             ? fullViewportHeight 
             : ((w / (double)h >= 4.5) ? (int)Math.Round(h * 4.0) : h);
+
+        // Desktop CoreGui can retain a fixed-size hotbar in a smaller viewport.
+        // Discover its selected square before using the legacy scale estimate.
+        var outlinedSlot = DetectOutlinedHotbarSlot(frame, slotNum, vpH);
+        if (outlinedSlot != null)
+        {
+            if (generateDebug)
+            {
+                outlinedSlot.AnnotatedFrame = frame.Clone();
+                Cv2.Rectangle(outlinedSlot.AnnotatedFrame, outlinedSlot.HotbarBounds, Scalar.FromRgb(40, 50, 70), 1);
+                Cv2.Rectangle(outlinedSlot.AnnotatedFrame, outlinedSlot.SlotBounds,
+                    outlinedSlot.IsEquipped ? Scalar.FromRgb(0, 230, 118) : Scalar.FromRgb(255, 82, 82), 2);
+            }
+            return outlinedSlot;
+        }
 
         // Center-Anchored Height-Scaled Roblox Hotbar Geometry (Immune to scenery, sand, and aspect ratio)
         // In Roblox Desktop CoreGui, hotbar slots are ~68px wide at 100% DPI.
@@ -1117,7 +1226,8 @@ public class VisionProcessor
 
         bool isEquipped = isCyanEquipped || isWhiteBorderEquipped;
 
-        result.HotbarFound = true;
+        result.HotbarFound = true; // Legacy callers also use this for estimated layout bounds.
+        result.GeometryConfirmed = visualValid || isEquipped;
         result.HotbarBounds = hotbarRect;
         result.SlotBounds = slotRect;
         result.SlotCenter = center;
@@ -1230,74 +1340,53 @@ public class VisionProcessor
     }
 
     /// <summary>
-    /// Detects the presence of the in-game catch notification banner ("You just caught a..." / "Extra! Your ... caught a...")
+    /// Detects the main catch notification prefix ("You just caught a...").
+    /// Companion "Extra!" rewards do not confirm the player's reel outcome.
     /// appearing above the minigame track area at the conclusion of a successful catch.
     /// Returns true if a catch banner is confirmed, false if the fish escaped or no catch occurred.
     /// </summary>
-    public bool DetectCatchNotification(Mat frame)
+    private static readonly Lazy<Mat> CatchPrefix = new(() => LoadCatchPrefix("catch_prefix.png"));
+    private static readonly Lazy<Mat> LiveCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_live.png"));
+    private static readonly Lazy<Mat> MaximizedCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_maximized.png"));
+    private static Mat LoadCatchPrefix(string name)
     {
-        if (frame == null || frame.Empty() || frame.Width < 50 || frame.Height < 40)
-            return false;
+        using var stream = typeof(VisionProcessor).Assembly.GetManifestResourceStream("FischMacroCS.Assets." + name)
+            ?? throw new InvalidOperationException("Missing reviewed catch template");
+        using var bytes = new System.IO.MemoryStream(); stream.CopyTo(bytes);
+        using var color = Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
+        var gray = new Mat(); Cv2.CvtColor(color, gray, ColorConversionCodes.BGR2GRAY);
+        return gray;
+    }
 
-        try
+    public bool DetectCatchNotification(Mat frame, int viewportHeight = 0)
+    {
+        if (frame == null || frame.Empty() || frame.Width < 50 || frame.Height < 40) return false;
+        double height = viewportHeight > 0 ? viewportHeight : frame.Height / .17;
+        // Companion fish and bait rewards push the player banner to the
+        // top of the captured track. Keep its entire prefix for matching.
+        int top = 0;
+        int bottom = Math.Min(frame.Height, (int)(height * .11));
+        int halfWidth = Math.Min(frame.Width / 2, (int)(height * .55));
+        if (bottom <= top || halfWidth <= 0) return false;
+        using var roi = new Mat(frame, new Rect(frame.Width / 2 - halfWidth, top, halfWidth * 2, bottom - top));
+        using var gray = new Mat(); Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
+        using var scaled = new Mat();
+        // Match the actual player catch phrase; arbitrary bright contours
+        // and companion rewards are not evidence.
+        using var scores = new Mat();
+        // The notification animates its font size; use reviewed settled and
+        // enlarged and maximized variants at their original viewport heights.
+        foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0) })
         {
-            // Banner appears in upper half of track crop: y from 10% to 55% of crop height, centered horizontally
-            int y1 = (int)(frame.Height * 0.10);
-            int y2 = (int)(frame.Height * 0.55);
-            int x1 = (int)(frame.Width * 0.12);
-            int x2 = (int)(frame.Width * 0.88);
-            int roiW = x2 - x1;
-            int roiH = y2 - y1;
-
-            if (roiW <= 0 || roiH <= 0 || x1 + roiW > frame.Width || y1 + roiH > frame.Height)
-                return false;
-
-            using var roi = new Mat(frame, new Rect(x1, y1, roiW, roiH));
-
-            Mat[] bgr = Cv2.Split(roi);
-            using var b = bgr[0];
-            using var g = bgr[1];
-            using var r = bgr[2];
-
-            // Text white (R, G >= 190):
-            using var maskWhite = new Mat();
-            using var maskW1 = new Mat();
-            using var maskW2 = new Mat();
-            Cv2.Threshold(r, maskW1, 190, 255, ThresholdTypes.Binary);
-            Cv2.Threshold(g, maskW2, 190, 255, ThresholdTypes.Binary);
-            Cv2.BitwiseAnd(maskW1, maskW2, maskWhite);
-
-            // Text gold/yellow (R >= 180, G >= 135):
-            using var maskGold = new Mat();
-            using var maskG1 = new Mat();
-            using var maskG2 = new Mat();
-            Cv2.Threshold(r, maskG1, 180, 255, ThresholdTypes.Binary);
-            Cv2.Threshold(g, maskG2, 135, 255, ThresholdTypes.Binary);
-            Cv2.BitwiseAnd(maskG1, maskG2, maskGold);
-
-            using var bannerMask = new Mat();
-            Cv2.BitwiseOr(maskWhite, maskGold, bannerMask);
-
-            // Find contours corresponding to text letters
-            Cv2.FindContours(bannerMask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-            int textLetterCount = 0;
-            foreach (var cnt in contours)
-            {
-                var rect = Cv2.BoundingRect(cnt);
-                // Letters are typically 5px to 40px high, 2px to 50px wide
-                if (rect.Height >= 5 && rect.Height <= 40 && rect.Width >= 2 && rect.Width <= 50)
-                {
-                    textLetterCount++;
-                }
-            }
-
-            foreach (var ch in bgr) ch.Dispose();
-            return textLetterCount >= 12;
+            double scale = height / referenceHeight;
+            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale)),
+                Math.Max(1, (int)Math.Round(template.Height * scale))));
+            if (scaled.Width > gray.Width || scaled.Height > gray.Height) continue;
+            Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(scores, out _, out double match);
+            if (double.IsFinite(match) && match >= .78) return true;
         }
-        catch
-        {
-            return false;
-        }
+        return false;
     }
 }
 

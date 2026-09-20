@@ -9,6 +9,12 @@ namespace FischMacroCS;
 
 public partial class App : Application
 {
+    protected override void OnExit(ExitEventArgs e)
+    {
+        SessionLogger.Instance.Dispose();
+        base.OnExit(e);
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         AppDomain.CurrentDomain.UnhandledException += (s, args) =>
@@ -50,6 +56,7 @@ public partial class App : Application
             {
                 File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "record_cast_result.txt"), $"Error={ex}\n");
             }
+            SessionLogger.Instance.Dispose();
             Environment.Exit(0);
             return;
         }

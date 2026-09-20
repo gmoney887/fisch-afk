@@ -164,12 +164,11 @@ public class RodDetectorTests
         Assert.False(res9Unequipped.IsEquipped, "Slot 9 MUST NOT be detected as equipped when only Slot 8 has the white outline border!");
     }
 
-    [Fact]
+    [LocalFixtureFact("Fixtures/roblox_screenshot_184947.png")]
     public void DetectRodEquipped_RealPCEquippedSlot1_CorrectlyDetectsEquipped()
     {
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string p1 = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "roblox_screenshot_184947.png"));
-        if (!File.Exists(p1)) return;
+        string p1 = LocalFixtureFactAttribute.Resolve("Fixtures/roblox_screenshot_184947.png");
+        Assert.True(File.Exists(p1));
 
         using var img1 = Cv2.ImRead(p1);
         var res1 = _vision.DetectRodEquipped(img1, slotNum: 1, generateDebug: true);
@@ -181,12 +180,11 @@ public class RodDetectorTests
         Assert.False(res2.IsEquipped, "Slot 2 (Equipment Bag without white border) MUST be detected as UNEQUIPPED!");
     }
 
-    [Fact]
+    [LocalFixtureFact("Fixtures/roblox_screenshot_184947.png", "Fixtures/roblox_screenshot_190543.png")]
     public void TestShakeDetectionOnUserScreenshot()
     {
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string p1 = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "roblox_screenshot_184947.png"));
-        if (!File.Exists(p1)) return;
+        string p1 = LocalFixtureFactAttribute.Resolve("Fixtures/roblox_screenshot_184947.png");
+        Assert.True(File.Exists(p1));
 
         using var img1 = Cv2.ImRead(p1);
         double scale1 = img1.Height / 1080.0;
@@ -194,8 +192,8 @@ public class RodDetectorTests
         _output.WriteLine($"Shake 184947 Found: {shake1.Found}, Center: {shake1.Center}, Score: {shake1.ContrastScore:F2}, Box: {shake1.BoundingBox}");
         Assert.False(shake1.Found);
 
-        string p2 = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "roblox_screenshot_190543.png"));
-        if (File.Exists(p2))
+        string p2 = LocalFixtureFactAttribute.Resolve("Fixtures/roblox_screenshot_190543.png");
+        Assert.True(File.Exists(p2));
         {
             using var img2 = Cv2.ImRead(p2);
             _output.WriteLine($"Image 190543 size: {img2.Width}x{img2.Height}");
@@ -236,12 +234,11 @@ public class RodDetectorTests
         }
     }
 
-    [Fact]
+    [LocalFixtureFact("Fixtures/media_1789705793153.jpg")]
     public void Test_UserScreenshot_Slot8AndSlot9_CorrectEquippedState()
     {
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string fixturePath = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", "Fixtures", "media_1789705793153.jpg"));
-        if (!File.Exists(fixturePath)) return;
+        string fixturePath = LocalFixtureFactAttribute.Resolve("Fixtures/media_1789705793153.jpg");
+        Assert.True(File.Exists(fixturePath));
 
         using var img = Cv2.ImRead(fixturePath);
         _output.WriteLine($"Image size: {img.Width}x{img.Height}");

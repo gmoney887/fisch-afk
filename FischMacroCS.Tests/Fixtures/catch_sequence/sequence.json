@@ -1,0 +1,533 @@
+[
+  {
+    "FrameId": 467,
+    "Timestamp": 2503733623740,
+    "File": "frame_00000467.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "ActiveReel",
+    "SHA256": "FCAF2B1B0FE9A91DC55B6AB60ACFB27A55F1FA4C1249130E96461E702114FDB3"
+  },
+  {
+    "FrameId": 468,
+    "Timestamp": 2503734732398,
+    "File": "frame_00000468.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "ActiveReel",
+    "SHA256": "C20CCDCA2B620987A447B66927462FF2E1D90A96FC838BA55C07AB148C64AC8D"
+  },
+  {
+    "FrameId": 469,
+    "Timestamp": 2503735819125,
+    "File": "frame_00000469.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "ActiveReel",
+    "SHA256": "6D4BF1836857D2CE6E934C26DE228A8AD67AEC2AD023FF81ECA1773AFE5D6122"
+  },
+  {
+    "FrameId": 470,
+    "Timestamp": 2503736924413,
+    "File": "frame_00000470.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "ActiveReel",
+    "SHA256": "5631DC70DBA7EB000105C77EB676812AC297A7FFFCEA14A769DBBD4437A6B016"
+  },
+  {
+    "FrameId": 471,
+    "Timestamp": 2503738033475,
+    "File": "frame_00000471.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "ReelExitAnimation",
+    "SHA256": "62CF2272131471603096C38A0A92A2866D8FA9104C2E7094AAAE5B1337FEED3A"
+  },
+  {
+    "FrameId": 472,
+    "Timestamp": 2503739328850,
+    "File": "frame_00000472.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "PlayerCatch",
+    "SHA256": "4063A5182125DAEE510CAA6B0A7362A48B91E79F362C5F10B29935F1893DC500"
+  },
+  {
+    "FrameId": 473,
+    "Timestamp": 2503740338463,
+    "File": "frame_00000473.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "PlayerCatch",
+    "SHA256": "4084DF9356178D1D2EECCD73952561C64CC18789E4E2A17C6F05F864CEB55444"
+  },
+  {
+    "FrameId": 474,
+    "Timestamp": 2503741338643,
+    "File": "frame_00000474.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "PlayerCatch",
+    "SHA256": "804033896FAD97FA27FF7B2F062F9676302771B646350E30728C3AB8AD12ED57"
+  },
+  {
+    "FrameId": 475,
+    "Timestamp": 2503742520045,
+    "File": "frame_00000475.png",
+    "Region": {
+      "Top": 1001,
+      "Bottom": 1271,
+      "Left": 383,
+      "Right": 1871,
+      "Location": {
+        "X": 383,
+        "Y": 1001
+      },
+      "Size": {
+        "Width": 1488,
+        "Height": 270
+      },
+      "TopLeft": {
+        "X": 383,
+        "Y": 1001
+      },
+      "BottomRight": {
+        "X": 1871,
+        "Y": 1271
+      },
+      "X": 383,
+      "Y": 1001,
+      "Width": 1488,
+      "Height": 270
+    },
+    "Viewport": {
+      "Top": 0,
+      "Bottom": 1353,
+      "Left": 0,
+      "Right": 2254,
+      "Location": {
+        "X": 0,
+        "Y": 0
+      },
+      "Size": {
+        "Width": 2254,
+        "Height": 1353
+      },
+      "TopLeft": {
+        "X": 0,
+        "Y": 0
+      },
+      "BottomRight": {
+        "X": 2254,
+        "Y": 1353
+      },
+      "X": 0,
+      "Y": 0,
+      "Width": 2254,
+      "Height": 1353
+    },
+    "Label": "PlayerCatch",
+    "SHA256": "D9C6BE6CC869B288E0712ECFBD4416EA26FBF35A15A345C64FDE9491D87A142F"
+  }
+]

@@ -72,9 +72,10 @@ public sealed class ReplaySession
         using var raw = Cv2.ImRead(Path.Combine(DirectoryPath, frame.File));
         var vision = new VisionProcessor();
         bool context = frame.Region.Width == frame.Viewport.Width && frame.Region.Height == frame.Viewport.Height;
-        var detected = context ? new DetectionResult() : vision.ProcessTrack(raw, frame.Region.X, frame.Region.Y,
+        using var detected = context ? new DetectionResult() : vision.ProcessTrack(raw, frame.Region.X, frame.Region.Y,
             frame.Viewport.Height / 1080.0, generateDebug: false);
-        return new(frame.File, detected.BarFound, detected.FishFound, detected.FishX, vision.DetectCatchNotification(raw));
+        return new(frame.File, detected.BarFound, detected.FishFound, detected.FishX,
+            vision.DetectCatchNotification(raw, frame.Viewport.Height));
     }
     public void ExportFixture(ReplayFrame frame, FrameLabel label, string destination)
     {

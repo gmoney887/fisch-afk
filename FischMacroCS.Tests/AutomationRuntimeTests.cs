@@ -103,6 +103,22 @@ public class AutomationRuntimeTests
         public (bool Found, Point Center, double Confidence) Find(Mat frame, WorkflowTarget target) => (find(target.Name), new Point(10, 10), 1);
     }
     [Fact]
+    public void MissingTemplatesReportUnavailableWithoutCapturingOrClicking()
+    {
+        var clock = new FakeClock();
+        var vision = new TemplateWorkflowVision(System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N")));
+        var runner = new VerifiedWorkflow(clock, vision,
+            () => throw new Exception("Must not capture without templates"),
+            _ => throw new Exception("Must not wait without templates"));
+        var result = runner.Run([new("Open equipment", new("equipment-button", 0, 0, 1),
+            new("equipment-search", 0, 0, 1), _ => throw new Exception("Must not click"))], default);
+        Assert.Equal(ActionOutcome.Unknown, result.Outcome);
+        Assert.Contains("reviewed visual templates are missing", result.Evidence);
+        Assert.Contains("equipment-button", result.Evidence);
+        Assert.Contains("equipment-search", result.Evidence);
+    }
+
+    [Fact]
     public void MissingPrerequisiteNeverClicksAndNeverConfirmsSuccess()
     {
         var clock = new FakeClock(); bool clicked = false;

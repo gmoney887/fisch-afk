@@ -15,6 +15,13 @@ public enum MinigameTheme
 
 public class Settings
 {
+    public bool AfkPerformanceMode { get; set; } = true;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool PreviewEnabled => ShowVisionPreview && !AfkPerformanceMode;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool JitterEnabled => EnableHumanizedJitter && !AfkPerformanceMode;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool KeepOnTop => AlwaysOnTop && !AfkPerformanceMode;
     public string DiagnosticsRepository { get; set; } = "";
     public bool EnableAdaptiveRodDynamics { get; set; } = false;
     public string RodSlot { get; set; } = "1";
@@ -55,7 +62,8 @@ public class Settings
     public string RodProfile { get; set; } = "Standard";
     public bool EnableHumanizedJitter { get; set; } = true;
     public bool EnableAntiAfk { get; set; } = true;
-    public int AntiAfkIntervalMinutes { get; set; } = 8;
+    // Legacy persisted preference. Runtime clamps to 1–2 minutes to leave recovery margin.
+    public int AntiAfkIntervalMinutes { get; set; } = 2;
     public double CustomPullAccel { get; set; } = 550.0;
     public double CustomGravityFall { get; set; } = 410.0;
 
@@ -80,6 +88,32 @@ public class Settings
     private static readonly string ConfigPath = AppDataPaths.FilePath("config.json");
     private static readonly object SaveGate = new();
 
+    private static Settings Normalize(Settings settings)
+    {
+        // Default migration if empty or legacy
+        if (string.IsNullOrEmpty(settings.ToggleHotkey) || settings.ToggleHotkey == "F2")
+            settings.ToggleHotkey = "F6";
+        if (string.IsNullOrEmpty(settings.ReEquipHotkey) || settings.ReEquipHotkey == "F3")
+            settings.ReEquipHotkey = "F7";
+        if (settings.PostCatchDelayMs < 800 || settings.PostCatchDelayMs == 2000)
+            settings.PostCatchDelayMs = 1500;
+        if (settings.CastHoldMs <= 0)
+            settings.CastHoldMs = 760;
+        if (settings.CastPredictiveLeadMs <= 0)
+            settings.CastPredictiveLeadMs = 25;
+        if (string.IsNullOrEmpty(settings.ShakeMode))
+            settings.ShakeMode = settings.EnableShakeClicks ? "Navigation" : "Disabled";
+        if (string.IsNullOrEmpty(settings.RodProfile))
+            settings.RodProfile = "Standard";
+        if (settings.LureTimeoutMs > 30000)
+            settings.LureTimeoutMs = 25000;
+        if (settings.ReelTimeoutMs > 40000)
+            settings.ReelTimeoutMs = 35000;
+        if (settings.WatchdogStallTimeoutSeconds <= 0)
+            settings.WatchdogStallTimeoutSeconds = 50;
+        return settings;
+    }
+
     public static Settings Load()
     {
         try
@@ -88,30 +122,10 @@ public class Settings
             if (File.Exists(sourcePath))
             {
                 string json = File.ReadAllText(sourcePath);
-                var settings = JsonSerializer.Deserialize<Settings>(json);
+                var settings = JsonSerializer.Deserialize<Settings>(json) ?? throw new JsonException("Configuration must contain settings, not null.");
                 if (settings != null)
                 {
-                    // Default migration if empty or legacy
-                    if (string.IsNullOrEmpty(settings.ToggleHotkey) || settings.ToggleHotkey == "F2")
-                        settings.ToggleHotkey = "F6";
-                    if (string.IsNullOrEmpty(settings.ReEquipHotkey) || settings.ReEquipHotkey == "F3")
-                        settings.ReEquipHotkey = "F7";
-                    if (settings.PostCatchDelayMs < 800 || settings.PostCatchDelayMs == 2000)
-                        settings.PostCatchDelayMs = 1500;
-                    if (settings.CastHoldMs <= 0)
-                        settings.CastHoldMs = 760;
-                    if (settings.CastPredictiveLeadMs <= 0)
-                        settings.CastPredictiveLeadMs = 25;
-                    if (string.IsNullOrEmpty(settings.ShakeMode))
-                        settings.ShakeMode = settings.EnableShakeClicks ? "Navigation" : "Disabled";
-                    if (string.IsNullOrEmpty(settings.RodProfile))
-                        settings.RodProfile = "Standard";
-                    if (settings.LureTimeoutMs > 30000)
-                        settings.LureTimeoutMs = 25000;
-                    if (settings.ReelTimeoutMs > 40000)
-                        settings.ReelTimeoutMs = 35000;
-                    if (settings.WatchdogStallTimeoutSeconds <= 0)
-                        settings.WatchdogStallTimeoutSeconds = 50;
+                    Normalize(settings);
                     if (sourcePath != ConfigPath) settings.Save();
                     return settings;
                 }
@@ -126,7 +140,7 @@ public class Settings
                 if (File.Exists(ConfigPath + ".backup"))
                 {
                     var backup = JsonSerializer.Deserialize<Settings>(File.ReadAllText(ConfigPath + ".backup"));
-                    if (backup != null) return backup;
+                    if (backup != null) return Normalize(backup);
                 }
             }
             catch { }
@@ -146,7 +160,14 @@ public class Settings
         {
             string json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ConfigPath + ".tmp", json);
-            if (File.Exists(ConfigPath)) File.Copy(ConfigPath, ConfigPath + ".backup", true);
+            if (File.Exists(ConfigPath))
+            {
+                // Never replace a recoverable backup with the damaged primary we just recovered from.
+                bool validPrimary = false;
+                try { validPrimary = JsonSerializer.Deserialize<Settings>(File.ReadAllText(ConfigPath)) != null; }
+                catch (JsonException) { }
+                if (validPrimary) File.Copy(ConfigPath, ConfigPath + ".backup", true);
+            }
             File.Move(ConfigPath + ".tmp", ConfigPath, true);
         }
         catch { }

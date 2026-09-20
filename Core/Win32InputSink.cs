@@ -14,7 +14,7 @@ internal sealed class Win32InputSink : IInputSink
     public void SendKeyPress(char key) => throw new NotSupportedException();
     public void SendKeyString(string text, int delayMs = 40) => throw new NotSupportedException();
     public void SelectAllAndClear() => throw new NotSupportedException();
-    public void mouse_event(int flags, int x, int y, int data, int extra) => Win32.mouse_event(flags, x, y, data, extra);
-    public void keybd_event(byte key, byte scan, uint flags, int extra) => Win32.keybd_event(key, scan, flags, extra);
+    public void mouse_event(int flags, int x, int y, int data, int extra) => Win32.SendMouseEvent((uint)flags, x, y, (uint)data);
+    public void keybd_event(byte key, byte scan, uint flags, int extra) => Win32.SendKeyboardEvent(key, flags);
     public void ReleaseAll() => throw new NotSupportedException("Held inputs belong to GameplayInput.");
 }

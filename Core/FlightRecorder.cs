@@ -120,21 +120,28 @@ public sealed class FlightRecorder : IDisposable
             var frameIndex = new Dictionary<string, object>(StringComparer.Ordinal);
             int frames = 0;
             var rolling = new Queue<(string File, long Timestamp, long Bytes)>();
-            var preserved = new Queue<(string File, long Bytes)>();
-            long preservedBytes = 0;
+            var preserved = new PreservedEvidenceBuffer();
             long rollingBytes = 0;
             long preserveUntil = 0;
+            long failureUntil = 0;
             int successes = 0;
             foreach (var entry in queue.GetConsumingEnumerable())
             {
-                if (entry.Kind.Contains("outcome", StringComparison.Ordinal))
+                if (entry.Kind.Contains("outcome", StringComparison.Ordinal) || entry.Kind == "recovery-context")
                 {
                     bool success = JsonSerializer.Serialize(entry.Data, Json).Contains("ConfirmedSuccess", StringComparison.Ordinal);
                     if (!success || ++successes % 10 == 0)
                     {
+                        bool failure = !success && entry.Kind != "recovery-context";
                         preserveUntil = entry.Timestamp + 5 * Stopwatch.Frequency;
+                        if (failure)
+                        {
+                            failureUntil = preserveUntil;
+                            // Preceding frames may already be in the routine sample pool.
+                            preserved.PromoteSince(entry.Timestamp - 15 * Stopwatch.Frequency);
+                        }
                         while (rolling.TryDequeue(out var buffered))
-                        { preserved.Enqueue((buffered.File, buffered.Bytes)); preservedBytes += buffered.Bytes; rollingBytes -= buffered.Bytes; }
+                        { preserved.Add(buffered.File, buffered.Timestamp, buffered.Bytes, failure); rollingBytes -= buffered.Bytes; }
                     }
                 }
                 using (entry.Frame)
@@ -146,19 +153,19 @@ public sealed class FlightRecorder : IDisposable
                         string path = Path.Combine(directory, filename);
                         Cv2.ImWrite(path, entry.Frame!); frames++;
                         long bytes = new FileInfo(path).Length;
-                        if (entry.Timestamp <= preserveUntil) { preserved.Enqueue((path, bytes)); preservedBytes += bytes; }
+                        if (entry.Timestamp <= preserveUntil) preserved.Add(path, entry.Timestamp, bytes, entry.Timestamp <= failureUntil);
                         else { rolling.Enqueue((path, entry.Timestamp, bytes)); rollingBytes += bytes; }
                         while (rolling.TryPeek(out var old) && (entry.Timestamp - old.Timestamp > 15 * Stopwatch.Frequency || rolling.Count > 165 || rollingBytes > 64L * 1024 * 1024))
                         {
                             rolling.Dequeue(); File.Delete(old.File); rollingBytes -= old.Bytes;
                             frameIndex.Remove(Path.GetFileName(old.File));
                         }
-                        // Active-session evidence also has a hard cap; completed-session retention handles the global budget.
-                        while ((preservedBytes > 128L * 1024 * 1024 || preserved.Count > 5000) && preserved.TryDequeue(out var preservedOld))
-                        {
-                            File.Delete(preservedOld.File); preservedBytes -= preservedOld.Bytes;
-                            frameIndex.Remove(Path.GetFileName(preservedOld.File));
-                        }
+                    }
+                    // Promotion events can fill the pool even if no later frame arrives.
+                    foreach (string preservedOld in preserved.Trim())
+                    {
+                        File.Delete(preservedOld);
+                        frameIndex.Remove(Path.GetFileName(preservedOld));
                     }
                     var row = new { FrameId = entry.Id, entry.Timestamp, entry.Kind, entry.Data, File = filename, entry.DroppedBefore };
                     if (filename != null && File.Exists(Path.Combine(directory, filename))) frameIndex[filename] = row;
