@@ -116,7 +116,7 @@ public sealed class FlightRecorder : IDisposable
         {
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(manifest, Json));
-            using var journal = new BoundedEventJournal(directory);
+            using var journal = new SessionEventJournal(directory);
             var frameIndex = new Dictionary<string, object>(StringComparer.Ordinal);
             int frames = 0;
             var rolling = new Queue<(string File, long Timestamp, long Bytes)>();
@@ -127,9 +127,10 @@ public sealed class FlightRecorder : IDisposable
             int successes = 0;
             foreach (var entry in queue.GetConsumingEnumerable())
             {
-                if (entry.Kind.Contains("outcome", StringComparison.Ordinal) || entry.Kind == "recovery-context")
+                var data = JsonSerializer.SerializeToElement(entry.Data, Json);
+                if (entry.Kind.Contains("outcome", StringComparison.Ordinal) || entry.Kind is "recovery-context" or "death-detected")
                 {
-                    bool success = JsonSerializer.Serialize(entry.Data, Json).Contains("ConfirmedSuccess", StringComparison.Ordinal);
+                    bool success = data.GetRawText().Contains("ConfirmedSuccess", StringComparison.Ordinal);
                     if (!success || ++successes % 10 == 0)
                     {
                         bool failure = !success && entry.Kind != "recovery-context";
@@ -167,20 +168,23 @@ public sealed class FlightRecorder : IDisposable
                         File.Delete(preservedOld);
                         frameIndex.Remove(Path.GetFileName(preservedOld));
                     }
-                    var row = new { FrameId = entry.Id, entry.Timestamp, entry.Kind, entry.Data, File = filename, entry.DroppedBefore };
+                    var row = new { FrameId = entry.Id, entry.Timestamp, entry.Kind, Data = data, File = filename, entry.DroppedBefore };
                     if (filename != null && File.Exists(Path.Combine(directory, filename))) frameIndex[filename] = row;
-                    journal.WriteLine(JsonSerializer.Serialize(row, Json));
+                    journal.WriteLine(entry.Kind, data, JsonSerializer.Serialize(row, Json));
                 }
             }
             _completion.TryRemove(queue, out var completion);
-            var completed = new { Kind = "completed", completion.Outcome, completion.Statistics, DroppedEntries = completion.Dropped, JournalEntriesExpired = journal.ExpiredEntries };
-            journal.WriteLine(JsonSerializer.Serialize(completed, Json));
+            // The final marker itself may rotate a segment. Snapshot expiry counts afterward.
+            var marker = new { Kind = "completed", completion.Outcome, completion.Statistics, DroppedEntries = completion.Dropped };
+            journal.WriteLine("completed", default, JsonSerializer.Serialize(marker, Json));
+            var completed = new { marker.Kind, marker.Outcome, marker.Statistics, marker.DroppedEntries,
+                JournalEntriesExpired = journal.ExpiredEntries, IncidentJournalEntriesExpired = journal.IncidentExpiredEntries };
             journal.Flush();
             journal.Dispose();
             File.WriteAllText(Path.Combine(directory, "frame-index.json"), JsonSerializer.Serialize(frameIndex.Values, Json));
             File.WriteAllText(Path.Combine(directory, "completed.json"), JsonSerializer.Serialize(completed, Json));
             File.WriteAllText(Path.Combine(directory, "summary.txt"), FormattableString.Invariant(
-                $"Session Outcome: {completion.Outcome}\nDuration: {Stopwatch.GetElapsedTime(start, completion.End).TotalSeconds:F2} seconds\nTotal Recorded Frames: {frames}\nDropped Entries: {completion.Dropped}\nJournal Entries Expired: {journal.ExpiredEntries}\nStatistics: {JsonSerializer.Serialize(completion.Statistics, Json)}\n"));
+                $"Session Outcome: {completion.Outcome}\nDuration: {Stopwatch.GetElapsedTime(start, completion.End).TotalSeconds:F2} seconds\nTotal Recorded Frames: {frames}\nDropped Entries: {completion.Dropped}\nJournal Entries Expired: {journal.ExpiredEntries}\nIncident Journal Entries Expired: {journal.IncidentExpiredEntries}\nStatistics: {JsonSerializer.Serialize(completion.Statistics, Json)}\n"));
             EnforceRetentionPolicy();
         }
         catch (Exception ex)

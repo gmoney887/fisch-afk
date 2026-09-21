@@ -8,16 +8,20 @@ public sealed class BoundedEventJournal : IDisposable
 {
     private readonly string _directory;
     private readonly long _segmentBytes;
+    private readonly string _name;
     private readonly long[] _lines = new long[4];
     private StreamWriter _writer;
     private long _bytes;
     public long ExpiredEntries { get; private set; }
-    public BoundedEventJournal(string directory, long segmentBytes = 4L * 1024 * 1024)
+    public BoundedEventJournal(string directory, long segmentBytes = 4L * 1024 * 1024, string name = "events")
     {
-        _directory = directory; _segmentBytes = segmentBytes;
+        if (segmentBytes <= 0) throw new ArgumentOutOfRangeException(nameof(segmentBytes));
+        if (string.IsNullOrEmpty(name) || name.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
+            throw new ArgumentException("Journal name must be a simple file stem", nameof(name));
+        _directory = directory; _segmentBytes = segmentBytes; _name = name;
         _writer = Open();
     }
-    private string PathFor(int index) => Path.Combine(_directory, index == 0 ? "events.jsonl" : $"events.{index}.jsonl");
+    private string PathFor(int index) => Path.Combine(_directory, index == 0 ? $"{_name}.jsonl" : $"{_name}.{index}.jsonl");
     private StreamWriter Open() => new(PathFor(0), false, new UTF8Encoding(false));
     public void WriteLine(string line)
     {

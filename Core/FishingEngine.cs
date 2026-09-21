@@ -80,7 +80,17 @@ public class FishingEngine : IDisposable
 
     public string? LastCastReplicationDir { get; private set; }
     public string? LastAquariumReplicationDir { get; private set; }
-    public bool IsStopQueued { get; set; } = false;
+    private volatile bool _isStopQueued;
+    public bool IsStopQueued { get => _isStopQueued; set => _isStopQueued = value; }
+    public bool TryQueueStopAfterCycle()
+    {
+        lock (_lifecycle)
+        {
+            if (!IsRunning || IsStopQueued) return false;
+            IsStopQueued = true;
+            return true;
+        }
+    }
     public string? LastStopSource { get; private set; }
 
     // Feature 1: Session Analytics & Catch Tracking
@@ -101,7 +111,6 @@ public class FishingEngine : IDisposable
 
     // Feature 6: Autonomous Self-Healing Watchdog
     private long _lastProgressTicks = 0;
-    private int _consecutiveCastFails = 0;
     private readonly object _recoveryLock = new();
     private bool _isRecovering = false;
     private readonly AutomationCoordinator _coordinator = new();
@@ -126,6 +135,7 @@ public class FishingEngine : IDisposable
     public string? PauseReason { get; private set; }
     public int UnknownCatches { get; private set; }
     public ActionOutcome LastAquariumOutcome { get; private set; }
+    public string? LastAquariumEvidence { get; private set; }
     public ActionOutcome LastCrateOutcome { get; private set; }
     public string? LastCrateEvidence { get; private set; }
 
@@ -145,6 +155,7 @@ public class FishingEngine : IDisposable
 
     private void BeginGameplay()
     {
+        _deathContextRecorded = false;
         _coordinator.ThrowIfCancelled();
         _operationCancellation.ThrowIfCancellationRequested();
         _activeWindow = _desktop.FindRobloxWindow();
@@ -272,6 +283,7 @@ public class FishingEngine : IDisposable
     private readonly AfkRecovery _afkRecovery;
     private bool _recoveryResumedReel;
     private bool _recoveryContextRecorded;
+    private bool _deathContextRecorded;
 
     private RecoveryView ObserveRecoveryView()
     {
@@ -288,6 +300,14 @@ public class FishingEngine : IDisposable
             _recoveryContextRecorded = true;
         }
         // Retain central context while waiting, including update/disconnect screens.
+        if (DeathScreenDetector.IsDeathScreen(frame, h))
+        {
+            if (!_deathContextRecorded)
+                _recorder.RecordEvent("death-detected", new { Status = "Waiting for gameplay; fishing location must be restored" });
+            _deathContextRecorded = true;
+            return RecoveryView.Death;
+        }
+        _deathContextRecorded = false;
         if (DisconnectDetector.TryFindReconnect(frame, h, out _)) return RecoveryView.Reconnect;
         if (ContinueScreenDetector.IsContinueScreen(frame, h)) return RecoveryView.Continue;
         if (TryResumeVisibleReel()) { _recoveryResumedReel = true; return RecoveryView.Gameplay; }
@@ -458,7 +478,7 @@ public class FishingEngine : IDisposable
     }
 
     // Feature 5: Personal Aquarium Auto-Claim Rewards (Hourly)
-    private long _lastAquariumClaimTime = 0;
+    private readonly AquariumSchedule _aquariumSchedule;
     private bool _isAquariumClaimPending = false;
     private bool _skipAquariumThisSession;
     private bool _skipCratesThisSession;
@@ -466,14 +486,9 @@ public class FishingEngine : IDisposable
     public void CheckAquariumClaimHeartbeat()
     {
         if (!Config.EnableAutoClaimAquarium || _skipAquariumThisSession) return;
-        long intervalMs = Math.Max(5, Config.AquariumClaimIntervalMinutes) * 60L * 1000L;
-        if (_lastAquariumClaimTime == 0)
-        {
-            _lastAquariumClaimTime = _clock.Timestamp;
-            return;
-        }
-
-        if (GetElapsedMs(_lastAquariumClaimTime) >= intervalMs)
+        DateTime lastCheck = Config.LastAquariumCheckUtc > Config.LastAquariumClaimUtc
+            ? Config.LastAquariumCheckUtc : Config.LastAquariumClaimUtc;
+        if (_aquariumSchedule.IsDue(lastCheck, Config.AquariumClaimIntervalMinutes, DateTime.UtcNow))
         {
             _isAquariumClaimPending = true;
         }
@@ -502,15 +517,9 @@ public class FishingEngine : IDisposable
             message => { SessionLogger.Instance.Log("WORKFLOW", message); progress?.Invoke(message); });
         if (aquarium)
         {
-            var navigation = Target("aquarium-navigation", .0769, .0251, .08);
-            var claim = Target("aquarium-claim", -.184, .5257);
-            var reward = Target("aquarium-reward", 0, .5, .4);
-            var close = Target("aquarium-close", .5602, .1205);
-            return workflow.Run([
-                new("Open aquarium", navigation, claim, Click),
-                new("Claim reward", claim, reward, Click, 5000),
-                new("Close aquarium", close, close, Click, ExpectedPresent: false)
-            ], _operationCancellation);
+            return AquariumWorkflow.Run(_clock, workflowVision,
+                () => _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h), Delay, Click, _operationCancellation,
+                message => { SessionLogger.Instance.Log("AQUARIUM", message); progress?.Invoke(message); });
         }
         var search = workflow.Run([
             new("Open equipment", Target("equipment-button", 0, .9, .25), Target("equipment-search", .0498, .298), Click),
@@ -543,13 +552,16 @@ public class FishingEngine : IDisposable
         if (!_coordinator.IsOwner) return RunQueued(() => ExecuteAquariumClaim(recordReplication), false);
         _isAquariumClaimPending = false;
         LastAquariumOutcome = ActionOutcome.Unknown;
+        LastAquariumEvidence = null;
         var result = RunRewardWorkflow(true);
         _recorder.RecordEvent("aquarium-outcome", result);
         LastAquariumOutcome = result.Outcome;
+        LastAquariumEvidence = result.Evidence;
         SessionLogger.Instance.Log("AQUARIUM", result.Evidence);
         if (result.Outcome != ActionOutcome.ConfirmedSuccess) return false;
-        _lastAquariumClaimTime = _clock.Timestamp;
-        Config.LastAquariumClaimUtc = DateTime.UtcNow;
+        _aquariumSchedule.Checked();
+        Config.LastAquariumCheckUtc = DateTime.UtcNow;
+        if (result.RewardClaimed) Config.LastAquariumClaimUtc = Config.LastAquariumCheckUtc;
         Config.Save();
         return true;
     }
@@ -641,6 +653,7 @@ public class FishingEngine : IDisposable
         _capture = new RecordingFrameSource(frameSource ?? new ScreenCapture(), _recorder, () => new Rect(0, 0, _activeGeometry.Width, _activeGeometry.Height), clock, ValidateGameplay);
         _shakeCapture = new RecordingFrameSource(contextSource ?? new ScreenCapture(), _recorder, () => new Rect(0, 0, _activeGeometry.Width, _activeGeometry.Height), clock, ValidateGameplay);
         _clock = clock ?? new MonotonicClock();
+        _aquariumSchedule = new AquariumSchedule(_clock);
         _heartbeat = new AntiIdleHeartbeat(_clock);
         _afkRecovery = new AfkRecovery(_clock);
         _input = input ?? new GameplayInput(ValidateGameplay, Delay, name => _recorder.RecordEvent("input", new { Action = name }), hardware);
@@ -664,7 +677,6 @@ public class FishingEngine : IDisposable
         _recoveryBudget.ConfirmProgress();
         _skipAquariumThisSession = _skipCratesThisSession = false;
         _isRecovering = false;
-        _consecutiveCastFails = 0;
         _lastProgressTicks = _clock.Timestamp;
         CurrentState = MacroState.Casting;
         _stateStartTime = _clock.Timestamp;
@@ -938,7 +950,7 @@ public class FishingEngine : IDisposable
     /// 4. Closes equipment/backpack ('g') if open.
     /// 5. Inquires OpenCV and forces the rod to equip in hand (keypress + slot click fallback).
     /// 6. Re-aims cursor in open water.
-    /// 7. Resets consecutive fail counters and progress timers.
+    /// 7. Resets progress timers.
     /// 8. Seamlessly transitions state to Casting.
     /// </summary>
     private bool TryResumeVisibleReel()
@@ -959,7 +971,6 @@ public class FishingEngine : IDisposable
         // Resize/focus recovery can leave the cursor on a title bar or outside the
         // client. Re-anchor before resuming button edges for the existing reel.
         EnsureCursorInGameView(_activeWindow, _activeGeometry);
-        _consecutiveCastFails = 0;
         _lastProgressTicks = _clock.Timestamp;
         _lastKnownRodEquipped = true;
         _lastKnownRodStatus = "ROD: REELING";
@@ -976,6 +987,13 @@ public class FishingEngine : IDisposable
         // A missed cast meter can still lead to a bite. Never toggle the rod during that reel.
         // Keep actual reel-stall recovery bounded; a frozen reel must not reset its timeout forever.
         if (CurrentState != MacroState.Reeling && TryResumeVisibleReel()) return;
+
+        // A timed-out cycle is finished too: a queued stop must not start another cast.
+        if (IsStopQueued)
+        {
+            Stop("Queued stop after cycle timeout");
+            return;
+        }
 
         lock (_recoveryLock)
         {
@@ -1043,8 +1061,7 @@ public class FishingEngine : IDisposable
                 Delay(150);
             }
 
-            // 7. Reset progress ticks and failure counters
-            _consecutiveCastFails = 0;
+            // 7. Reset progress ticks
             _lastProgressTicks = _clock.Timestamp;
 
             // 8. Transition cleanly to Casting
@@ -1280,6 +1297,12 @@ public class FishingEngine : IDisposable
 
     private void Transition(MacroState newState, string reason = "")
     {
+        // Also catch requests arriving during post-catch rest or optional reward work.
+        if (newState == MacroState.Casting && IsStopQueued)
+        {
+            Stop(CurrentState == MacroState.PostCatch ? "Queued stop after catch" : "Queued stop before next cast");
+            return;
+        }
         MacroState oldState = CurrentState;
         _recorder.RecordEvent("transition", new { From = oldState.ToString(), To = newState.ToString(), Reason = reason });
         if (newState != MacroState.PostCatch)
@@ -1614,27 +1637,18 @@ public class FishingEngine : IDisposable
                     SetMouseDown(false);
                 }
 
-                // Verify that the cast actually initiated in Roblox
+                // A missed meter is inconclusive: the cast may already be in flight.
+                // Let normal shake/reel detection run until the bounded lure deadline
+                // instead of sending another cast or recovery input immediately.
                 if (Config.EnableDynamicCastRelease && !barEverFound)
                 {
                     if (TryResumeVisibleReel()) continue;
-                    _consecutiveCastFails++;
-                    SessionLogger.Instance.Log("CAST", $"Cast bar was NOT detected during hold! (Consecutive fails: {_consecutiveCastFails})");
-
-                    if (_consecutiveCastFails >= 2)
-                    {
-                        RecoverAndRestart($"Cast bar detection failed {_consecutiveCastFails} times consecutively");
-                        continue;
-                    }
-
-                    EnsureRodEquipped(robloxHwnd, winW, winH, force: true);
-                    EnsureCursorInWater(robloxHwnd, clientRect);
-                    Delay(250);
-                    // Stay in Casting state to retry immediately
+                    SessionLogger.Instance.Log("CAST", "Cast meter not detected; waiting for shake/reel before deciding the cast failed.");
+                    _lastProgressTicks = _clock.Timestamp;
+                    Transition(MacroState.Luring, "Cast released without meter confirmation; waiting for bite");
                     continue;
                 }
 
-                _consecutiveCastFails = 0;
                 _lastProgressTicks = _clock.Timestamp;
 
                 // If bar was found, we are 100% certain the rod is in hand and bobber is in water!

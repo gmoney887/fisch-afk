@@ -4,19 +4,19 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="Fat Dad's Fisch AFK Pro v1.0.0" Height="720" Width="470" MinHeight="500" MinWidth="380"
+        Title="Fat Dad's Fisch AFK Pro v1.0.0" Height="850" Width="490" MinHeight="500" MinWidth="380"
         WindowStartupLocation="CenterScreen" Topmost="True"
-        Icon="app_icon.ico"
-        Background="#0D0F14" Foreground="#E0E0E0"
+        Icon="Assets/angler.ico"
+        Background="#090E17" Foreground="#E7EDF7" UseLayoutRounding="True" SnapsToDevicePixels="True"
         FontFamily="Segoe UI, Inter, Roboto, Arial"
         Closing="Window_Closing">
 
     <Window.Resources>
         <!-- Shared secondary actions: consistent sizing and visible interaction states. -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="#1E293B"/>
+            <Setter Property="Background" Value="#1B2A40"/>
             <Setter Property="Foreground" Value="#E2E8F0"/>
-            <Setter Property="BorderBrush" Value="#39465C"/>
+            <Setter Property="BorderBrush" Value="#30445F"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="10,6"/>
             <Setter Property="MinHeight" Value="30"/>
@@ -50,18 +50,76 @@
                 </Setter.Value>
             </Setter>
         </Style>
+        <!-- Static dashboard controls retain native keyboard and automation behavior. -->
+        <Style TargetType="CheckBox">
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel x:Name="SwitchRoot" Orientation="Horizontal" Background="Transparent">
+                            <Border x:Name="Track" Width="26" Height="15" CornerRadius="7.5" Background="#26364D" BorderBrush="#455975" BorderThickness="1" VerticalAlignment="Center" Margin="0,0,6,0">
+                                <Ellipse x:Name="Thumb" Width="9" Height="9" Fill="#A2B2C9" HorizontalAlignment="Left" Margin="2,0"/>
+                            </Border>
+                            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Track" Property="Background" Value="#087E88"/>
+                                <Setter TargetName="Track" Property="BorderBrush" Value="#5EEAD4"/>
+                                <Setter TargetName="Thumb" Property="HorizontalAlignment" Value="Right"/>
+                                <Setter TargetName="Thumb" Property="Fill" Value="#ECFEFF"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Track" Property="BorderBrush" Value="White"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Track" Property="BorderBrush" Value="#A5F3FC"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="SwitchRoot" Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <Style TargetType="Expander">
-            <Setter Property="Foreground" Value="#CBD5E1"/>
+            <Setter Property="Foreground" Value="#A8BAD3"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <StackPanel>
+                            <ToggleButton IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}"
+                                          Foreground="{TemplateBinding Foreground}" Cursor="Hand" HorizontalContentAlignment="Stretch">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="DisclosureBorder" Background="Transparent" CornerRadius="5" Padding="2,6">
+                                            <DockPanel>
+                                                <Path x:Name="Chevron" Data="M 0,0 L 4,4 L 0,8" Stroke="#6B88AC" StrokeThickness="1.5" Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                <ContentPresenter VerticalAlignment="Center"/>
+                                            </DockPanel>
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsChecked" Value="True"><Setter TargetName="Chevron" Property="Data" Value="M 0,0 L 4,4 L 8,0"/></Trigger>
+                                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="DisclosureBorder" Property="Background" Value="#1B2A40"/></Trigger>
+                                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="DisclosureBorder" Property="Background" Value="#24405A"/></Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                                <ContentPresenter ContentSource="Header"/>
+                            </ToggleButton>
+                            <ContentPresenter x:Name="ExpandedContent" Visibility="Collapsed" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True"><Setter TargetName="ExpandedContent" Property="Visibility" Value="Visible"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
 
         <!-- Modern Card Style -->
         <Style x:Key="CardBorder" TargetType="Border">
-            <Setter Property="Background" Value="#171A23"/>
-            <Setter Property="BorderBrush" Value="#252A38"/>
+            <Setter Property="Background" Value="#111B2B"/>
+            <Setter Property="BorderBrush" Value="#24334A"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="12,10"/>
             <Setter Property="Margin" Value="0,0,0,8"/>
         </Style>
 
@@ -149,7 +207,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="true">
-                                <Setter TargetName="Bd" Property="Background" Value="#1E293B"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#1B2A40"/>
                                 <Setter Property="Foreground" Value="#38BDF8"/>
                             </Trigger>
                             <Trigger Property="IsSelected" Value="true">
@@ -303,31 +361,45 @@
                 </Grid.RowDefinitions>
 
                 <!-- 1. HEADER -->
-                <Border Grid.Row="0" Background="#12151F" BorderBrush="#1F2535" BorderThickness="1" CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                <Border Grid.Row="0" BorderBrush="#25465C" BorderThickness="1" CornerRadius="12" Padding="12,12" Margin="0,0,0,8">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#16374A" Offset="0"/>
+                            <GradientStop Color="#111C30" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
                     <StackPanel>
-                        <!-- Title & Hotkey Row -->
-                        <StackPanel>
-                            <DockPanel VerticalAlignment="Center">
-                                <Border Width="38" Height="38" CornerRadius="19" BorderBrush="#00E5FF" BorderThickness="1.5" Margin="0,0,9,0" Background="#161B26" Cursor="Hand" ToolTip="Click to view mascot artwork" MouseLeftButtonDown="Avatar_MouseLeftButtonDown">
-                                    <Image Source="app_icon.png" Stretch="Uniform" Margin="2" HorizontalAlignment="Center" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
-                                </Border>
-                                <StackPanel VerticalAlignment="Center">
-                                    <WrapPanel VerticalAlignment="Center">
-                                        <TextBlock Text="FAT DAD'S" FontSize="14.5" FontWeight="Black" Foreground="#00E5FF" Margin="0,0,5,0"/>
-                                        <TextBlock Text="FISCH AFK" FontSize="14.5" FontWeight="Black" Foreground="#FFFFFF"/>
-                                        <Border Background="#1E293B" CornerRadius="3" Margin="6,0,0,0" Padding="4,1" VerticalAlignment="Center">
-                                            <TextBlock x:Name="TxtAppVersionBadge" Text="v1.0.0 PRO" FontSize="9" FontWeight="Black" Foreground="#38BDF8"/>
-                                        </Border>
-                                    </WrapPanel>
-                                    <TextBlock Text="Roblox Fisch Kinetic Angler" FontSize="9.5" Foreground="#64748B"/>
+                        <Grid Margin="0,0,0,6" ClipToBounds="True">
+                            <!-- A static low-poly fishing scene adds character without a render loop. -->
+                            <Viewbox Width="140" Height="104" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0.75" IsHitTestVisible="False">
+                                <Canvas Width="220" Height="136">
+                                    <Ellipse Width="40" Height="40" Fill="#BAF5E9" Canvas.Left="157" Canvas.Top="8"/>
+                                    <Path Data="M 20,94 L 73,45 L 107,82 L 146,60 L 210,103 Z" Fill="#21465A"/>
+                                    <Path Data="M 73,45 L 84,81 L 107,82 Z M 146,60 L 157,92 L 210,103 Z" Fill="#356A71"/>
+                                    <Path Data="M 0,104 L 220,104 220,136 0,136 Z" Fill="#12394F"/>
+                                    <Path Data="M 12,116 L 70,116 M 127,123 L 204,123 M 160,110 L 191,110" Stroke="#4595A2" StrokeThickness="2"/>
+                                    <Path Data="M 47,92 L 125,92 125,100 47,100 Z M 55,100 L 55,126 M 114,100 L 114,125" Stroke="#74999A" Fill="#496F7B" StrokeThickness="3"/>
+                                    <Rectangle Width="13" Height="13" Fill="#BDEBCF" Canvas.Left="83" Canvas.Top="59"/>
+                                    <Path Data="M 82,74 L 96,74 101,92 79,92 Z" Fill="#50CDB7"/>
+                                    <Path Data="M 95,79 L 110,73 128,47 M 128,47 Q 155,51 170,101" Stroke="#D5F8E4" StrokeThickness="2"/>
+                                    <Rectangle Width="4" Height="5" Fill="#E6BD74" Canvas.Left="168" Canvas.Top="100"/>
+                                </Canvas>
+                            </Viewbox>
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                                    <Image Source="Assets/angler.png" Width="22" Height="22" Margin="0,0,7,0" Cursor="Hand" MouseLeftButtonDown="Avatar_MouseLeftButtonDown" ToolTip="View mascot"/>
+                                    <TextBlock Text="FAT DAD'S" Foreground="#8DB6CC" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                                 </StackPanel>
-                            </DockPanel>
-
-                            <!-- Hotkey Start/Stop Badge -->
-                            <Border Margin="0,6,0,0" HorizontalAlignment="Left" Background="#1E2433" BorderBrush="#2A3347" BorderThickness="1" CornerRadius="6" Padding="7,4" VerticalAlignment="Center">
-                                <TextBlock x:Name="TxtHeaderHotkey" Text="[F6] START/STOP" FontSize="9.5" FontWeight="Black" Foreground="#00E5FF"/>
-                            </Border>
-                        </StackPanel>
+                                <TextBlock Text="FISCH AFK" FontSize="30" FontWeight="Black" Foreground="#F0FBFF"/>
+                                <TextBlock Text="Your next catch. On autopilot." FontSize="11" Foreground="#A8C8D9" Margin="0,1,0,10"/>
+                                <WrapPanel>
+                                    <Border Background="#143D49" CornerRadius="4" Padding="6,3" Margin="0,0,6,0">
+                                        <TextBlock x:Name="TxtHeaderHotkey" Text="[F6] START/STOP" FontSize="9" FontWeight="Bold" Foreground="#7AE9DB"/>
+                                    </Border>
+                                    <TextBlock x:Name="TxtAppVersionBadge" Text="v1.0.0 PRO" FontSize="9" Foreground="#86A3BD" VerticalAlignment="Center"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Grid>
 
                         <!-- Update Notification Banner (Hidden by default, shown when newer GitHub release detected) -->
                         <Border x:Name="BorderUpdateBanner" Visibility="Collapsed" Background="#0C2E24" BorderBrush="#10B981" BorderThickness="1" CornerRadius="6" Padding="8,4.5" Margin="0,6,0,0" Cursor="Hand" MouseLeftButtonDown="BorderUpdateBanner_MouseLeftButtonDown" ToolTip="Click to open GitHub download page">
@@ -339,8 +411,8 @@
                         </Border>
 
                         <!-- CATEGORIZED ACTION TOOLBARS -->
-                        <Expander Header="Tools &amp; window layout" IsExpanded="False" Margin="0,8,0,0">
-                        <Grid Margin="0,8,0,0">
+                        <StackPanel Margin="0,10,0,0">
+                        <Grid Margin="0,0,0,0">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
@@ -350,19 +422,19 @@
                             <Border Grid.Row="0" Background="#0C0F17" BorderBrush="#1C2333" BorderThickness="1" CornerRadius="6" Padding="6,4" Margin="0,0,0,5">
                                 <DockPanel LastChildFill="True">
                                     <Border Background="#161F30" CornerRadius="3" Padding="4,1" Margin="0,0,6,0" VerticalAlignment="Center" DockPanel.Dock="Left">
-                                        <TextBlock Text="DISPLAY" FontSize="8.5" FontWeight="Black" Foreground="#38BDF8" VerticalAlignment="Center" ToolTip="Display &amp; window layout options only (Safe anytime)"/>
+                                        <TextBlock Text="VIEW" FontSize="8.5" FontWeight="Black" Foreground="#38BDF8" VerticalAlignment="Center" ToolTip="Display &amp; window layout options only (Safe anytime)"/>
                                     </Border>
                                     <WrapPanel VerticalAlignment="Center">
-                                        <Button x:Name="BtnSnapSideBySide" Click="BtnSnapSideBySide_Click" Content="📐 Side-by-Side" Margin="0,0,4,2"
+                                        <Button x:Name="BtnSnapSideBySide" Click="BtnSnapSideBySide_Click" Content="Split screen" Margin="0,0,4,2"
                                                 ToolTip="Display Option: Arrange Roblox on left and Angler on right with zero overlap">
                                         </Button>
 
-                                        <Button x:Name="BtnWindowed" Click="BtnWindowed_Click" Content="🖥 Windowed" Margin="0,0,4,2"
+                                        <Button x:Name="BtnWindowed" Click="BtnWindowed_Click" Content="Windowed" Margin="0,0,4,2"
                                                 ToolTip="Display Option: Roblox expands windowed while Angler floats in top-right corner">
                                         </Button>
 
                                         <Border Background="#131824" BorderBrush="#252C3E" BorderThickness="1" CornerRadius="4" Padding="4,2" Margin="0,0,4,2" VerticalAlignment="Center">
-                                            <CheckBox x:Name="ChkAlwaysOnTop" Content="📌 On Top" IsChecked="True"
+                                            <CheckBox x:Name="ChkAlwaysOnTop" Content="Pin on top" IsChecked="True"
                                                       Checked="ChkAlwaysOnTop_Changed" Unchecked="ChkAlwaysOnTop_Changed"
                                                       Foreground="#CBD5E1" FontSize="9.5" FontWeight="SemiBold" VerticalAlignment="Center" Cursor="Hand"
                                                       ToolTip="Display Option: Keep macro window topmost over other windows"/>
@@ -380,27 +452,27 @@
                                 <DockPanel LastChildFill="True">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" DockPanel.Dock="Left" Margin="0,0,6,0">
                                         <Border Background="#2B1E0C" CornerRadius="3" Padding="4,1" VerticalAlignment="Center">
-                                            <TextBlock Text="TASKS" FontSize="8.5" FontWeight="Black" Foreground="#F59E0B" VerticalAlignment="Center"/>
+                                            <TextBlock Text="LOOT" FontSize="8.5" FontWeight="Black" Foreground="#F59E0B" VerticalAlignment="Center"/>
                                         </Border>
-                                        <TextBlock x:Name="TxtTasksIdleBadge" Text="(Idle Only)" FontSize="8" Foreground="#64748B" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="TxtTasksIdleBadge" Text="Idle" FontSize="8" Foreground="#64748B" Margin="4,0,0,0" VerticalAlignment="Center"/>
                                     </StackPanel>
 
                                     <WrapPanel VerticalAlignment="Center">
-                                        <Button x:Name="BtnClaimAquarium" Click="BtnClaimAquarium_Click" Content="🏆 Aquarium" Margin="0,0,4,0" ToolTip="Requires NOT Fishing: Opens Aquarium, claims hourly profit (C$ + XP), and returns">
+                                        <Button x:Name="BtnClaimAquarium" Click="BtnClaimAquarium_Click" Content="Claim aquarium" Margin="0,0,4,0" ToolTip="Requires NOT Fishing: Opens Aquarium, claims hourly profit (C$ + XP), and returns">
                                         </Button>
 
-                                        <Button x:Name="BtnOpenCrates" Click="BtnOpenCrates_Click" Content="📦 Crates" Margin="0,0,0,0" ToolTip="Requires NOT Fishing: Unequips rod, opens Equipment ('g'), searches 'crate', unpacks all crates, and re-equips rod">
+                                        <Button x:Name="BtnOpenCrates" Click="BtnOpenCrates_Click" Content="Open crates" Margin="0,0,0,0" ToolTip="Requires NOT Fishing: Unequips rod, opens Equipment ('g'), searches 'crate', unpacks all crates, and re-equips rod">
                                         </Button>
                                     </WrapPanel>
                                 </DockPanel>
                             </Border>
                         </Grid>
-                        </Expander>
+                        </StackPanel>
                     </StackPanel>
                 </Border>
 
                 <!-- 2. SESSION ANALYTICS CARD -->
-                <Border Grid.Row="1" Background="#121622" BorderBrush="#1F283D" BorderThickness="1" CornerRadius="8" Padding="9,6" Margin="0,0,0,8">
+                <Border Grid.Row="2" Background="#101B2B" BorderBrush="#1F283D" BorderThickness="1" CornerRadius="8" Padding="9,6" Margin="0,0,0,8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -408,17 +480,16 @@
                         </Grid.RowDefinitions>
 
                         <!-- Header with Reset Button -->
-                        <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                        <DockPanel Grid.Row="0" Margin="0,0,0,8" LastChildFill="True">
+                            <Button x:Name="BtnResetStats" Click="BtnResetStats_Click" Content="↺ Reset" DockPanel.Dock="Right" MinHeight="26" Padding="8,3" Margin="10,0,0,0" VerticalAlignment="Center" ToolTip="Reset session counters without stopping fishing"/>
                             <WrapPanel VerticalAlignment="Center">
-                                <TextBlock Text="📊 SESSION ANALYTICS" FontSize="9" FontWeight="Black" Foreground="#64748B"/>
+                                <TextBlock Text="THIS SESSION" FontSize="9" FontWeight="Black" Foreground="#64748B"/>
                                 <TextBlock x:Name="TxtStreakBadge" Text="🔥 Streak: 0" FontSize="9" FontWeight="Bold" Foreground="#10B981" Margin="8,0,0,0" VerticalAlignment="Center"/>
-                                <Border x:Name="BadgeWatchdog" Background="#0C1929" BorderBrush="#0284C7" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="Autonomous Self-Healing Watchdog: detects stalls, clears stuck states, and retries while fishing remains requested">
-                                    <TextBlock x:Name="TxtWatchdogBadge" Text="🛡️ Heals: 0" FontSize="9" FontWeight="Bold" Foreground="#38BDF8"/>
+                                <Border x:Name="BadgeWatchdog" Background="#0C1929" BorderBrush="#0284C7" BorderThickness="1" CornerRadius="3" Padding="4,1" Margin="8,0,0,0" VerticalAlignment="Center" ToolTip="Recovery attempts started after a timeout or stall; includes interrupted attempts. Missed cast meters alone do not trigger a retry.">
+                                    <TextBlock x:Name="TxtWatchdogBadge" Text="🛡️ Retries: 0" FontSize="9" FontWeight="Bold" Foreground="#38BDF8"/>
                                 </Border>
                             </WrapPanel>
-                            <Button x:Name="BtnResetStats" Click="BtnResetStats_Click" Content="↺ Reset" DockPanel.Dock="Right" ToolTip="Applies While Fishing: Reset session catch and uptime counters without stopping">
-                            </Button>
-                        </WrapPanel>
+                        </DockPanel>
 
                         <!-- 4 Stat Badges Grid -->
                         <Grid Grid.Row="1">
@@ -430,34 +501,34 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- Stat 1: Total Catches -->
-                            <Border Grid.Column="0" Background="#0C101A" BorderBrush="#1A2333" BorderThickness="1" CornerRadius="5" Padding="4,4" Margin="0,0,4,0">
+                            <Border Grid.Column="0" Background="#142337" BorderBrush="#253C56" BorderThickness="1" CornerRadius="8" Padding="4,8" Margin="0,0,4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="CATCHES" FontSize="8" FontWeight="Black" Foreground="#64748B" HorizontalAlignment="Center"/>
-                                    <TextBlock x:Name="TxtTotalCatches" Text="0" FontSize="15" FontWeight="Black" Foreground="#00E5FF" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="CATCHES" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtTotalCatches" Text="0" FontSize="21" FontWeight="Bold" Foreground="#00E5FF" HorizontalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Stat 2: Catches Per Hour -->
-                            <Border Grid.Column="1" Background="#0C101A" BorderBrush="#1A2333" BorderThickness="1" CornerRadius="5" Padding="4,4" Margin="0,0,4,0">
+                            <Border Grid.Column="1" Background="#142337" BorderBrush="#253C56" BorderThickness="1" CornerRadius="8" Padding="4,8" Margin="0,0,4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="RATE (CPH)" FontSize="8" FontWeight="Black" Foreground="#64748B" HorizontalAlignment="Center"/>
-                                    <TextBlock x:Name="TxtCatchRate" Text="0.0/hr" FontSize="15" FontWeight="Black" Foreground="#38BDF8" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="CATCHES / HR" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtCatchRate" Text="0.0/hr" FontSize="21" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Stat 3: Win Rate -->
-                            <Border Grid.Column="2" Background="#0C101A" BorderBrush="#1A2333" BorderThickness="1" CornerRadius="5" Padding="4,4" Margin="0,0,4,0">
+                            <Border Grid.Column="2" Background="#142337" BorderBrush="#253C56" BorderThickness="1" CornerRadius="8" Padding="4,8" Margin="0,0,4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="WIN RATE" FontSize="8" FontWeight="Black" Foreground="#64748B" HorizontalAlignment="Center"/>
-                                    <TextBlock x:Name="TxtWinRate" Text="100%" FontSize="15" FontWeight="Black" Foreground="#10B981" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="WIN RATE" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtWinRate" Text="100%" FontSize="21" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
 
                             <!-- Stat 4: Session Uptime -->
-                            <Border Grid.Column="3" Background="#0C101A" BorderBrush="#1A2333" BorderThickness="1" CornerRadius="5" Padding="4,4">
+                            <Border Grid.Column="3" Background="#142337" BorderBrush="#253C56" BorderThickness="1" CornerRadius="8" Padding="4,8">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="UPTIME" FontSize="8" FontWeight="Black" Foreground="#64748B" HorizontalAlignment="Center"/>
-                                    <TextBlock x:Name="TxtSessionUptime" Text="00:00:00" FontSize="12" FontWeight="Bold" Foreground="#F59E0B" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                                    <TextBlock Text="TIME FISHING" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtSessionUptime" Text="00:00:00" FontSize="16" FontWeight="Bold" Foreground="#F59E0B" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Border>
                         </Grid>
@@ -465,7 +536,7 @@
                 </Border>
 
                 <!-- 3. STATUS & CONTROLS CARD -->
-                <Border Grid.Row="2" Style="{StaticResource CardBorder}">
+                <Border Grid.Row="1" Style="{StaticResource CardBorder}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
@@ -481,12 +552,12 @@
 
                             <!-- Big Start/Stop Fishing Button (Automatically equips rod upon start) -->
                             <Button Grid.Row="0" x:Name="BtnToggle" Click="BtnToggle_Click" Cursor="Hand"
-                                    ToolTip="Starts or stops automated fishing loop. Automatically ensures fishing rod is equipped and active in hand. [F6]">
+                                    ToolTip="First stop press finishes the current fishing cycle. Press again to stop immediately; End is the emergency stop.">
                                 <Button.Template>
                                     <ControlTemplate TargetType="Button">
-                                        <Border x:Name="btnBorder" Background="#10B981" CornerRadius="6" Padding="6,8">
+                                        <Border x:Name="btnBorder" Background="#10B981" CornerRadius="8" Padding="8,12">
                                             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-                                                <TextBlock x:Name="txtBtnState" Text="START FISHING" FontSize="12.5" FontWeight="Black" Foreground="#FFFFFF" HorizontalAlignment="Center" TextAlignment="Center"/>
+                                                <TextBlock x:Name="txtBtnState" Text="START FISHING" FontSize="14" FontWeight="Black" Foreground="#FFFFFF" HorizontalAlignment="Center" TextAlignment="Center"/>
                                                 <TextBlock x:Name="txtBtnSub" Text="Press F6" FontSize="9.5" FontWeight="SemiBold" Foreground="#D1FAE5" HorizontalAlignment="Center" Margin="0,2,0,0"/>
                                             </StackPanel>
                                         </Border>
@@ -532,11 +603,12 @@
 
                             <!-- Action Text -->
                             <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,0,6">
-                                <TextBlock Text="ACTION" Style="{StaticResource MetricLabel}"/>
+                                <TextBlock Text="RIGHT NOW" Style="{StaticResource MetricLabel}"/>
                                 <TextBlock x:Name="TxtAction" Text="Idle" Style="{StaticResource MetricValue}" FontSize="11" Foreground="#00E5FF" TextTrimming="CharacterEllipsis"/>
                             </StackPanel>
 
-                            <Expander Grid.Row="1" Grid.ColumnSpan="2" Header="Tracking details" IsExpanded="False">
+                            <StackPanel Grid.Row="1" Grid.ColumnSpan="2" Margin="0,6,0,0">
+                                <TextBlock Text="CATCH TRACKING" Style="{StaticResource MetricLabel}" Foreground="#7AE9DB"/>
                                 <Grid Margin="0,8,0,0">
                                     <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -557,7 +629,7 @@
                                 <TextBlock x:Name="TxtLatency" Text="Vision: -- | Loop: --" Style="{StaticResource MetricValue}" FontSize="10" Foreground="#94A3B8" HorizontalAlignment="Center"/>
                             </Border>
                                 </Grid>
-                            </Expander>
+                            </StackPanel>
                         </Grid>
                     </Grid>
                 </Border>
@@ -658,41 +730,39 @@
 
                         <StackPanel Grid.Row="0" Margin="0,0,0,6">
                             <WrapPanel Margin="0,0,0,8">
-                                <TextBlock Text="Recording &amp; preview" FontSize="12" FontWeight="SemiBold" Foreground="#E2E8F0" VerticalAlignment="Center"/>
-                                <Border x:Name="MonitorRodBadge" Background="#111622" CornerRadius="3" Padding="4,1" Margin="8,0,0,0" VerticalAlignment="Center">
-                                    <TextBlock x:Name="TxtMonitorRod" Text="ROD: STANDBY" FontSize="10" Foreground="#94A3B8"/>
-                                </Border>
+                                <TextBlock Text="GAME VIEW" FontSize="11" FontWeight="SemiBold" Foreground="#E2E8F0" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="TxtRecordingIndicator" Text="● REC" FontSize="10" Foreground="#EF4444" Margin="8,0,0,0" Visibility="Collapsed" VerticalAlignment="Center"/>
                             </WrapPanel>
                             <WrapPanel>
-                                <Button x:Name="BtnObserve" Content="Observe" Click="Observe_Click" Margin="0,0,8,6" ToolTip="Record your manual gameplay without automated inputs. End stops recording."/>
-                                <CheckBox x:Name="ChkEnableRecording" Content="Record sessions" IsChecked="True" Foreground="#CBD5E1" FontSize="11" Margin="0,0,8,6" VerticalAlignment="Center"/>
-                                <CheckBox x:Name="ChkShowPreview" Content="Preview" IsChecked="True" Foreground="#CBD5E1" FontSize="11" Margin="0,0,0,6" VerticalAlignment="Center"/>
+                                <Button x:Name="BtnObserve" Content="Record my play" Click="Observe_Click" Margin="0,0,8,6" ToolTip="Record your manual gameplay without automated inputs. End stops recording."/>
+                                <CheckBox x:Name="ChkEnableRecording" Content="Save clips" IsChecked="True" Foreground="#CBD5E1" FontSize="11" Margin="0,0,8,6" VerticalAlignment="Center"/>
+                                <CheckBox x:Name="ChkShowPreview" Content="Live camera" Click="ChkShowPreview_Click" ToolTip="Enable live vision while fishing or observing. Turns off AFK Performance." IsChecked="True" Foreground="#CBD5E1" FontSize="11" Margin="0,0,0,6" VerticalAlignment="Center"/>
                             </WrapPanel>
+<WrapPanel Margin="0,0,0,6"><Button x:Name="BtnOpenRecordings" Click="BtnOpenRecordings_Click" Content="My clips" Margin="0,0,4,2" ToolTip="Display Option: Open recorded fish catch clips folder in Explorer">
+                                        </Button>
+<Button x:Name="BtnSubmitRecording" Click="BtnSubmitRecording_Click" Content="Share diagnostics" Margin="0,0,0,2" ToolTip="Diagnostic Option: Submit or export recording bundle with telemetry &amp; logs to review and correct issues">
+                                        </Button></WrapPanel>
                             <Expander Header="Recording options" IsExpanded="False">
                                 <StackPanel Margin="0,8,0,0">
-                                    <TextBlock Text="Observe records manual play. Press End to stop." TextWrapping="Wrap" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,8"/>
+                                    <TextBlock Text="Record my play captures manual gameplay. Press End to stop." TextWrapping="Wrap" Foreground="#94A3B8" FontSize="11" Margin="0,0,0,8"/>
                                     <WrapPanel>
                                         <StackPanel Orientation="Horizontal" Margin="0,0,8,6">
                                             <TextBlock Text="Keep sessions:" Foreground="#CBD5E1" VerticalAlignment="Center" Margin="0,0,6,0"/>
                                             <TextBox x:Name="TxtMaxRecordings" Text="25" Width="44" Height="30" TextAlignment="Center" ToolTip="Maximum number of saved recording sessions"/>
                                         </StackPanel>
-<Button x:Name="BtnOpenRecordings" Click="BtnOpenRecordings_Click" Content="📁 Clips" Margin="0,0,4,2" ToolTip="Display Option: Open recorded fish catch clips folder in Explorer">
-                                        </Button>
-<Button x:Name="BtnSubmitRecording" Click="BtnSubmitRecording_Click" Content="📤 Submit" Margin="0,0,0,2" ToolTip="Diagnostic Option: Submit or export recording bundle with telemetry &amp; logs to review and correct issues">
-                                        </Button>
+
                                     </WrapPanel>
                                 </StackPanel>
                             </Expander>
                         </StackPanel>
 
-                        <!-- Vision Image Container: Clean 125px height with crisp scaling -->
-                        <Expander Grid.Row="1" Header="Live preview" IsExpanded="False" Margin="0,4,0,0">
-                        <Border Background="#0A0C10" CornerRadius="6" BorderBrush="#1C202C" BorderThickness="1" Height="125" ClipToBounds="True">
+                        <!-- Camera stays visible; frame generation remains throttled in the engine. -->
+                        <Expander x:Name="ExpanderPreview" Grid.Row="1" Header="Camera feed" IsExpanded="True" Margin="0,4,0,0">
+                        <Border Background="#0A0C10" CornerRadius="6" BorderBrush="#1C202C" BorderThickness="1" Height="170" ClipToBounds="True">
                             <Grid>
                                 <Image x:Name="ImgPreview" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <TextBlock x:Name="TxtPreviewPlaceholder" Text="Camera preview starts when fishing begins"
-                                           Foreground="#4B5563" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="10"/>
+                                <TextBlock x:Name="TxtPreviewPlaceholder" Text="Waiting for frames — start fishing or select Record my play."
+                                           Foreground="#94A3B8" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" Margin="10"/>
 
                                 <!-- Real-Time Action Overlay HUD -->
                                 <Border x:Name="PnlActionOverlay" VerticalAlignment="Bottom" Background="#DD0D0F14" CornerRadius="0,0,6,6" Padding="8,4" Visibility="Collapsed">
@@ -719,7 +789,7 @@
                 </Border>
 
                 <!-- 5. SETTINGS & FOOTER -->
-                <Border Grid.Row="5" Background="#171A23" BorderBrush="#252A38" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <Border Grid.Row="5" Background="#111B2B" BorderBrush="#24334A" BorderThickness="1" CornerRadius="8" Padding="10,8">
                     <StackPanel>
                     <CheckBox x:Name="ChkAfkPerformance" Content="AFK Performance" Margin="0,0,0,8"
                               Foreground="#A7F3D0" FontWeight="SemiBold" FontSize="11"
@@ -728,7 +798,7 @@
                     <Expander x:Name="ExpanderSettings" Background="Transparent" BorderThickness="0" IsExpanded="False"
                               Expanded="ExpanderSettings_Expanded" Collapsed="ExpanderSettings_Collapsed">
                         <Expander.Header>
-                            <TextBlock Text="Fishing settings" FontSize="11" FontWeight="Bold" Foreground="#9CA3AF" VerticalAlignment="Center"/>
+                            <TextBlock Text="My fishing setup" FontSize="11" FontWeight="Bold" Foreground="#9CA3AF" VerticalAlignment="Center"/>
                         </Expander.Header>
                         <Grid Margin="0,8,0,0">
                             <Grid.RowDefinitions>
@@ -957,7 +1027,7 @@
                     </StackPanel>
 
                     <TextBlock x:Name="TxtSplashVersion" Text="AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH • v1.0.0" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center" Margin="0,0,0,4"/>
-                    <TextBlock Text="Adaptive multi-rod kinetic model &amp; high-frequency vision" FontSize="11" Foreground="#64748B" HorizontalAlignment="Center" Margin="0,0,0,14"/>
+                    <TextBlock Text="Adaptive multi-rod kinetic model &amp; high-frequency vision" FontSize="11" Foreground="#91A8C4" HorizontalAlignment="Center" Margin="0,0,0,14"/>
 
                     <!-- Status & Dismiss hint -->
                     <Border Background="#121722" CornerRadius="10" Padding="14,8" BorderBrush="#1A2230" BorderThickness="1">

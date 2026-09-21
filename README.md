@@ -8,13 +8,13 @@ Download the Windows x64 ZIP from [GitHub Releases](https://github.com/gmoney887
 
 1. On Windows 10/11 x64, extract the entire ZIP into a new folder.
 2. Run `FischMacroCS.exe`. The portable package includes the .NET runtime; no SDK installation is needed.
-3. Open Fisch in Roblox, move to a fishing spot, and put the rod in slot **1**, or select its slot in Fishing settings.
-4. Keep **AFK Performance** and **Record sessions** enabled for the first trial. Choose the appropriate rod profile if desired.
+3. Open Fisch in Roblox, move to a fishing spot, and put the rod in slot **1**, or select its slot in **My fishing setup**.
+4. Keep **AFK Performance** and **Save clips** enabled for the first trial. Enable **Live camera** to watch the preview instead; this turns off AFK Performance.
 5. Click **Check readiness**, then **Start Fishing**. Keep Roblox visible and watch the first few catches.
 
 Controls:
 
-- **F6 / Start–Stop button:** toggle fishing. During a reel, the first stop queues completion of the catch; another stop forces it.
+- **F6 / Start–Stop button:** start fishing, or queue a stop after the current cast/bite/reel cycle. Press again to stop immediately. A timed-out cycle stops without recasting.
 - **End:** emergency stop.
 - **F7:** re-equip the selected rod.
 
@@ -32,9 +32,11 @@ Each PC keeps its own settings and local recordings under `%LOCALAPPDATA%\FischA
 
 Recent live trials reported 129 confirmed catches, one Unknown and no failures across about 32 minutes. These are application counters, with selected transitions independently inspected; the Unknown still needs review. This is not a completed two-hour soak or a guarantee of unattended operation on another PC.
 
-End-to-end reconnect, idle-only heartbeat acceptance, physical hotkeys and broader PC/display configurations still need live validation. Position holding/return after drift or respawn is not implemented. Aquarium claiming and crate opening lack reviewed visual templates; leave those optional actions off for the baseline trial.
+End-to-end reconnect, idle-only heartbeat acceptance, physical hotkeys and broader PC/display configurations still need live validation. Position holding/return after drift or respawn is not implemented. Aquarium claiming includes reviewed visual templates and replay tests, but its updated workflow still needs live acceptance. Crate opening lacks reviewed visual templates; leave optional actions off for the baseline trial.
 
 ## Development
+
+Continuing development in a new session? Read the [AFK handoff and prioritized remaining work](docs/AFK-HANDOFF.md) first. It distinguishes the published preview, local changes, verified test snapshots and unfinished live acceptance.
 
 Requires the .NET 10 SDK on Windows:
 

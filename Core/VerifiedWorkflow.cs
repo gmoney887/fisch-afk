@@ -2,10 +2,11 @@ using OpenCvSharp;
 
 namespace FischMacroCS.Core;
 
-public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights);
+public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
+    int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
-public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence);
+public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false);
 
 public interface IWorkflowVision
 {
@@ -17,7 +18,7 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
 {
     private readonly string _directory;
     private readonly Dictionary<string, Mat> _templates = new();
-    private readonly Dictionary<string, Mat> _scaled = new();
+    private readonly Dictionary<(string Name, int ReferenceHeight, bool Smooth), Mat> _scaled = new();
     private int _height;
     public TemplateWorkflowVision(string directory) => _directory = directory;
     public string[] MissingTemplates(IEnumerable<string> names) => names.Distinct()
@@ -35,13 +36,15 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             foreach (var cached in _scaled.Values) cached.Dispose();
             _scaled.Clear(); _height = frame.Height;
         }
-        // Templates are labeled at reference height 1080 and resized to physical viewport height.
-        if (!_scaled.TryGetValue(target.Name, out var scaled))
+        // Preserve the reviewed capture's reference height to avoid resampling small UI text twice.
+        var scaleKey = (target.Name, target.ReferenceHeight, target.Smooth);
+        if (!_scaled.TryGetValue(scaleKey, out var scaled))
         {
             scaled = new Mat();
-            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)(template.Width * frame.Height / 1080.0)),
-                Math.Max(1, (int)(template.Height * frame.Height / 1080.0))));
-            _scaled[target.Name] = scaled;
+            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * frame.Height / (double)target.ReferenceHeight)),
+                Math.Max(1, (int)Math.Round(template.Height * frame.Height / (double)target.ReferenceHeight))));
+            if (target.Smooth) Cv2.GaussianBlur(scaled, scaled, new Size(3, 3), 0);
+            _scaled[scaleKey] = scaled;
         }
         int radius = (int)Math.Ceiling(target.RadiusInHeights * frame.Height);
         int x = frame.Width / 2 + (int)(target.XFromCenterInHeights * frame.Height);
@@ -52,11 +55,13 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         if (search.Width < scaled.Width || search.Height < scaled.Height || Cv2.Mean(scaled).Val0 == 0)
             return (false, default, 0);
         using var roi = new Mat(frame, search);
+        using var smoothed = new Mat();
+        if (target.Smooth) Cv2.GaussianBlur(roi, smoothed, new Size(3, 3), 0);
         using var score = new Mat();
-        Cv2.MatchTemplate(roi, scaled, score, TemplateMatchModes.SqDiffNormed);
+        Cv2.MatchTemplate(target.Smooth ? smoothed : roi, scaled, score, TemplateMatchModes.SqDiffNormed);
         Cv2.MinMaxLoc(score, out double minimum, out _, out Point location, out _);
         double confidence = 1 - minimum;
-        return (confidence >= 0.96, new Point(search.X + location.X + scaled.Width / 2,
+        return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
     }
     public void Dispose()

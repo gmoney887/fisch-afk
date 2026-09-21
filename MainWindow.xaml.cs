@@ -183,7 +183,7 @@ public partial class MainWindow : Window
         TxtWinRate.Text = $"{_engine.WinRate:F0}%";
         TxtSessionUptime.Text = TimeSpan.FromSeconds(_engine.SessionUptimeSeconds).ToString(@"hh\:mm\:ss");
         TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
-        TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
+        TxtWatchdogBadge.Text = $"🛡️ Retries: {_engine.WatchdogRecoveryCount}";
 
         ChkAlwaysOnTop.IsChecked = _settings.AlwaysOnTop;
         this.Topmost = _settings.KeepOnTop;
@@ -252,16 +252,15 @@ public partial class MainWindow : Window
 
         if (_engine.IsRunning)
         {
-            // Graceful Queued Stop: If reeling and not already queued, wait until catch finishes
-            if (_engine.CurrentState == MacroState.Reeling && !_engine.IsStopQueued)
+            // First press completes the current cast/bite/reel cycle; a second forces Stop.
+            if (_engine.TryQueueStopAfterCycle())
             {
-                _engine.IsStopQueued = true;
                 if (BtnToggle.Template.FindName("btnBorder", BtnToggle) is Border border)
                     border.Background = CachedBrush(Color.FromRgb(245, 158, 11)); // Amber
                 if (BtnToggle.Template.FindName("txtBtnState", BtnToggle) is TextBlock txt)
                     txt.Text = "QUEUED STOP";
                 if (BtnToggle.Template.FindName("txtBtnSub", BtnToggle) is TextBlock subTxt)
-                    subTxt.Text = "Stopping after catch (F6 force)";
+                    subTxt.Text = $"Finishing cycle ({_settings.ToggleHotkey.ToUpperInvariant()} forces stop)";
                 return;
             }
 
@@ -363,13 +362,6 @@ public partial class MainWindow : Window
                     BadgeRodState.Background = CachedBrush(Color.FromRgb(17, 22, 34));
                     BadgeRodState.BorderBrush = CachedBrush(Color.FromRgb(28, 38, 56));
                 }
-                if (TxtMonitorRod != null && MonitorRodBadge != null)
-                {
-                    TxtMonitorRod.Text = "ROD: STANDBY";
-                    TxtMonitorRod.Foreground = CachedBrush(Color.FromRgb(100, 116, 139));
-                    MonitorRodBadge.Background = CachedBrush(Color.FromRgb(17, 22, 34));
-                    MonitorRodBadge.BorderBrush = CachedBrush(Color.FromRgb(28, 38, 56));
-                }
             }
         });
     }
@@ -423,19 +415,42 @@ public partial class MainWindow : Window
     private void ApplyAfkDisplay()
     {
         Topmost = _settings.KeepOnTop;
-        ChkShowPreview.IsEnabled = ChkJitter.IsEnabled = ChkAlwaysOnTop.IsEnabled = !_settings.AfkPerformanceMode;
-        if (_settings.AfkPerformanceMode)
+        ChkJitter.IsEnabled = ChkAlwaysOnTop.IsEnabled = !_settings.AfkPerformanceMode;
+        ChkShowPreview.IsChecked = _settings.PreviewEnabled;
+        if (!_settings.PreviewEnabled)
         {
             ImgPreview.Source = null;
-            TxtPreviewPlaceholder.Text = "AFK Performance: preview off";
+            PnlActionOverlay.Visibility = Visibility.Collapsed;
+            TxtPreviewPlaceholder.Text = _settings.AfkPerformanceMode
+                ? "AFK Performance is on. Enable Live camera to watch."
+                : "Live camera is off. Enable it above to watch.";
             TxtPreviewPlaceholder.Visibility = Visibility.Visible;
         }
-        else TxtPreviewPlaceholder.Text = "Camera preview starts when fishing begins";
+        else
+        {
+            TxtPreviewPlaceholder.Text = "Waiting for frames — start fishing or select Record my play.";
+            TxtPreviewPlaceholder.Visibility = ImgPreview.Source == null ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
+
+    private void ChkShowPreview_Click(object sender, RoutedEventArgs e)
+    {
+        if (_settings == null || _engine == null) return;
+        _settings.ShowVisionPreview = ChkShowPreview.IsChecked == true;
+        if (_settings.ShowVisionPreview)
+        {
+            _settings.AfkPerformanceMode = false;
+            ChkAfkPerformance.IsChecked = false;
+            ExpanderPreview.IsExpanded = true;
+        }
+        ApplyAfkDisplay();
+        _settings.Save();
+    }
+
     private void Engine_OnTelemetry(TelemetryData t)
     {
         // Drop intermediate frame immediately if UI dispatcher is already processing a frame
-        if (!_telemetryGate.TryEnter(t.State, out bool ownsPending))
+        if (!_telemetryGate.TryEnter(t.State, out bool ownsPending, hasPreviewFrame: t.AnnotatedFrame != null))
         {
             t.Dispose();
             return;
@@ -467,14 +482,6 @@ public partial class MainWindow : Window
                 BadgeRodState.Background = isRodEquipped ? CachedBrush(Color.FromRgb(12, 46, 36)) : CachedBrush(Color.FromRgb(69, 26, 26));
                 BadgeRodState.BorderBrush = isRodEquipped ? CachedBrush(Color.FromRgb(16, 185, 129)) : CachedBrush(Color.FromRgb(239, 68, 68));
 
-                if (TxtMonitorRod != null && MonitorRodBadge != null)
-                {
-                    TxtMonitorRod.Text = isRodEquipped ? "ROD: EQUIPPED" : "ROD: UNEQUIPPED";
-                    TxtMonitorRod.Foreground = isRodEquipped ? CachedBrush(Color.FromRgb(52, 211, 153)) : CachedBrush(Color.FromRgb(248, 113, 113));
-                    MonitorRodBadge.Background = isRodEquipped ? CachedBrush(Color.FromRgb(22, 43, 32)) : CachedBrush(Color.FromRgb(55, 20, 20));
-                    MonitorRodBadge.BorderBrush = isRodEquipped ? CachedBrush(Color.FromRgb(16, 185, 129)) : CachedBrush(Color.FromRgb(239, 68, 68));
-                }
-
                 // Update Action
                 TxtAction.Text = string.IsNullOrEmpty(t.Action) ? "Tracking..." : t.Action;
 
@@ -500,7 +507,7 @@ public partial class MainWindow : Window
                 TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
                 if (TxtWatchdogBadge != null)
                 {
-                    TxtWatchdogBadge.Text = $"🛡️ Heals: {_engine.WatchdogRecoveryCount}";
+                    TxtWatchdogBadge.Text = $"🛡️ Retries: {_engine.WatchdogRecoveryCount}";
                     if (_engine.WatchdogRecoveryCount > 0 && BadgeWatchdog != null)
                     {
                         BadgeWatchdog.Background = CachedBrush(Color.FromRgb(12, 46, 36));
@@ -552,6 +559,7 @@ public partial class MainWindow : Window
                 }
 
                 // Update Live Camera Preview with ZERO heap allocation (reusing single D3D WriteableBitmap backbuffer)
+                if (!_settings.PreviewEnabled) PnlActionOverlay.Visibility = Visibility.Collapsed;
                 if (_settings.PreviewEnabled && t.AnnotatedFrame != null && !t.AnnotatedFrame.Empty())
                 {
                     RenderPreviewFrame(t.AnnotatedFrame);
@@ -886,7 +894,7 @@ public partial class MainWindow : Window
         TxtStreakBadge.Text = "🔥 Streak: 0";
         if (TxtWatchdogBadge != null)
         {
-            TxtWatchdogBadge.Text = "🛡️ Heals: 0";
+            TxtWatchdogBadge.Text = "🛡️ Retries: 0";
             if (BadgeWatchdog != null)
             {
                 BadgeWatchdog.Background = CachedBrush(Color.FromRgb(12, 25, 41));
@@ -985,14 +993,14 @@ public partial class MainWindow : Window
 
         if (!success)
         {
-            MessageBox.Show("Aquarium reward was not confirmed. Review the recording; no claim was counted.", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(_engine.LastAquariumEvidence ?? _engine.PauseReason ?? "Aquarium reward was not confirmed. Review the recording; no claim was counted.", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         else
         {
             string recMsg = !string.IsNullOrEmpty(_engine.LastAquariumReplicationDir)
                 ? $"\n\nDiagnostic snapshots saved to:\n{_engine.LastAquariumReplicationDir}"
                 : "";
-            MessageBox.Show($"Aquarium reward and modal closure confirmed.{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"{_engine.LastAquariumEvidence}{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -1250,8 +1258,9 @@ public partial class MainWindow : Window
             if (_previewBitmap == null || _previewBitmap.PixelWidth != fw || _previewBitmap.PixelHeight != fh)
             {
                 _previewBitmap = new WriteableBitmap(fw, fh, 96, 96, PixelFormats.Bgr24, null);
-                ImgPreview.Source = _previewBitmap;
             }
+            // AFK/preview toggles detach the source while retaining the reusable bitmap.
+            if (!ReferenceEquals(ImgPreview.Source, _previewBitmap)) ImgPreview.Source = _previewBitmap;
 
             if (TxtPreviewPlaceholder.Visibility != Visibility.Collapsed)
             {

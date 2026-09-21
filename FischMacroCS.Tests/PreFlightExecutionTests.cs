@@ -7,6 +7,26 @@ namespace FischMacroCS.Tests;
 
 public class PreFlightExecutionTests
 {
+    [Fact]
+    public async Task DeathScreenExplainsWhyReadinessFailedWithoutSendingInput()
+    {
+        var desktop = new Desktop { Width = 2254, Height = 1353 }; var input = new Input();
+        using var death = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "death_wasted.png"));
+        Assert.False(death.Empty());
+        using var full = new Mat(desktop.Height, desktop.Width, MatType.CV_8UC3, Scalar.Black);
+        using (var target = new Mat(full, new Rect(708, 406, death.Width, death.Height))) death.CopyTo(target);
+        using var frames = new Frames(() => full.Clone());
+        using var diagnostic = new PreFlightDiagnostic(new Settings(), capture: frames, desktop: desktop, hardware: input);
+        var report = await diagnostic.RunDiagnosticAsync();
+        using var snapshot = report.AnnotatedSnapshot;
+        Assert.True(report.DeathDetected);
+        Assert.False(report.OverallPass);
+        Assert.False(report.ReconnectAvailable);
+        Assert.False(report.ContinueAvailable);
+        Assert.Contains("Character died", report.Summary);
+        Assert.Empty(input.Edges);
+    }
+
     private sealed class Desktop : GameDesktop
     {
         public IntPtr Window = (IntPtr)77;

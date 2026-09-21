@@ -39,6 +39,7 @@ public class ContinueScreenDetectorTests
     [Theory]
     [InlineData("disconnect_idle_278.png")]
     [InlineData("server_update_wait.png")]
+    [InlineData("death_wasted.png")]
     [InlineData("reel_catch_live.png")]
     [InlineData("companion_bonus_only.png")]
     public void OtherScreensDoNotRequestContinue(string name)

@@ -10,15 +10,17 @@
     <AssemblyTitle>Fat Dad's Fisch AFK Pro</AssemblyTitle>
     <Product>Fat Dad's Fisch AFK Pro</Product>
     <Description>High-frequency computer vision auto-angler for Roblox Fisch</Description>
-    <ApplicationIcon>app_icon.ico</ApplicationIcon>
-    <Version>1.0.12-preview.1</Version>
-    <AssemblyVersion>1.0.12.0</AssemblyVersion>
-    <FileVersion>1.0.12.0</FileVersion>
+    <ApplicationIcon>Assets/angler.ico</ApplicationIcon>
+    <Version>1.0.13</Version>
+    <AssemblyVersion>1.0.13.0</AssemblyVersion>
+    <FileVersion>1.0.13.0</FileVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);FischMacroCS.Tests\**;artifacts\**;dist\**;publish*\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="app_icon.png" />
+    <Resource Include="Assets/angler.png" />
+    <Resource Include="Assets/angler.ico" />
     <Resource Include="app_icon.ico" />
     <Resource Include="splash_logo.png" />
     <EmbeddedResource Include="Assets\shake_template.png" />
@@ -29,6 +31,7 @@
     <EmbeddedResource Include="Assets\reconnect_button.png" />
     <EmbeddedResource Include="Assets\fisch_loading_logo.png" />
     <EmbeddedResource Include="Assets\fisch_continue_prompt.png" />
+    <EmbeddedResource Include="Assets\death_wasted.png" />
     <Content Include="Assets\shake_template.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

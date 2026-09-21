@@ -1,6 +1,6 @@
 namespace FischMacroCS.Core;
 
-public enum RecoveryView { Unknown, Loading, Reconnect, Gameplay, Continue }
+public enum RecoveryView { Unknown, Loading, Reconnect, Gameplay, Continue, Death }
 
 /// <summary>One persistent recovery request; only observed gameplay completes it.</summary>
 public sealed class AfkRecovery(IClock clock)
@@ -43,6 +43,7 @@ public sealed class AfkRecovery(IClock clock)
             RecoveryView.Loading => "Gameplay unavailable: waiting for recognizable controls",
             RecoveryView.Reconnect => "Disconnected: retrying Reconnect",
             RecoveryView.Continue => "Continuing from Fisch loading screen",
+            RecoveryView.Death => "Character died: waiting for gameplay; return to a fishing spot after respawning",
             _ => "Waiting for recognizable gameplay or reconnect controls"
         };
         if (view == RecoveryView.Reconnect && (_lastReconnect == null || clock.ElapsedMilliseconds(_lastReconnect.Value) >= 10000))

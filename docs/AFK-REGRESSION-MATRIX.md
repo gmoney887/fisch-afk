@@ -4,10 +4,17 @@ Scope: protect the actual fishing worker against regressions, with explicit boun
 
 ## Worker scenarios
 
+Latest source validation after distinct death identification: 392 passed, zero failed, one existing private-fixture skip; overall coverage 58.33% lines / 49.68% branches. [Coverage snapshot](COVERAGE-DEATH-2026-09-20.md). Earlier counts below identify their original snapshots. No live death recovery/position restoration is claimed.
+
+2026-09-20 incident review: [overnight evidence](OVERNIGHT-REVIEW-2026-09-20.md). The nearly12-hour run supplies duration evidence but fails effective unattended operation; death/position loss and expired incident context remain open. Added required death-screen detector negatives, worker wait/Stop cases and no-walking/jump assertions for core worker scenarios. These do not establish automatic respawn or position recovery.
+
+Current full-suite snapshot after separate bounded incident-journal retention/export: 382 passed, zero failed, one existing missing-private-fixture skip. Coverage 57.97% lines / 49.49% branches; details and exact report identity in [COVERAGE-2026-09-20.md](COVERAGE-2026-09-20.md). Two 10,000-entry pressure scenarios prove isolation from routine churn and bounded expiry under a recovery storm. Image retention and live multi-hour incident recoverability remain open.
+
 All rows below execute `FishingEngine.Start`, the coordinator, actual OpenCV detection and the production `GameplayInput` guard. Only desktop APIs, time and final hardware delivery are simulated. Required images are asserted present; these tests never silently skip. The fixture composition is controlled, not a complete chronological game recording.
 
 | Scenario in FishingEngineReplayTests | Required result |
 |---|---|
+| death-wait / death-stop | Recognize the recorded logo/title, report character death and one death incident; retain Start with no gameplay clicks/keys or outcomes until controlled gameplay returns, or honor Stop and release input. Returning gameplay completes a catch/next cast. Does not implement respawn or restore position. |
 | Confirmed catch | Cast → lure → reel → PostCatch → next cast; exactly one confirmed catch |
 | Unknown catch | Same cycle without a catch banner; one Unknown, no invented success or failure |
 | Focus/capture interruption | Deny two activations; interrupt a recovery capture; resume only after gameplay returns |

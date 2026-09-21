@@ -1,8 +1,14 @@
 # Feature inventory and acceptance ledger
 
-Updated 2026-09-19. This is the current working-tree review, not release approval. A passing test count does not establish reliable AFK operation. **Unattended operation is not accepted yet.**
+For future sessions: [prioritized AFK handoff](AFK-HANDOFF.md) records release versus local state, remaining acceptance requirements and where to resume. Its combined-tree caveat applies to the dated test snapshots below.
+
+Updated 2026-09-20. This is the current working-tree review, not release approval. A passing test count does not establish reliable AFK operation. **Unattended operation is not accepted yet.**
+
+Latest verification: 382 passed, zero failed, one existing private-fixture skip; overall coverage 57.97% lines / 49.49% branches, FishingEngine 69.39% / 55.54%. See [current coverage](COVERAGE-2026-09-20.md) and [overnight incident review](OVERNIGHT-REVIEW-2026-09-20.md). Death-screen waiting/Stop and core movement-key regressions pass. A separate bounded incident journal now retains recovery/outcomes/keyboard evidence independently of routine churn and is included in exports. Earlier measurements below remain historical. The overnight run failed effective operation despite nearly12 hours of uptime; death/position recovery and broader live gates remain open.
 
 ## Evidence and coverage
+
+Death-identification follow-up supersedes the preceding 382-test snapshot: 392 passed, zero failed, one existing private-fixture skip. Overall coverage 58.33% lines / 49.68% branches ([report](COVERAGE-DEATH-2026-09-20.md)). Death now has a distinct waiting status, one incident event per continuous observation, prioritized image context, and an explicit failed-readiness explanation. Automatic respawn/position restoration and live acceptance remain open.
 
 The earlier review covered individual components and selected images; it did not validate the complete controller or unattended recovery. The long run recorded 510 confirmed catches, 7 unknown outcomes and 5 recovery attempts over 6,546 seconds. Those are application counters, not independently labeled results. The retained image `artifacts/last-context.png` shows **“Game is shutting down for an update”**. A later live observation showed idle disconnect error 278. The evidence supports a server-update interruption followed by failed recovery; it does not establish idle prevention as the original cause.
 

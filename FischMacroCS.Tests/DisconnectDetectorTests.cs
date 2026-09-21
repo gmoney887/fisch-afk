@@ -42,6 +42,7 @@ public class DisconnectDetectorTests
 
     [Theory]
     [InlineData("server_update_wait.png")]
+    [InlineData("death_wasted.png")]
     [InlineData("reel_catch_live.png")]
     [InlineData("companion_bonus_only.png")]
     [InlineData("reel_live_false_exit.png")]

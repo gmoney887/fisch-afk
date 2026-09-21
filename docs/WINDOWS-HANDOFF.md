@@ -1,5 +1,7 @@
 # Windows continuation: reliable gameplay feedback loop
 
+**Current continuation entry point: [AFK-HANDOFF.md](AFK-HANDOFF.md), updated 2026-09-20.** The implementation/release/test status below is historical and must not override that handoff or the current working tree.
+
 ## Native Windows continuation — 2026-09-18
 
 This task now runs natively in Windows at `D:\Dev\fisch-afk`. The dirty tree was preserved. Native restore/test passed 147 tests initially; the continuation currently passes **165 Release tests**. Local self-contained packaging succeeded; no GitHub publication or diagnostic upload occurred. Three first-PC passive sessions have now been reviewed: aquarium, crates, and an End stop. See [live observations](LIVE-OBSERVATIONS-2026-09-18.md). Crate UI differs from the current workflow and reward text is partly occluded. Actual fishing, held-input stop, and second-PC trials remain outstanding.

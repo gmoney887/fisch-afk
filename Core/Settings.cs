@@ -71,6 +71,7 @@ public class Settings
     public bool EnableAutoClaimAquarium { get; set; } = false;
     public int AquariumClaimIntervalMinutes { get; set; } = 55;
     public DateTime LastAquariumClaimUtc { get; set; } = DateTime.MinValue;
+    public DateTime LastAquariumCheckUtc { get; set; } = DateTime.MinValue;
 
     // Auto Crate Opener ('G' Equipment Menu)
     public bool EnableAutoOpenCrates { get; set; } = false;

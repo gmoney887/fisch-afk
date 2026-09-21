@@ -34,6 +34,7 @@ public class PreFlightReport
     public bool OverallPass { get; set; }
     public bool ReconnectAvailable { get; set; }
     public bool ContinueAvailable { get; set; }
+    public bool DeathDetected { get; set; }
     public string Summary { get; set; } = "";
     public List<DiagnosticStep> Steps { get; set; } = new();
     public Mat? AnnotatedSnapshot { get; set; }
@@ -344,6 +345,7 @@ public class PreFlightDiagnostic : IDisposable
                 {
                     report.ReconnectAvailable = DisconnectDetector.TryFindReconnect(recovery, clientH, out _);
                     report.ContinueAvailable = ContinueScreenDetector.IsContinueScreen(recovery, clientH);
+                    report.DeathDetected = DeathScreenDetector.IsDeathScreen(recovery, clientH);
                 }
                 Mat annotated = new Mat();
                 if (fullSnap.Channels() == 4)
@@ -396,7 +398,7 @@ public class PreFlightDiagnostic : IDisposable
         // =========================================================================
         // Overall Summary & Verdict
         // =========================================================================
-        bool overallPass = (stepWindow.Status == DiagnosticStatus.Pass &&
+        bool overallPass = (!report.DeathDetected && stepWindow.Status == DiagnosticStatus.Pass &&
                             stepCapture.Status != DiagnosticStatus.Fail &&
                             stepHotbar.Status != DiagnosticStatus.Fail &&
                             stepToggle.Status != DiagnosticStatus.Fail &&
@@ -408,6 +410,10 @@ public class PreFlightDiagnostic : IDisposable
         if (overallPass)
         {
             report.Summary = $"All systems nominal ({report.TotalDurationMs:F0}ms). Computer Vision, tool toggle, and coordinate safety verified. Ready for AFK! 🎣";
+        }
+        else if (report.DeathDetected)
+        {
+            report.Summary = "Character died. Respawn and return to a fishing spot before starting AFK.";
         }
         else if (report.ReconnectAvailable)
         {

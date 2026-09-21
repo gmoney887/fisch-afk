@@ -8,6 +8,35 @@ namespace FischMacroCS.Tests;
 
 public class FishingEngineReplayTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void AquariumEngineUsesBundledAssetsAndPersistsOnlyVerifiedChecks(bool alreadyEmpty, bool loseFocus)
+    {
+        var clock = new Clock();
+        var desktop = new Desktop { ClientWidth = 3424 };
+        var input = new Input(clock);
+        var settings = new Settings { EnableRecording = false };
+        int stage = 0, clicks = 0;
+        using var frames = new Frames(() => Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
+            $"aquarium_{(stage == 0 ? 1 : stage == 3 ? 9 : stage == 2 || alreadyEmpty ? 5 : 4)}.png")), clock);
+        input.AfterDown = (_, y) =>
+        {
+            clicks++;
+            stage = y < 70 ? 1 : y < 250 ? 3 : 2;
+            if (loseFocus) desktop.Focused = false;
+        };
+        using var engine = new FishingEngine(settings, frames, frames, clock: clock, desktop: desktop, hardware: input);
+        bool success = engine.ExecuteAquariumClaim();
+        Assert.Equal(!loseFocus, success);
+        Assert.False(input.Held);
+        Assert.Equal(loseFocus ? 1 : alreadyEmpty ? 2 : 3, clicks);
+        Assert.Equal(loseFocus, settings.LastAquariumCheckUtc == DateTime.MinValue);
+        Assert.Equal(loseFocus || alreadyEmpty, settings.LastAquariumClaimUtc == DateTime.MinValue);
+        if (!loseFocus) Assert.Equal(ActionOutcome.ConfirmedSuccess, engine.LastAquariumOutcome);
+    }
+
     [Fact]
     public async Task ResetWhileStoppedDoesNotStartTheSessionClock()
     {
@@ -168,6 +197,12 @@ public class FishingEngineReplayTests
     [InlineData("resize")]
     [InlineData("dpi")]
     [InlineData("queued-restart")]
+    [InlineData("queued-cast")]
+    [InlineData("queued-lure")]
+    [InlineData("queued-postcatch")]
+    [InlineData("queued-postcatch-late")]
+    [InlineData("queued-force")]
+    [InlineData("queued-timeout")]
     [InlineData("reel-stall")]
     [InlineData("slow-reel")]
     [InlineData("missing-start")]
@@ -183,6 +218,7 @@ public class FishingEngineReplayTests
     [InlineData("disabled-shake")]
     [InlineData("stop-shake")]
     [InlineData("failed-casts")]
+    [InlineData("missed-meter-delayed-bite")]
     [InlineData("missing-bites")]
     [InlineData("recovery-budget")]
     [InlineData("reject-move")]
@@ -207,6 +243,8 @@ public class FishingEngineReplayTests
     [InlineData("stacked-catch")]
     [InlineData("server-update")]
     [InlineData("server-update-stop")]
+    [InlineData("death-wait")]
+    [InlineData("death-stop")]
     [InlineData("reconnect")]
     [InlineData("reconnect-retry")]
     [InlineData("reconnect-stop")]
@@ -235,9 +273,13 @@ public class FishingEngineReplayTests
 
     private async Task RunWorkerScenario(bool catchVisible, bool interrupt, MacroState? stopDuring, string? scenario = null)
     {
+        bool queuedCycle = scenario is "queued-restart" or "queued-cast" or "queued-lure" or "queued-postcatch" or "queued-postcatch-late";
+        var queueState = scenario switch { "queued-cast" => MacroState.Casting, "queued-lure" or "queued-timeout" => MacroState.Luring,
+            "queued-postcatch" => MacroState.PostCatch, _ => MacroState.Reeling };
         if (scenario == "companion-bonus") catchVisible = false;
         var desktop = new Desktop(); var clock = new Clock(); var input = new Input(clock);
-        bool updateScenario = scenario is "server-update" or "server-update-stop";
+        bool deathScenario = scenario is "death-wait" or "death-stop";
+        bool updateScenario = deathScenario || scenario is "server-update" or "server-update-stop";
         bool continueScenario = scenario?.StartsWith("continue", StringComparison.Ordinal) == true;
         bool chainScenario = scenario?.StartsWith("reconnect-chain", StringComparison.Ordinal) == true;
         bool reconnectScenario = continueScenario || scenario?.StartsWith("reconnect", StringComparison.Ordinal) == true;
@@ -252,14 +294,14 @@ public class FishingEngineReplayTests
         int reconnectCaptures = 0;
         bool reconnectHidden = false;
         using var updateScreen = updateScenario
-            ? Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "server_update_wait.png")) : new Mat();
+            ? Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", deathScenario ? "death_wasted.png" : "server_update_wait.png")) : new Mat();
         if (updateScenario)
         {
             Assert.False(updateScreen.Empty());
-            Assert.Equal(new Size(Desktop.Width, Desktop.Height), updateScreen.Size());
+            Assert.Equal(deathScenario ? new Size(838, 541) : new Size(Desktop.Width, Desktop.Height), updateScreen.Size());
         }
         int updateFrames = 0, updateWaits = 0;
-        bool recordingScenario = scenario?.StartsWith("recording-", StringComparison.Ordinal) == true;
+        bool recordingScenario = deathScenario || scenario?.StartsWith("recording-", StringComparison.Ordinal) == true;
         bool resetScenario = scenario is "recording-reset" or "recording-reset-unknown";
         bool statsReset = false;
         int beforeReset = -1, afterReset = -1;
@@ -292,6 +334,7 @@ public class FishingEngineReplayTests
         bool windowChanged = false, stopQueued = false;
         int geometryInputStart = -1;
         int prematureCasts = 0;
+        int castPresses = 0;
         bool recoveredStall = false;
         bool workflowInputError = scenario is "crates-input-error" or "aquarium-input-error";
         bool workflowStop = scenario is "crates-stop" or "aquarium-stop";
@@ -320,8 +363,10 @@ public class FishingEngineReplayTests
                 Cv2.Rectangle(template, new Rect(3, 3, 24, 17), new Scalar(60 + i * 40, 200 - i * 30, 80 + i * 25), -1);
                 Cv2.PutText(template, i.ToString(), new Point(7, 18), HersheyFonts.HersheySimplex, .5, Scalar.White, 1);
                 Cv2.ImWrite(Path.Combine(emptyWorkflowDirectory!, names[i] + ".png"), template);
-                if (i == 0) Cv2.Resize(template, workflowButton, new Size((int)(32 * Desktop.Height / 1080.0), (int)(24 * Desktop.Height / 1080.0)));
-                if (i == 1) Cv2.Resize(template, secondWorkflowButton, new Size((int)(32 * Desktop.Height / 1080.0), (int)(24 * Desktop.Height / 1080.0)));
+                double referenceHeight = aquariumScenario ? 1353 : 1080;
+                var scaledSize = new Size((int)Math.Round(32 * Desktop.Height / referenceHeight), (int)Math.Round(24 * Desktop.Height / referenceHeight));
+                if (i == 0) Cv2.Resize(template, workflowButton, scaledSize);
+                if (i == 1) Cv2.Resize(template, secondWorkflowButton, scaledSize);
             }
         }
         bool retryScenario = scenario is "failed-casts" or "missing-bites" or "recovery-budget";
@@ -353,6 +398,7 @@ public class FishingEngineReplayTests
         void StopAtBoundary() { stopIndex = input.Events.Count; engine!.Stop(); }
         var states = new HashSet<MacroState>();
         string lastAction = "";
+        bool deathStatusObserved = false;
         Mat Render()
         {
             var state = engine!.CurrentState; states.Add(state);
@@ -387,9 +433,12 @@ public class FishingEngineReplayTests
             { recoveredStall = true; reelStart = 0; }
             clock.CaptureMs = scenario == "slow-reel" && state == MacroState.Reeling && !recoveredStall ? 120 : 5;
             if (retryScenario) clock.CaptureMs = 30;
-            if (shakeScenario && state == MacroState.Luring) clock.CaptureMs = 20;
-            if (!stopQueued && run == 1 && state == MacroState.Reeling && scenario == "queued-restart")
-            { engine.IsStopQueued = true; stopQueued = true; }
+            if ((shakeScenario || scenario == "missed-meter-delayed-bite") && state == MacroState.Luring) clock.CaptureMs = 20;
+            if (!stopQueued && run == 1 && state == queueState && scenario != "queued-postcatch-late" && (queuedCycle || scenario is "queued-force" or "queued-timeout"))
+            {
+                stopQueued = engine.TryQueueStopAfterCycle();
+                if (scenario == "queued-force" && !engine.TryQueueStopAfterCycle()) StopAtBoundary();
+            }
             var full = new Mat(Desktop.Height, desktop.ClientWidth, MatType.CV_8UC3, new Scalar(35, 20, 15));
             if (interrupt && !interrupted && state == MacroState.Luring)
             { interrupted = true; desktop.Focused = false; desktop.DenyNextActivations = 2; unavailableUntil = clock.Timestamp + 4500; }
@@ -407,7 +456,14 @@ public class FishingEngineReplayTests
                 if (updateScenario)
                 {
                     updateFrames++;
-                    updateScreen.CopyTo(full);
+                    if (deathScenario)
+                    {
+                        // Unmodified central ROI from the overnight recording, at its recorded origin.
+                        // Outside the retained ROI is unknown; dark padding is controlled test input.
+                        using var target = new Mat(full, new Rect(708, 406, 838, 541));
+                        updateScreen.CopyTo(target);
+                    }
+                    else updateScreen.CopyTo(full);
                 }
                 if (interrupt && desktop.Focused && !captureInterrupted)
                 {
@@ -423,7 +479,7 @@ public class FishingEngineReplayTests
                 using var target = new Mat(full, new Rect((full.Width-source.Width)/2, top, source.Width, source.Height));
                 source.CopyTo(target);
             }
-            bool hideCast = scenario == "failed-casts" && engine.WatchdogRecoveryCount == 0 ||
+            bool hideCast = scenario == "missed-meter-delayed-bite" || scenario == "failed-casts" && engine.WatchdogRecoveryCount == 0 ||
                 scenario == "recovery-budget" && cooldownStarted == null;
             if (state == MacroState.Casting && input.Held && !hideCast)
             {
@@ -436,7 +492,8 @@ public class FishingEngineReplayTests
             {
                 sawLure = true;
                 if (lureStart == 0) lureStart = clock.Timestamp;
-                if (scenario == "missing-bites" && engine.WatchdogRecoveryCount == 0) { }
+                if (hideCast && scenario != "missed-meter-delayed-bite" || scenario == "missing-bites" && engine.WatchdogRecoveryCount == 0 || scenario == "queued-timeout") { }
+                else if (scenario == "missed-meter-delayed-bite" && clock.Timestamp - lureStart < 3000) { }
                 else if (!shakeScenario || clock.Timestamp - lureStart >= 1200) Paste(reel);
                 else if (scenario != "visual-missing")
                 {
@@ -487,11 +544,14 @@ public class FishingEngineReplayTests
             ShakeMode = scenario is "navigation-shake" or "stop-shake" ? "Navigation" :
                 scenario is "visual-shake" or "visual-shake-stop" or "visual-missing" or "visual-occluded" ? "Visual" : "Disabled",
             ReelTimeoutMs = stallScenario ? 1800 : 35000,
-            LureTimeoutMs = scenario == "missing-bites" ? 1200 : 25000 },
+            LureTimeoutMs = retryScenario || scenario == "queued-timeout" ? 1200 : 25000 },
             frames, frames, clock: clock, desktop: desktop, hardware: input, workflowTemplateDirectory: emptyWorkflowDirectory, recordingDirectory: recordingDirectory))
         {
             engine.OnTelemetry += t => {
+                if (scenario == "queued-postcatch-late" && run == 1 && !stopQueued && t.State == MacroState.PostCatch && t.Action.Contains("Resting"))
+                    stopQueued = engine.TryQueueStopAfterCycle();
                 states.Add(t.State); lastAction = t.Action;
+                if (t.Action.Contains("Character died", StringComparison.Ordinal)) deathStatusObserved = true;
                 if (t.Action.Contains("Auto-Opening Caught Crates", StringComparison.Ordinal) || t.Action.Contains("Claiming Aquarium Rewards", StringComparison.Ordinal))
                 {
                     workflowAttempts++;
@@ -503,6 +563,7 @@ public class FishingEngineReplayTests
                 t.Dispose();
             };
             input.AfterDown = (x,y) => {
+                if (engine.CurrentState == MacroState.Casting && !sawReel) castPresses++;
                 if (reconnectScenario && clock.Timestamp < unavailableUntil)
                 {
                     reconnectClicks.Add(clock.Timestamp);
@@ -557,10 +618,12 @@ public class FishingEngineReplayTests
                 if (updateScenario && clock.Timestamp < unavailableUntil)
                 {
                     updateWaits++;
-                    if (!engine.IsRunning) inputViolations.Add("Start cleared during server update");
+                    if (!engine.IsRunning) inputViolations.Add("Start cleared during unavailable gameplay");
+                    if (engine.TotalCatches + engine.TotalFails + engine.UnknownCatches != 0)
+                        inputViolations.Add("Outcome invented while gameplay unavailable");
                     foreach (var action in input.Events.Where(action => action is not "release" and not "up"))
                         inputViolations.Add("Server update waiting screen: " + action);
-                    if (scenario == "server-update-stop" && clock.Timestamp >= 2000 && stopIndex < 0)
+                    if (scenario is "server-update-stop" or "death-stop" && clock.Timestamp >= 2000 && stopIndex < 0)
                         StopAtBoundary();
                 }
                 if (overlayScenario && overlayReturnAt.HasValue && clock.Timestamp < overlayReturnAt.Value)
@@ -602,6 +665,9 @@ public class FishingEngineReplayTests
             finally { engine.Stop(); }
             // Assert outside callbacks: worker recovery intentionally catches callback exceptions.
             Assert.Empty(inputViolations);
+            if (!workflowScenario)
+                Assert.DoesNotContain(input.KeyEdges, edge => edge.Flags == 0 &&
+                    edge.Key is 0x57 or 0x41 or 0x53 or 0x44 or 0x20 or 0x25 or 0x26 or 0x27 or 0x28);
             Assert.Null(engine.PauseReason);
             if (reconnectScenario)
             {
@@ -617,9 +683,10 @@ public class FishingEngineReplayTests
             }
             if (updateScenario)
             {
+                if (deathScenario) Assert.True(deathStatusObserved, "Death must be explained rather than reported as generic loading");
                 Assert.True(updateFrames > 1, "The recorded update screen must actually be observed repeatedly");
                 Assert.True(updateWaits > 1, "The worker must retain Start through repeated waits");
-                if (scenario == "server-update") Assert.True(clock.Timestamp >= unavailableUntil);
+                if (scenario is "server-update" or "death-wait") Assert.True(clock.Timestamp >= unavailableUntil);
             }
             if (recordingScenario)
             {
@@ -638,6 +705,12 @@ public class FishingEngineReplayTests
                     Assert.Equal("Stopped", completion.RootElement.GetProperty("Outcome").GetString());
                     Assert.Equal("Requested", completion.RootElement.GetProperty("Statistics").GetProperty("StopSource").GetString());
                     Assert.Equal("Requested", engine.LastStopSource); // Dispose must preserve the initiating request.
+                    if (deathScenario)
+                    {
+                        var incidents = Directory.GetFiles(session, "incidents*.jsonl").SelectMany(File.ReadLines)
+                            .Select(line => JsonSerializer.Deserialize<JsonElement>(line)).ToArray();
+                        Assert.Single(incidents, row => row.GetProperty("Kind").GetString() == "death-detected");
+                    }
                     Assert.Equal(resetScenario && catchVisible ? 2 : engine.TotalCatches, completion.RootElement.GetProperty("Statistics").GetProperty("TotalCatches").GetInt32());
                     if (resetScenario)
                     {
@@ -666,7 +739,16 @@ public class FishingEngineReplayTests
                     }
                 }
             }
-            if (scenario == "queued-restart")
+            if (scenario == "queued-timeout")
+            {
+                Assert.True(stopQueued && sawLure);
+                Assert.False(sawReel);
+                Assert.Equal("Queued stop after cycle timeout", engine.LastStopSource);
+                Assert.Equal(0, engine.WatchdogRecoveryCount);
+                Assert.False(engine.IsRunning); Assert.False(input.Held);
+                return;
+            }
+            if (queuedCycle)
             {
                 Assert.True(stopQueued && sawPostCatch);
                 Assert.Equal("Queued stop after catch", engine.LastStopSource);
@@ -687,7 +769,7 @@ public class FishingEngineReplayTests
                 Assert.Null(engine.PauseReason);
                 Assert.Equal("Requested", engine.LastStopSource); // Previous run's queued reason must not leak.
             }
-            if (stopDuring.HasValue || scenario is "stop-shake" or "visual-shake-stop" or "server-update-stop" or "reconnect-stop" or "continue-stop" or "reconnect-chain-stop" || workflowStop)
+            if (stopDuring.HasValue || scenario is "queued-force" or "stop-shake" or "visual-shake-stop" or "server-update-stop" or "death-stop" or "reconnect-stop" or "continue-stop" or "reconnect-chain-stop" || workflowStop)
             {
                 Assert.True(stopIndex >= 0, "Requested Stop boundary was never reached");
                 Assert.All(input.Events.Skip(stopIndex), action => Assert.True(action is "release" or "up" || action.EndsWith(":2"), action));
@@ -752,6 +834,13 @@ public class FishingEngineReplayTests
                 Assert.Equal(scenario == "recovery-budget" ? 3 : 1, engine.WatchdogRecoveryCount);
                 if (scenario == "recovery-budget")
                 { Assert.NotNull(cooldownStarted); Assert.True(clock.Timestamp - cooldownStarted.Value >= 5000); }
+            }
+            if (scenario == "missed-meter-delayed-bite")
+            {
+                Assert.True(sawLure && sawReel && sawPostCatch);
+                Assert.Equal(0, engine.WatchdogRecoveryCount);
+                Assert.DoesNotContain(input.KeyEdges, edge => edge.Key == 0x1B && edge.Flags == 0);
+                Assert.Equal(1, castPresses);
             }
             if (scenario is "missing-start" or "replace-window") Assert.True(windowReturned);
             if (scenario == "minimize") { Assert.True(windowInterrupted); Assert.True(desktop.Restores > 0); Assert.False(desktop.Minimized); }

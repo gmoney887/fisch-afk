@@ -130,6 +130,8 @@ public class RecordingReplayTests : IDisposable
             using (var raw = new Mat(20, 100, MatType.CV_8UC3, new Scalar(10, 20, 30)))
                 recorder.RecordFrame(raw, new Rect(0, 50, 100, 20), new Rect(0, 0, 100, 80), 2);
             recorder.RecordEvent("outcome", new { Outcome = ActionOutcome.Unknown });
+            recorder.RecordEvent("input", new { Action = "KeyDown:49" });
+            recorder.RecordEvent("input", new { Action = "KeyUp:49" });
             recorder.StopSession("test completed", new { TotalCatches = 7, UnknownCatches = 2 });
         }
         var replay = new ReplaySession(session);
@@ -140,6 +142,12 @@ public class RecordingReplayTests : IDisposable
         Assert.Equal(new Vec3b(10, 20, 30), saved.At<Vec3b>(0, 0));
         using var completed = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "completed.json")));
         Assert.Equal(7, completed.RootElement.GetProperty("Statistics").GetProperty("TotalCatches").GetInt32());
+        Assert.Equal(0, completed.RootElement.GetProperty("IncidentJournalEntriesExpired").GetInt64());
+        string incidentText = File.ReadAllText(Path.Combine(session, "incidents.jsonl"));
+        Assert.Contains("KeyDown:49", incidentText);
+        Assert.Contains("KeyUp:49", incidentText);
+        Assert.Contains("Unknown", incidentText);
+        Assert.Contains("completed", incidentText);
         var label = new FrameLabel("Reeling", "Unknown", "needle", 5, 5, 2, 5);
         replay.SaveLabel(frame, label); Assert.Equal(label, replay.LoadLabel(frame));
     }
@@ -149,6 +157,9 @@ public class RecordingReplayTests : IDisposable
     {
         string session = Path.Combine(_root, "session_test"); Directory.CreateDirectory(session);
         File.WriteAllText(Path.Combine(session, "summary.txt"), "Session Outcome: Unknown");
+        for (int i = 0; i < 4; i++)
+            File.WriteAllText(Path.Combine(session, i == 0 ? "incidents.jsonl" : $"incidents.{i}.jsonl"),
+                $"{{\"Kind\":\"recovery-context\",\"Sequence\":{i}}}");
         using (var raw = new Mat(10, 10, MatType.CV_8UC3, Scalar.White))
         {
             Cv2.ImWrite(Path.Combine(session, "frame_00000001.png"), raw);
@@ -160,6 +171,12 @@ public class RecordingReplayTests : IDisposable
         byte[] original = File.ReadAllBytes(package.ZipPath);
         using (var zip = ZipFile.OpenRead(package.ZipPath))
         {
+            for (int i = 0; i < 4; i++)
+            {
+                string name = i == 0 ? "incidents.jsonl" : $"incidents.{i}.jsonl";
+                using var reader = new StreamReader(Assert.IsType<ZipArchiveEntry>(zip.GetEntry(name)).Open());
+                Assert.Contains($"\"Sequence\":{i}", reader.ReadToEnd());
+            }
             Assert.Null(zip.GetEntry("frame_00000002.png"));
             using var memory = new MemoryStream(); zip.GetEntry("frame_00000001.png")!.Open().CopyTo(memory);
             using var image = Cv2.ImDecode(memory.ToArray(), ImreadModes.Color);
