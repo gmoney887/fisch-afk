@@ -8,6 +8,21 @@ namespace FischMacroCS.Tests;
 
 public class CatchVerificationTests
 {
+    [Theory]
+    [InlineData("catch_1009_stacked.png")]
+    [InlineData("catch_1009_second.png")]
+    public void SecondPcPlayerCatchIsRecognized(string file)
+    {
+        using var frame = Cv2.ImRead(GetFixturePath(file));
+        Assert.True(_vision.DetectCatchNotification(frame, 1009));
+    }
+
+    [Fact]
+    public void SecondPcActiveReelDoesNotCountAsCatch()
+    {
+        using var frame = Cv2.ImRead(GetFixturePath("reel_1009_active.png"));
+        Assert.False(_vision.DetectCatchNotification(frame, 1009));
+    }
     [Fact]
     public void StackedPlayerAndCompanionRewardsKeepPlayerPrefixAtCropEdge()
     {

@@ -25,6 +25,7 @@
     <Grid.ColumnDefinitions><ColumnDefinition Width="165"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <DockPanel>
      <TextBlock DockPanel.Dock="Top" Text="Frames to include"/>
+     <Button DockPanel.Dock="Top" Content="Select first incident" Click="SelectIncidentClick" ToolTip="Select saved context images before and after the first position or recovery incident."/>
      <ListBox x:Name="LstFrames" SelectionMode="Extended" SelectionChanged="FrameChanged"/>
     </DockPanel>
     <Image x:Name="ImgFrame" Grid.Column="1" Stretch="Uniform" Margin="8"/>

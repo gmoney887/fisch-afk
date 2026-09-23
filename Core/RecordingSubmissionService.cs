@@ -146,7 +146,7 @@ public class RecordingSubmissionService
 
                 // Session-owned metadata only: never mix current statistics or logs into an older report.
                 foreach (string name in new[] { "manifest.json", "events.jsonl", "events.1.jsonl", "events.2.jsonl", "events.3.jsonl",
-                    "incidents.jsonl", "incidents.1.jsonl", "incidents.2.jsonl", "incidents.3.jsonl", "completed.json", "frame-index.json" })
+                    "incidents.jsonl", "incidents.1.jsonl", "incidents.2.jsonl", "incidents.3.jsonl", "completed.json", "frame-index.json", "first-incident.json" })
                 {
                     string source = Path.Combine(sessionDir, name);
                     if (File.Exists(source)) File.WriteAllText(Path.Combine(tempStageDir, name), SanitizeText(File.ReadAllText(source)));

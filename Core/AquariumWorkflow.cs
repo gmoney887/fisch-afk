@@ -5,7 +5,8 @@ namespace FischMacroCS.Core;
 /// <summary>Reviewed personal-aquarium controls, anchored to the viewport center and height.</summary>
 public static class AquariumWorkflow
 {
-    public static readonly WorkflowTarget Navigation = new("aquarium-navigation", .077, .024, .045, 1353, Smooth: true);
+    public static readonly WorkflowTarget Navigation = new("aquarium-navigation", .077, .024, .10, 1353, .94, Smooth: true,
+        AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true);
     public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true);
     // The zero C$/XP balance is stable; scrolling reward toasts are not.
     public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true);

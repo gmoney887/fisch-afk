@@ -3,7 +3,8 @@ using OpenCvSharp;
 namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
-    int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false);
+    int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
 public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false);
@@ -25,6 +26,13 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         .Where(name => !System.IO.File.Exists(System.IO.Path.Combine(_directory, name + ".png")))
         .ToArray();
     public (bool Found, Point Center, double Confidence) Find(Mat frame, WorkflowTarget target)
+    {
+        var primary = FindSingle(frame, target);
+        if (primary.Found || target.AlternateTemplate == null || target.AlternateReferenceHeight <= 0) return primary;
+        var alternate = FindSingle(frame, target with { Name = target.AlternateTemplate, ReferenceHeight = target.AlternateReferenceHeight });
+        return alternate.Confidence > primary.Confidence ? alternate : primary;
+    }
+    private (bool Found, Point Center, double Confidence) FindSingle(Mat frame, WorkflowTarget target)
     {
         string path = System.IO.Path.Combine(_directory, target.Name + ".png");
         if (!System.IO.File.Exists(path)) return (false, default, 0);
@@ -58,9 +66,25 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         using var smoothed = new Mat();
         if (target.Smooth) Cv2.GaussianBlur(roi, smoothed, new Size(3, 3), 0);
         using var score = new Mat();
+        double confidence;
+        Point location;
         Cv2.MatchTemplate(target.Smooth ? smoothed : roi, scaled, score, TemplateMatchModes.SqDiffNormed);
-        Cv2.MinMaxLoc(score, out double minimum, out _, out Point location, out _);
-        double confidence = 1 - minimum;
+        Cv2.MinMaxLoc(score, out double minimum, out _, out location, out _);
+        confidence = 1 - minimum;
+        if (target.BlueText && confidence < target.MinimumConfidence)
+        {
+            using var gray = new Mat(); using var templateGray = new Mat();
+            using var hsv = new Mat(); using var templateHsv = new Mat();
+            Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
+            Cv2.CvtColor(scaled, templateHsv, ColorConversionCodes.BGR2HSV);
+            Cv2.InRange(hsv, new Scalar(85, 45, 95), new Scalar(125, 255, 255), gray);
+            Cv2.InRange(templateHsv, new Scalar(85, 45, 95), new Scalar(125, 255, 255), templateGray);
+            if (Cv2.CountNonZero(templateGray) < 5) return (false, default, 0);
+            Cv2.GaussianBlur(gray, gray, new Size(3, 3), 0);
+            Cv2.GaussianBlur(templateGray, templateGray, new Size(3, 3), 0);
+            Cv2.MatchTemplate(gray, templateGray, score, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
+        }
         return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
     }

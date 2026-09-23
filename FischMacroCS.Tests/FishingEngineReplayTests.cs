@@ -8,6 +8,42 @@ namespace FischMacroCS.Tests;
 
 public class FishingEngineReplayTests
 {
+    [Fact]
+    public async Task PersistentViewChangeStopsAndReleasesInputsWithoutWalking()
+    {
+        var clock = new Clock();
+        var input = new Input(clock);
+        using var texture = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        using var other = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        var rng = new RNG(123); rng.Fill(texture, DistributionType.Uniform, 0, 255);
+        rng.Fill(other, DistributionType.Uniform, 0, 255);
+        Mat Render()
+        {
+            var frame = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.All(20));
+            var area = new Rect(0, (int)(Desktop.Height * .44), Desktop.Width, (int)(Desktop.Height * .29));
+            using var source = new Mat(clock.Timestamp < 5000 ? texture : other, area);
+            using var destination = new Mat(frame, area);
+            Cv2.CvtColor(source, destination, ColorConversionCodes.GRAY2BGR);
+            int left = Desktop.Width / 2 - (69 * 8 + 68) / 2;
+            for (int i = 0; i < 9; i++)
+                Cv2.Rectangle(frame, new Rect(left + i * 69, Desktop.Height - 70, 68, 68), i == 0 ? Scalar.White : Scalar.All(60), 1);
+            return frame;
+        }
+        using var frames = new Frames(Render, clock);
+        using var engine = new FishingEngine(new Settings { EnableRecording = false, EnableAutoClaimAquarium = false,
+            EnableAntiAfk = false, EnableWatchdogRecovery = false, ShakeMode = "Disabled" },
+            frames, frames, clock: clock, desktop: new Desktop(), hardware: input);
+        clock.Tick = () => { if (clock.Timestamp > 15000) engine.Stop(); };
+        engine.Start();
+        try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(20)); }
+        finally { engine.Stop(); }
+        Assert.Contains("Fishing view changed", engine.PauseReason);
+        Assert.False(input.Held);
+        Assert.Empty(input.HeldKeys);
+        Assert.Equal(0, engine.WatchdogRecoveryCount);
+        Assert.DoesNotContain(input.KeyEdges, edge => edge.Flags == 0 && edge.Key is 0x57 or 0x41 or 0x53 or 0x44 or 0x20);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
@@ -668,6 +704,17 @@ public class FishingEngineReplayTests
             if (!workflowScenario)
                 Assert.DoesNotContain(input.KeyEdges, edge => edge.Flags == 0 &&
                     edge.Key is 0x57 or 0x41 or 0x53 or 0x44 or 0x20 or 0x25 or 0x26 or 0x27 or 0x28);
+            if (scenario == "recovery-budget")
+            {
+                Assert.Contains("Three recovery attempts", engine.PauseReason);
+                Assert.Equal(3, engine.WatchdogRecoveryCount);
+                Assert.False(engine.IsRunning);
+                Assert.False(input.Held);
+                Assert.Empty(input.HeldKeys);
+                Assert.Null(cooldownStarted); // No cooldown may reset an exhausted recovery budget.
+                Assert.DoesNotContain(input.KeyEdges, edge => edge.Key == 27 && edge.Flags == 0);
+                return;
+            }
             Assert.Null(engine.PauseReason);
             if (reconnectScenario)
             {

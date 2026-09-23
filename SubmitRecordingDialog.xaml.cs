@@ -44,6 +44,19 @@ public partial class SubmitRecordingDialog : Window
         ImgFrame.Source = null;
     }
     private void FrameChanged(object sender, SelectionChangedEventArgs e) => Preview();
+    private void SelectIncidentClick(object sender, RoutedEventArgs e)
+    {
+        if (_sending || LstSessions.SelectedItem is not SessionItemViewModel session) return;
+        try
+        {
+            var frames = IncidentFrameSelection.Read(session.DirectoryPath);
+            if (frames.Length == 0) { TxtStatus.Text = "No first-incident images available in this session. Select frames manually."; return; }
+            LstFrames.SelectedItems.Clear();
+            foreach (var frame in frames) LstFrames.SelectedItems.Add(frame);
+            TxtStatus.Text = $"{frames.Length} incident images selected. Review before exporting or sending.";
+        }
+        catch (Exception ex) { TxtStatus.Text = "Cannot load incident selection: " + ex.Message; }
+    }
     private void MaskChanged(object sender, TextChangedEventArgs e) { if (IsLoaded) Preview(); }
     private void Preview()
     {

@@ -5,6 +5,22 @@ namespace FischMacroCS.Tests;
 public class PreservedEvidenceBufferTests
 {
     [Fact]
+    public void FirstMovementIncidentSurvivesLaterFailureFlood()
+    {
+        var buffer = new PreservedEvidenceBuffer(100, 5);
+        buffer.Add("before", 1, 20, false);
+        buffer.PromoteSince(0, firstIncident: true);
+        buffer.Add("after", 2, 20, true, firstIncident: true);
+        for (int i = 3; i < 100; i++)
+        {
+            buffer.Add("later-" + i, i, 20, true);
+            var removed = buffer.Trim().ToArray();
+            Assert.DoesNotContain("before", removed);
+            Assert.DoesNotContain("after", removed);
+            Assert.InRange(buffer.Bytes, 0, 100);
+        }
+    }
+    [Fact]
     public void RoutineRecoveryFloodCannotEvictFailureEvidence()
     {
         var buffer = new PreservedEvidenceBuffer(100, 5);

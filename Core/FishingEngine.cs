@@ -122,6 +122,9 @@ public class FishingEngine : IDisposable
     public Task Completion => _workerTask ?? Task.CompletedTask;
     private readonly IInputSink _input;
     private readonly RecoveryBudget _recoveryBudget = new();
+    private readonly FishingViewGuard _fishingView = new();
+    private long _lastViewCheck;
+    private bool _viewChecked;
     private CatchOutcomeTracker _catchOutcome = new();
     private CancellationToken _operationCancellation;
     private CancellationTokenSource? _manualCancellation;
@@ -656,7 +659,8 @@ public class FishingEngine : IDisposable
         _aquariumSchedule = new AquariumSchedule(_clock);
         _heartbeat = new AntiIdleHeartbeat(_clock);
         _afkRecovery = new AfkRecovery(_clock);
-        _input = input ?? new GameplayInput(ValidateGameplay, Delay, name => _recorder.RecordEvent("input", new { Action = name }), hardware);
+        _input = input ?? new GameplayInput(ValidateGameplay, Delay, name => _recorder.RecordEvent("input",
+            new { Action = name, State = CurrentState.ToString(), Recovering = _isRecovering, Source = "Macro" }), hardware);
         Config = settings;
         _recorder.MaxRecordingsToKeep = Config.MaxRecordingsToKeep;
         ApplyRodProfile(Config.RodProfile);
@@ -675,6 +679,9 @@ public class FishingEngine : IDisposable
         var cancellation = _cts.Token;
         PauseReason = null;
         _recoveryBudget.ConfirmProgress();
+        _fishingView.Reset();
+        _viewChecked = false;
+        _catchBannerFrames = 0; _catchBannerSeen = false;
         _skipAquariumThisSession = _skipCratesThisSession = false;
         _isRecovering = false;
         _lastProgressTicks = _clock.Timestamp;
@@ -700,6 +707,7 @@ public class FishingEngine : IDisposable
                 else WorkerLoop(cancellation);
             }
             catch (GameplayInterruptedException ex) { Pause(ex.Message); }
+            catch (FishingSafetyException ex) { Pause(ex.Message); }
             catch (OperationCanceledException) { }
             catch (Exception ex) { Pause("Automation stopped: " + ex.Message); }
             finally
@@ -942,16 +950,7 @@ public class FishingEngine : IDisposable
     }
 
     /// <summary>
-    /// Autonomous Self-Healing Recovery Routine:
-    /// Invoked whenever fishing has stopped, timed out, or stalled.
-    /// 1. Releases all mouse buttons and clears any active key presses.
-    /// 2. Sends Escape to dismiss any open Roblox pause menu, chat prompt, or accidental popup.
-    /// 3. Focuses the Roblox window.
-    /// 4. Closes equipment/backpack ('g') if open.
-    /// 5. Inquires OpenCV and forces the rod to equip in hand (keypress + slot click fallback).
-    /// 6. Re-aims cursor in open water.
-    /// 7. Resets progress timers.
-    /// 8. Seamlessly transitions state to Casting.
+    /// Recognize an existing reel in fresh frames before issuing cast/recovery inputs.
     /// </summary>
     private bool TryResumeVisibleReel()
     {
@@ -1005,10 +1004,9 @@ public class FishingEngine : IDisposable
         {
             if (!_recoveryBudget.TryBegin())
             {
-                WaitForFishingRetry("Repeated recovery attempts; cooling down before retry", 5000);
-                _recoveryBudget.ResetAfterCooldown();
-                return;
+                throw new FishingSafetyException("Three recovery attempts produced no confirmed catch. Check the fishing position and restart when ready.");
             }
+            _recorder.RecordEvent("recovery-attempt", new { Reason = reason, Attempt = _recoveryBudget.Attempts, Outcome = "Unknown" });
             lock (_statistics) WatchdogRecoveryCount++;
             _lifetimeRecoveries++;
             SessionLogger.Instance.Log("WATCHDOG", $"🚨 SELF-HEALING RECOVERY TRIGGERED: {reason} (Total recoveries: {WatchdogRecoveryCount})");
@@ -1021,18 +1019,12 @@ public class FishingEngine : IDisposable
             PopulateTelemetryStats(telemRecover);
             OnTelemetry?.Invoke(telemRecover);
 
-            // 1. Release mouse and navigation keys
-            SetMouseDown(false);
-            _input.mouse_event((int)Win32.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0);
-            _input.keybd_event(0xDC, 0, Win32.KEYEVENTF_KEYUP, 0); // Backslash Up
-            _input.keybd_event(0x0D, 0, Win32.KEYEVENTF_KEYUP, 0); // Enter Up
+            // Release every input owned by the macro before attempting recovery.
+            _input.ReleaseAll();
+            _isMouseDown = false;
             Delay(50);
 
-            // 2. Clear any open Roblox UI prompt (Escape key)
-            _input.keybd_event(0x1B, 0, 0, 0); // ESC Down
-            Delay(20);
-            _input.keybd_event(0x1B, 0, Win32.KEYEVENTF_KEYUP, 0); // ESC Up
-            Delay(150);
+            // Do not blindly toggle Escape: on unobstructed gameplay it opens the pause menu.
 
             IntPtr robloxHwnd = _desktop.FindRobloxWindow();
             if (robloxHwnd != IntPtr.Zero && _desktop.GetClientRect(robloxHwnd, out Win32.RECT clientRect) && clientRect.Width > 0 && clientRect.Height > 0)
@@ -1065,9 +1057,10 @@ public class FishingEngine : IDisposable
             _lastProgressTicks = _clock.Timestamp;
 
             // 8. Transition cleanly to Casting
-            Transition(MacroState.Casting, $"Self-healing recovery completed: {reason}");
-            SessionLogger.Instance.Log("WATCHDOG", "✅ Self-healing recovery routine finished. Casting cycle restarted.");
+            Transition(MacroState.Casting, $"Recovery attempt dispatched; awaiting a confirmed catch: {reason}");
+            SessionLogger.Instance.Log("WATCHDOG", "Recovery inputs dispatched; success is not yet verified.");
         }
+        catch (FishingSafetyException) { throw; }
         catch (GameplayInterruptedException) { throw; }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex)
@@ -1316,7 +1309,8 @@ public class FishingEngine : IDisposable
         SetMouseDown(false);
         CurrentState = newState;
         if (newState is MacroState.Casting or MacroState.PostCatch) _vision.ResetReelTheme();
-        if (newState == MacroState.PostCatch) { _catchBannerFrames = 0; _readyHotbarFrames = 0; _catchBannerSeen = false; }
+        if (newState == MacroState.PostCatch) { _readyHotbarFrames = 0; }
+        else { _catchBannerFrames = 0; }
         _stateStartTime = _clock.Timestamp;
         _lastBarSeenTime = _clock.Timestamp;
         _lastFishSeenTime = _clock.Timestamp;
@@ -1400,6 +1394,29 @@ public class FishingEngine : IDisposable
         }
     }
 
+    private void CheckFishingView()
+    {
+        if (_viewChecked && GetElapsedMs(_lastViewCheck) < 1000) return;
+        _viewChecked = true;
+        _lastViewCheck = _clock.Timestamp;
+        // Full context is needed for separated scene landmarks and pre-incident footage.
+        // This runs once a second, not at the reel controller's capture frequency.
+        for (int observation = 0; observation < 3; observation++)
+        {
+            using var frame = _shakeCapture.CaptureClientRegion(_activeWindow, 0, 0,
+                _activeGeometry.Width, _activeGeometry.Height);
+            if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid fishing view capture.");
+            var status = _fishingView.Observe(frame);
+            if (status is FishingViewStatus.Learning or FishingViewStatus.Stable) return;
+            _input.ReleaseAll(); _isMouseDown = false;
+            if (observation == 0)
+                _recorder.RecordEvent("position-suspected", new { State = CurrentState.ToString(), Evidence = "Three scene landmarks changed", Outcome = "Unknown" });
+            if (status == FishingViewStatus.Changed)
+                throw new FishingSafetyException("Fishing view changed persistently. Check the player position and camera before restarting.");
+            Delay(250); // Poll for persistent scene change; transient effects must not trigger a stop.
+        }
+    }
+
     private void WorkerLoop(CancellationToken ct)
     {
         Stopwatch loopSw = new Stopwatch();
@@ -1412,6 +1429,7 @@ public class FishingEngine : IDisposable
             try
             {
                 ValidateGameplay();
+                CheckFishingView();
                 if (CurrentState == MacroState.Casting || (CurrentState == MacroState.PostCatch && _catchOutcome.IsFinalized))
                     _coordinator.DrainPending();
                 ValidateGameplay();
@@ -1728,7 +1746,9 @@ public class FishingEngine : IDisposable
                 if (fullFrame != null && !fullFrame.Empty())
                 {
                     // Full-screen Shake detection with live annotated full game view preview
-                    var shakeResult = _vision.DetectShakeIcon(fullFrame, 0, 0, scaleFactor, shouldGenerateDebug);
+                    var shakeResult = shakeActive || shouldGenerateDebug
+                        ? _vision.DetectShakeIcon(fullFrame, 0, 0, scaleFactor, shouldGenerateDebug)
+                        : new ShakeDetectionResult();
                     luringDebugFrame = shakeResult.AnnotatedFrame;
 
                     if (shakeActive && GetElapsedMs(_lastShakeClickTime) >= GetJitteredMs(Config.ShakeClickIntervalMs, 4))
@@ -1773,8 +1793,8 @@ public class FishingEngine : IDisposable
                             if (_shakeRepeatCounter <= maxBypassTicks)
                             {
                                 // Strictly clamp click coordinates within the Roblox game client area
-                                int safeClickX = Math.Clamp(clickClientX, 40, winW - 40);
-                                int safeClickY = Math.Clamp(clickClientY, 40, winH - 40);
+                                int safeClickX = Math.Clamp(clickClientX, 0, winW - 1);
+                                int safeClickY = Math.Clamp(clickClientY, 0, winH - 1);
 
                                 // Convert client coords to physical screen coordinates
                                 Win32.POINT screenPt = new Win32.POINT { X = safeClickX, Y = safeClickY };
@@ -2100,10 +2120,11 @@ public class FishingEngine : IDisposable
                 }
 
                 // Dynamically check for in-game catch notification banner (confirmed catch)
-                if (detect.HasLiveReel) _catchBannerSeen = false;
-                else if (crop != null && _vision.DetectCatchNotification(crop, winH))
+                if (detect.HasLiveReel) { _catchBannerSeen = false; _catchBannerFrames = 0; }
+                else if (crop != null)
                 {
-                    _catchBannerSeen = true;
+                    _catchBannerFrames = _vision.DetectCatchNotification(crop, winH) ? _catchBannerFrames + 1 : 0;
+                    _catchBannerSeen |= _catchBannerFrames >= 2;
                 }
 
                 // A missing control bar is not a finished catch while the fish and progress remain visible.
@@ -2337,6 +2358,7 @@ public class FishingEngine : IDisposable
             }
             catch (GameplayInterruptedException ex)
             { WaitForFishingRetry(ex.Message); }
+            catch (FishingSafetyException) { throw; }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 break;
@@ -2371,6 +2393,7 @@ public class FishingEngine : IDisposable
         _coordinator.Dispose();
         lock (_lifecycle) { _cts?.Dispose(); _cts = null; }
         _recorder.Dispose();
+        _fishingView.Dispose();
         _shakeCapture.Dispose();
         _capture.Dispose();
     }

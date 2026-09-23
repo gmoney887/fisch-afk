@@ -5,6 +5,20 @@ namespace FischMacroCS.Tests;
 
 public class AquariumWorkflowTests
 {
+    [Fact]
+    public void SecondPcNavigationUsesReviewedTextAtItsNativeScale()
+    {
+        using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_1009.png"));
+        Assert.False(strip.Empty());
+        using var frame = new Mat(1009, 1920, MatType.CV_8UC3, Scalar.Black);
+        using (var target = new Mat(frame, new Rect((frame.Width - strip.Width) / 2, 0, strip.Width, strip.Height))) strip.CopyTo(target);
+        using var vision = Vision();
+        var found = vision.Find(frame, AquariumWorkflow.Navigation);
+        Assert.True(found.Found, $"Navigation confidence {found.Confidence}");
+        Assert.InRange(found.Center.X, 1060, 1070);
+        Assert.InRange(found.Center.Y, 27, 37);
+        Assert.False(vision.Find(frame, AquariumWorkflow.Claim).Found);
+    }
     private sealed class Clock : IClock
     {
         public long Timestamp { get; set; }

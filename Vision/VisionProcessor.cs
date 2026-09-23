@@ -504,92 +504,73 @@ public class VisionProcessor
             Point bestCenter = default;
             double bestConfidence = 0;
 
-            // Shake buttons can spawn at either edge and below the reel area.
-            // Exclude only the top controls and bottom hotbar; never trim horizontal coverage.
-            int searchX1 = 0;
-            int searchW = cropW;
-            int searchY1 = (int)Math.Round(cropH * 0.10);
-            int searchH = Math.Max(1, (int)Math.Round(cropH * 0.80));
-            using var searchZone = new Mat(crop, new Rect(searchX1, searchY1, searchW, searchH));
-
-            // =========================================================================
-            // PASS 1: Fast Hierarchical Normalized Cross-Correlation Template Matching
-            // Stage 1A: 2x downsampled coarse global sweep (~20ms)
-            // Stage 1B: Full-resolution refined sub-pixel verification on candidate (~1ms)
-            // =========================================================================
+            // The button may overlap the avatar, hotbar or top controls. Match its
+            // text across the viewport rather than excluding whole screen bands.
+            int searchX1 = 0, searchY1 = 0, searchW = cropW, searchH = cropH;
             Mat? template = GetShakeTemplate();
             if (template != null && !template.Empty())
             {
-                int tmplW = template.Width;
-                int tmplH = template.Height;
-
-                int halfW = Math.Max(50, searchW / 2);
-                int halfH = Math.Max(50, searchH / 2);
-                using var halfZone = new Mat();
-                Cv2.Resize(searchZone, halfZone, new Size(halfW, halfH), 0, 0, InterpolationFlags.Linear);
-
-                // Calibrated multi-scale sweep relative to 1369p base resolution
-                double baseScale = cropH / 1369.0;
-                double[] testScales = { baseScale * 1.0, baseScale * 0.88, baseScale * 1.14 };
-                foreach (double s in testScales)
+                void Search(Mat scene, Mat glyphs, double threshold)
                 {
-                    int coarseW = (int)Math.Round((tmplW * s) / 2.0);
-                    int coarseH = (int)Math.Round((tmplH * s) / 2.0);
-
-                    if (coarseW <= 8 || coarseH <= 4 || coarseW >= halfW || coarseH >= halfH)
-                        continue;
-
-                    using var halfTmpl = new Mat();
-                    Cv2.Resize(template, halfTmpl, new Size(coarseW, coarseH), 0, 0, InterpolationFlags.Linear);
-
-                    using var coarseRes = new Mat();
-                    Cv2.MatchTemplate(halfZone, halfTmpl, coarseRes, TemplateMatchModes.CCoeffNormed);
-                    Cv2.MinMaxLoc(coarseRes, out _, out double coarseVal, out _, out Point coarseLoc);
-
-                    if (coarseVal >= 0.42)
+                    using var halfZone = new Mat();
+                    Cv2.Resize(scene, halfZone, new Size(Math.Max(1, cropW / 2), Math.Max(1, cropH / 2)));
+                    double baseScale = cropH / 1369.0;
+                    foreach (double scale in new[] { baseScale, baseScale * .88, baseScale * 1.14 })
                     {
-                        // Stage 1B: Refine with full-resolution patch around candidate
-                        int candX = searchX1 + (coarseLoc.X * 2);
-                        int candY = searchY1 + (coarseLoc.Y * 2);
-
-                        int fullTmplW = (int)Math.Round(tmplW * s);
-                        int fullTmplH = (int)Math.Round(tmplH * s);
-
-                        int roiPadX = Math.Max(25, (int)(fullTmplW * 0.35));
-                        int roiPadY = Math.Max(18, (int)(fullTmplH * 0.40));
-
-                        int roiX = Math.Clamp(candX - roiPadX, 0, Math.Max(0, cropW - fullTmplW - (roiPadX * 2)));
-                        int roiY = Math.Clamp(candY - roiPadY, 0, Math.Max(0, cropH - fullTmplH - (roiPadY * 2)));
-                        int roiW = Math.Min(cropW - roiX, fullTmplW + (roiPadX * 2));
-                        int roiH = Math.Min(cropH - roiY, fullTmplH + (roiPadY * 2));
-
-                        if (roiW > fullTmplW && roiH > fullTmplH)
+                        int width = (int)Math.Round(glyphs.Width * scale);
+                        int height = (int)Math.Round(glyphs.Height * scale);
+                        if (width < 18 || height < 10 || width >= cropW || height >= cropH) continue;
+                        using var fullTemplate = new Mat();
+                        Cv2.Resize(glyphs, fullTemplate, new Size(width, height));
+                        using var halfTemplate = new Mat();
+                        Cv2.Resize(fullTemplate, halfTemplate, new Size(Math.Max(1, width / 2), Math.Max(1, height / 2)));
+                        using var coarse = new Mat();
+                        Cv2.MatchTemplate(halfZone, halfTemplate, coarse, TemplateMatchModes.CCoeffNormed);
+                        // A bright accessory can beat the button in the coarse pass.
+                        // Verify several independent candidates before rejecting this scale.
+                        for (int candidate = 0; candidate < 3; candidate++)
                         {
-                            using var roi = new Mat(crop, new Rect(roiX, roiY, roiW, roiH));
-                            using var fullScaledTmpl = new Mat();
-                            Cv2.Resize(template, fullScaledTmpl, new Size(fullTmplW, fullTmplH));
-
-                            using var refineRes = new Mat();
-                            Cv2.MatchTemplate(roi, fullScaledTmpl, refineRes, TemplateMatchModes.CCoeffNormed);
-                            Cv2.MinMaxLoc(refineRes, out _, out double refVal, out _, out Point refLoc);
-
-                            if (refVal > bestConfidence && refVal >= 0.58)
+                            Cv2.MinMaxLoc(coarse, out _, out double score, out _, out Point location);
+                            if (!double.IsFinite(score) || score < .42) break;
+                            int pad = Math.Max(2, height);
+                            int x = Math.Max(0, location.X * 2 - pad), y = Math.Max(0, location.Y * 2 - pad);
+                            int right = Math.Min(cropW, location.X * 2 + width + pad);
+                            int bottom = Math.Min(cropH, location.Y * 2 + height + pad);
+                            using var roi = new Mat(scene, new Rect(x, y, right - x, bottom - y));
+                            using var refined = new Mat();
+                            Cv2.MatchTemplate(roi, fullTemplate, refined, TemplateMatchModes.CCoeffNormed);
+                            Cv2.MinMaxLoc(refined, out _, out double confidence, out _, out Point found);
+                            if (double.IsFinite(confidence) && confidence >= threshold && confidence > bestConfidence)
                             {
-                                bestConfidence = refVal;
-                                bestRect = new Rect(roiX + refLoc.X, roiY + refLoc.Y, fullTmplW, fullTmplH);
-                                bestCenter = new Point(absOffsetX + roiX + refLoc.X + (fullTmplW / 2),
-                                                       absOffsetY + roiY + refLoc.Y + (fullTmplH / 2));
-
-                                // If nominal scale achieved high confidence, break early for fast <30ms reaction
-                                if (refVal >= 0.72)
-                                    break;
+                                bestConfidence = confidence;
+                                bestRect = new Rect(x + found.X, y + found.Y, width, height);
+                                bestCenter = new Point(absOffsetX + x + found.X + width / 2,
+                                    absOffsetY + y + found.Y + height / 2);
                             }
+                            var suppressed = new Rect(Math.Max(0, location.X - halfTemplate.Width / 2),
+                                Math.Max(0, location.Y - halfTemplate.Height / 2), halfTemplate.Width, halfTemplate.Height);
+                            suppressed.Width = Math.Min(suppressed.Width, coarse.Width - suppressed.X);
+                            suppressed.Height = Math.Min(suppressed.Height, coarse.Height - suppressed.Y);
+                            using var excluded = new Mat(coarse, suppressed); excluded.SetTo(Scalar.All(-1));
                         }
+                        if (bestConfidence >= .85) break;
                     }
                 }
+                Search(crop, template, .58);
+                if (!bestRect.HasValue)
+                {
+                    // Isolate the white lettering so colored companions and scenery
+                    // behind the translucent button do not dominate correlation.
+                    using var hsv = new Mat(); using var templateHsv = new Mat();
+                    using var letters = new Mat(); using var templateLetters = new Mat();
+                    Cv2.CvtColor(crop, hsv, ColorConversionCodes.BGR2HSV);
+                    Cv2.CvtColor(template, templateHsv, ColorConversionCodes.BGR2HSV);
+                    Cv2.InRange(hsv, new Scalar(0, 0, 160), new Scalar(180, 75, 255), letters);
+                    Cv2.InRange(templateHsv, new Scalar(0, 0, 160), new Scalar(180, 75, 255), templateLetters);
+                    Search(letters, templateLetters, .72);
+                }
             }
-
-            if (bestRect.HasValue && bestConfidence >= 0.58)
+            if (bestRect.HasValue)
             {
                 result.Found = true;
                 result.Center = bestCenter;
@@ -1348,6 +1329,7 @@ public class VisionProcessor
     private static readonly Lazy<Mat> CatchPrefix = new(() => LoadCatchPrefix("catch_prefix.png"));
     private static readonly Lazy<Mat> LiveCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_live.png"));
     private static readonly Lazy<Mat> MaximizedCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_maximized.png"));
+    private static readonly Lazy<Mat> WindowedCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_1009.png"));
     private static Mat LoadCatchPrefix(string name)
     {
         using var stream = typeof(VisionProcessor).Assembly.GetManifestResourceStream("FischMacroCS.Assets." + name)
@@ -1376,7 +1358,7 @@ public class VisionProcessor
         using var scores = new Mat();
         // The notification animates its font size; use reviewed settled and
         // enlarged and maximized variants at their original viewport heights.
-        foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0) })
+        foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0), (WindowedCatchPrefix.Value, 1009.0) })
         {
             double scale = height / referenceHeight;
             Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale)),

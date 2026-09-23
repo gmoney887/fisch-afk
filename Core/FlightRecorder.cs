@@ -124,11 +124,21 @@ public sealed class FlightRecorder : IDisposable
             long rollingBytes = 0;
             long preserveUntil = 0;
             long failureUntil = 0;
+            long firstIncidentUntil = 0;
+            bool firstIncidentSeen = false;
             int successes = 0;
             foreach (var entry in queue.GetConsumingEnumerable())
             {
                 var data = JsonSerializer.SerializeToElement(entry.Data, Json);
-                if (entry.Kind.Contains("outcome", StringComparison.Ordinal) || entry.Kind is "recovery-context" or "death-detected")
+                bool movementIncident = entry.Kind is "position-suspected" or "recovery-attempt" or "death-detected";
+                bool firstIncident = movementIncident && !firstIncidentSeen;
+                if (firstIncident)
+                {
+                    firstIncidentSeen = true; firstIncidentUntil = entry.Timestamp + 5 * Stopwatch.Frequency;
+                    File.WriteAllText(Path.Combine(directory, "first-incident.json"), JsonSerializer.Serialize(new
+                    { entry.Timestamp, entry.Kind, TimestampFrequency = Stopwatch.Frequency, BeforeSeconds = 15, AfterSeconds = 5 }, Json));
+                }
+                if (entry.Kind.Contains("outcome", StringComparison.Ordinal) || entry.Kind == "recovery-context" || movementIncident)
                 {
                     bool success = data.GetRawText().Contains("ConfirmedSuccess", StringComparison.Ordinal);
                     if (!success || ++successes % 10 == 0)
@@ -139,10 +149,10 @@ public sealed class FlightRecorder : IDisposable
                         {
                             failureUntil = preserveUntil;
                             // Preceding frames may already be in the routine sample pool.
-                            preserved.PromoteSince(entry.Timestamp - 15 * Stopwatch.Frequency);
+                            preserved.PromoteSince(entry.Timestamp - 15 * Stopwatch.Frequency, firstIncident);
                         }
                         while (rolling.TryDequeue(out var buffered))
-                        { preserved.Add(buffered.File, buffered.Timestamp, buffered.Bytes, failure); rollingBytes -= buffered.Bytes; }
+                        { preserved.Add(buffered.File, buffered.Timestamp, buffered.Bytes, failure, firstIncident); rollingBytes -= buffered.Bytes; }
                     }
                 }
                 using (entry.Frame)
@@ -154,7 +164,8 @@ public sealed class FlightRecorder : IDisposable
                         string path = Path.Combine(directory, filename);
                         Cv2.ImWrite(path, entry.Frame!); frames++;
                         long bytes = new FileInfo(path).Length;
-                        if (entry.Timestamp <= preserveUntil) preserved.Add(path, entry.Timestamp, bytes, entry.Timestamp <= failureUntil);
+                        if (entry.Timestamp <= preserveUntil) preserved.Add(path, entry.Timestamp, bytes, entry.Timestamp <= failureUntil,
+                            firstIncidentSeen && entry.Timestamp <= firstIncidentUntil);
                         else { rolling.Enqueue((path, entry.Timestamp, bytes)); rollingBytes += bytes; }
                         while (rolling.TryPeek(out var old) && (entry.Timestamp - old.Timestamp > 15 * Stopwatch.Frequency || rolling.Count > 165 || rollingBytes > 64L * 1024 * 1024))
                         {

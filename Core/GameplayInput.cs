@@ -46,15 +46,15 @@ public sealed class GameplayInput(Action validate, Action<int> delay, Action<str
         }
     }
     public void SendHardwareMouseMove(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default) =>
-        Send("MouseMove", () => _hardware.SendHardwareMouseMove(sx, sy, cx, cy, window));
+        Send($"MouseMove:{cx},{cy};Screen:{sx},{sy}", () => _hardware.SendHardwareMouseMove(sx, sy, cx, cy, window));
     public void SendHardwareClick(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default)
     {
         SendHardwareMouseMove(sx, sy, cx, cy, window);
         SendHardwareMouseDown(sx, sy, cx, cy, window);
         try { delay(45); } finally { SendHardwareMouseUp(); }
     }
-    public void SetCursorPos(int x, int y) => Send("CursorMove", () => _hardware.SetCursorPos(x, y));
-    public void SendRelativeMove(int x, int y) => Send("RelativeMove", () => _hardware.SendRelativeMove(x, y));
+    public void SetCursorPos(int x, int y) => Send($"CursorMove:{x},{y}", () => _hardware.SetCursorPos(x, y));
+    public void SendRelativeMove(int x, int y) => Send($"RelativeMove:{x},{y}", () => _hardware.SendRelativeMove(x, y));
     public void mouse_event(int flags, int x, int y, int data, int extra) => Send("MouseEvent", () =>
     {
         if ((flags & (int)Win32.MOUSEEVENTF_RIGHTDOWN) != 0) _right = true;

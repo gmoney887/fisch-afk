@@ -11,9 +11,9 @@
     <Product>Fat Dad's Fisch AFK Pro</Product>
     <Description>High-frequency computer vision auto-angler for Roblox Fisch</Description>
     <ApplicationIcon>Assets/angler.ico</ApplicationIcon>
-    <Version>1.0.13</Version>
-    <AssemblyVersion>1.0.13.0</AssemblyVersion>
-    <FileVersion>1.0.13.0</FileVersion>
+    <Version>1.0.14</Version>
+    <AssemblyVersion>1.0.14.0</AssemblyVersion>
+    <FileVersion>1.0.14.0</FileVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);FischMacroCS.Tests\**;artifacts\**;dist\**;publish*\**</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -27,6 +27,7 @@
     <EmbeddedResource Include="Assets\catch_prefix.png" />
     <EmbeddedResource Include="Assets\catch_prefix_live.png" />
     <EmbeddedResource Include="Assets\catch_prefix_maximized.png" />
+    <EmbeddedResource Include="Assets\catch_prefix_1009.png" />
     <EmbeddedResource Include="Assets\disconnected_title.png" />
     <EmbeddedResource Include="Assets\reconnect_button.png" />
     <EmbeddedResource Include="Assets\fisch_loading_logo.png" />
