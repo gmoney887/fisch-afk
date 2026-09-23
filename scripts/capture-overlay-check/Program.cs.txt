@@ -1,0 +1,59 @@
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Interop;
+using System.Windows.Threading;
+using FischMacroCS.Capture;
+using FischMacroCS.Native;
+using OpenCvSharp;
+using System.Runtime.InteropServices;
+using Window = System.Windows.Window;
+using Rect = OpenCvSharp.Rect;
+
+class Program
+{
+    [DllImport("dwmapi.dll")] static extern int DwmFlush();
+    [STAThread]
+    static int Main()
+    {
+        Window Make(Brush color) => new() { Left = SystemParameters.VirtualScreenLeft + 20,
+            Top = SystemParameters.VirtualScreenTop + 20, Width = 180, Height = 140,
+            WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
+            ShowInTaskbar = false, Topmost = true, Background = color };
+        var scene = Make(Brushes.Red); var overlay = Make(Brushes.Blue);
+        IntPtr dashboard = IntPtr.Zero;
+        void Pump() { Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle); DwmFlush(); }
+        try
+        {
+            scene.Show(); overlay.Show(); Pump();
+            var target = new WindowInteropHelper(scene).Handle;
+            dashboard = new WindowInteropHelper(overlay).Handle;
+            var pt = new Win32.POINT { X = 30, Y = 30 }; Win32.ClientToScreen(target, ref pt);
+            var region = new Rect(pt.X, pt.Y, 40, 40);
+            if (CaptureVisibility.IsUnobscured(target, region)) throw new Exception("Ordinary overlay was not blocked.");
+            if (!CaptureExclusion.Register(dashboard)) throw new Exception("Capture exclusion rejected by Windows.");
+            Pump();
+            using var capture = new ScreenCapture();
+            bool red = false;
+            var deadline = DateTime.UtcNow.AddSeconds(2);
+            do
+            {
+                Pump();
+                using var frame = capture.CaptureClientRegion(target, 30, 30, 40, 40);
+                using var hsv = new Mat(); using var mask = new Mat();
+                Cv2.CvtColor(frame!, hsv, ColorConversionCodes.BGR2HSV);
+                Cv2.InRange(hsv, new Scalar(0, 200, 200), new Scalar(5, 255, 255), mask);
+                red = Cv2.CountNonZero(mask) > frame!.Total() * .95;
+            } while (!red && DateTime.UtcNow < deadline);
+            if (!red) throw new Exception("Excluded overlay did not reveal underlying red scene to BitBlt.");
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Dashboard not physically on top.");
+            CaptureExclusion.PrepareGamePress(target, pt.X, pt.Y);
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != target) throw new Exception("Dashboard did not yield click target.");
+            CaptureExclusion.RestoreAfterPress(); Pump();
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Dashboard was not restored on top.");
+            Console.WriteLine("PASS: real Windows capture sees underlying scene; dashboard stays visible, yields the click target, and restores on top. No input was injected.");
+            return 0;
+        }
+        catch (Exception ex) { Console.WriteLine(ex); return 1; }
+        finally { CaptureExclusion.RestoreAfterPress(); CaptureExclusion.Unregister(dashboard); overlay.Close(); scene.Close(); }
+    }
+}

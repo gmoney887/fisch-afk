@@ -69,6 +69,8 @@ public partial class MainWindow : Window
         base.OnSourceInitialized(e);
 
         _hwnd = new WindowInteropHelper(this).Handle;
+        if (!Capture.CaptureExclusion.Register(_hwnd))
+            SessionLogger.Instance.Log("DISPLAY", "Capture exclusion unavailable; overlapping windows will still pause capture.");
         string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] OnSourceInitialized HWND=0x{_hwnd:X}\n"); } catch { }
 
@@ -415,7 +417,8 @@ public partial class MainWindow : Window
     private void ApplyAfkDisplay()
     {
         Topmost = _settings.KeepOnTop;
-        ChkJitter.IsEnabled = ChkAlwaysOnTop.IsEnabled = !_settings.AfkPerformanceMode;
+        ChkJitter.IsEnabled = !_settings.AfkPerformanceMode;
+        ChkAlwaysOnTop.IsEnabled = true;
         ChkShowPreview.IsChecked = _settings.PreviewEnabled;
         if (!_settings.PreviewEnabled)
         {
@@ -703,7 +706,7 @@ public partial class MainWindow : Window
     private void ChkAlwaysOnTop_Changed(object sender, RoutedEventArgs e)
     {
         bool onTop = ChkAlwaysOnTop.IsChecked == true;
-        this.Topmost = onTop && !(_settings?.AfkPerformanceMode ?? true);
+        this.Topmost = onTop;
         // XAML's default Checked event fires before saved settings are populated.
         if (_settings != null && _engine != null)
         {
@@ -1553,6 +1556,7 @@ public partial class MainWindow : Window
             try { await _diagnosticTask; } catch (Exception) { /* cancellation/error is shown by diagnostic UI */ }
         }
         await Task.Run(_engine.Dispose);
+        Capture.CaptureExclusion.Unregister(_hwnd);
         _shutdownComplete = true;
         Close();
     }

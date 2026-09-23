@@ -73,6 +73,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundColor Cyan
 
+# Verify the actual Windows compositor and dashboard click-target behavior.
+& (Join-Path $repoRoot 'scripts/verify-capture-overlay.ps1') -Dotnet $dotnet
+
 # 4. Publish Single-File Standalone Portable Executable
 Write-Host "[3/7] Compiling Standalone Portable Executable..." -ForegroundColor Green
 $publishDir = Join-Path $repoRoot "publish-release-$targetVer"
@@ -97,9 +100,10 @@ if (Test-Path -LiteralPath $stagingDir) { throw "Package staging already exists;
 New-Item -ItemType Directory -Force -Path "$stagingDir\Assets" | Out-Null
 
 Copy-Item "$publishDir\FischMacroCS.exe" "$stagingDir\" -Force
-if (Test-Path "$publishDir\Assets\shake_template.png") {
-    Copy-Item "$publishDir\Assets\shake_template.png" "$stagingDir\Assets\" -Force
+if (!(Test-Path "$publishDir\Assets\Workflows\aquarium-navigation-1009.png")) {
+    throw "Published aquarium templates are missing; refusing an incomplete release."
 }
+Copy-Item "$publishDir\Assets\*" "$stagingDir\Assets\" -Recurse -Force
 
 if (Test-Path $zipFile) { Remove-Item $zipFile -Force }
 Compress-Archive -Path "$stagingDir\*" -DestinationPath $zipFile -CompressionLevel Optimal

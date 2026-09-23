@@ -484,6 +484,7 @@ public class FishingEngine : IDisposable
     private readonly AquariumSchedule _aquariumSchedule;
     private bool _isAquariumClaimPending = false;
     private bool _skipAquariumThisSession;
+    private bool _aquariumCanRetryWithoutRecovery;
     private bool _skipCratesThisSession;
 
     public void CheckAquariumClaimHeartbeat()
@@ -556,12 +557,18 @@ public class FishingEngine : IDisposable
         _isAquariumClaimPending = false;
         LastAquariumOutcome = ActionOutcome.Unknown;
         LastAquariumEvidence = null;
+        _aquariumCanRetryWithoutRecovery = false;
         var result = RunRewardWorkflow(true);
         _recorder.RecordEvent("aquarium-outcome", result);
         LastAquariumOutcome = result.Outcome;
         LastAquariumEvidence = result.Evidence;
         SessionLogger.Instance.Log("AQUARIUM", result.Evidence);
-        if (result.Outcome != ActionOutcome.ConfirmedSuccess) return false;
+        if (result.Outcome != ActionOutcome.ConfirmedSuccess)
+        {
+            _aquariumCanRetryWithoutRecovery = result.RetryableWithoutRecovery;
+            if (_aquariumCanRetryWithoutRecovery) _aquariumSchedule.Defer();
+            return false;
+        }
         _aquariumSchedule.Checked();
         Config.LastAquariumCheckUtc = DateTime.UtcNow;
         if (result.RewardClaimed) Config.LastAquariumClaimUtc = Config.LastAquariumCheckUtc;
@@ -2273,10 +2280,14 @@ public class FishingEngine : IDisposable
                     _skipAquariumThisSession = true;
                     if (!ExecuteAquariumClaim())
                     {
-                        _skipAquariumThisSession = true;
+                        _skipAquariumThisSession = !_aquariumCanRetryWithoutRecovery;
                         _isAquariumClaimPending = false;
-                        WaitForFishingRetry("Aquarium outcome unconfirmed; skipping automatic claims for this session");
-                        continue;
+                        if (!_aquariumCanRetryWithoutRecovery)
+                        {
+                            WaitForFishingRetry("Aquarium outcome unconfirmed; skipping automatic claims for this session");
+                            continue;
+                        }
+                        SessionLogger.Instance.Log("AQUARIUM", "No reward inputs sent; continuing fishing and deferring aquarium retry.");
                     }
                     _skipAquariumThisSession = false;
                     Delay(400);

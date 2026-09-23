@@ -794,7 +794,7 @@
                     <CheckBox x:Name="ChkAfkPerformance" Content="AFK Performance" Margin="0,0,0,8"
                               Foreground="#A7F3D0" FontWeight="SemiBold" FontSize="11"
                               Checked="ChkAfkPerformance_Changed" Unchecked="ChkAfkPerformance_Changed"
-                              ToolTip="Faster fishing with visual readiness checks. Disables preview, On Top and artificial timing jitter; keeps recording and restores your display preferences when switched off. Fisch appearance settings are separate: turn off Show Catch Flags, other players' fish and lanterns, and environment tints; set VFX Visibility to Hide All."/>
+                              ToolTip="Faster fishing with visual readiness checks. Disables preview and artificial timing jitter; keeps recording and Pin on top enabled. Restores preview and jitter preferences when switched off. Fisch appearance settings are separate: turn off Show Catch Flags, other players' fish and lanterns, and environment tints; set VFX Visibility to Hide All."/>
                     <Expander x:Name="ExpanderSettings" Background="Transparent" BorderThickness="0" IsExpanded="False"
                               Expanded="ExpanderSettings_Expanded" Collapsed="ExpanderSettings_Collapsed">
                         <Expander.Header>

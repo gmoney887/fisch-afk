@@ -6,11 +6,11 @@ namespace FischMacroCS.Core;
 public static class AquariumWorkflow
 {
     public static readonly WorkflowTarget Navigation = new("aquarium-navigation", .077, .024, .10, 1353, .94, Smooth: true,
-        AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true);
-    public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true);
+        AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true, SearchNearbyScales: true);
+    public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true, SearchNearbyScales: true);
     // The zero C$/XP balance is stable; scrolling reward toasts are not.
-    public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true);
-    public static readonly WorkflowTarget Close = new("aquarium-close", .560, .121, .025, 1353, .92, Smooth: true);
+    public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true, SearchNearbyScales: true);
+    public static readonly WorkflowTarget Close = new("aquarium-close", .560, .121, .025, 1353, .92, Smooth: true, SearchNearbyScales: true);
     public static readonly string[] TemplateNames = [Navigation.Name, Claim.Name, EmptyBalance.Name, Close.Name];
 
     public static WorkflowResult Run(IClock clock, TemplateWorkflowVision vision, Func<Mat?> capture,
@@ -21,8 +21,17 @@ public static class AquariumWorkflow
         if (missing.Length > 0)
             return new(ActionOutcome.Unknown, "Automation unavailable: reviewed visual templates are missing (" + string.Join(", ", missing) + ").");
         var workflow = new VerifiedWorkflow(clock, vision, capture, delay, evidence);
-        var opened = workflow.Run([new("Open aquarium", Navigation, Claim, click)], cancellation);
-        if (opened.Outcome != ActionOutcome.ConfirmedSuccess) return opened;
+        bool attemptedOpen = false;
+        var opened = workflow.Run([new("Open aquarium", Navigation, Claim,
+            point => { attemptedOpen = true; click(point); }, TimeoutMs: 5000)], cancellation);
+        if (opened.Outcome != ActionOutcome.ConfirmedSuccess)
+        {
+            if (attemptedOpen) return opened;
+            using var latest = capture();
+            // A manually opened aquarium is not a harmless missing-navigation case.
+            bool panelAbsent = latest != null && !latest.Empty() && !vision.Find(latest, Claim).Found && !vision.Find(latest, Close).Found;
+            return opened with { RetryableWithoutRecovery = panelAbsent };
+        }
 
         bool empty = true;
         for (int i = 0; i < 2; i++)

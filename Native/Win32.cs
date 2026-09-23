@@ -511,6 +511,7 @@ public static partial class Win32
         downInputs[0].mi.dx = normX;
         downInputs[0].mi.dy = normY;
         downInputs[0].mi.dwFlags = MOUSEEVENTF_LEFTDOWN | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK;
+        FischMacroCS.Capture.CaptureExclusion.PrepareGamePress(targetHwnd, screenX, screenY);
         SendMouseInputs(downInputs);
 
         if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
@@ -561,6 +562,7 @@ public static partial class Win32
             // Release both input channels even when hardware delivery fails.
             if (targetHwnd != IntPtr.Zero && clientX >= 0 && clientY >= 0)
                 PostMessage(targetHwnd, WM_LBUTTONUP, IntPtr.Zero, MakeLParam(clientX, clientY));
+            FischMacroCS.Capture.CaptureExclusion.RestoreAfterPress();
         }
     }
 

@@ -6,6 +6,19 @@ namespace FischMacroCS.Tests;
 public class AquariumWorkflowTests
 {
     [Fact]
+    public void FailedLiveSessionNavigationIsRecognizedWithoutLoweringConfidence()
+    {
+        using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_1369.png"));
+        using var frame = new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black);
+        using (var target = new Mat(frame, new Rect(frame.Width / 2 - strip.Width / 2, 0, strip.Width, strip.Height))) strip.CopyTo(target);
+        using var vision = Vision();
+        var found = vision.Find(frame, AquariumWorkflow.Navigation);
+        Assert.True(found.Found, $"Confidence: {found.Confidence}");
+        Assert.InRange(found.Center.X, 1820, 1830);
+        Assert.InRange(found.Center.Y, 27, 37);
+        Assert.False(vision.Find(frame, AquariumWorkflow.Claim).Found);
+    }
+    [Fact]
     public void SecondPcNavigationUsesReviewedTextAtItsNativeScale()
     {
         using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_1009.png"));
@@ -82,6 +95,7 @@ public class AquariumWorkflowTests
         var result = AquariumWorkflow.Run(clock, vision, () => blank.Clone(), ms => clock.Delay(ms, default), _ => clicks++, default);
         Assert.Equal(0, clicks);
         Assert.Equal(ActionOutcome.Unknown, result.Outcome);
+        Assert.True(result.RetryableWithoutRecovery);
     }
 
     [Theory]
@@ -106,6 +120,38 @@ public class AquariumWorkflowTests
         Assert.Equal(alreadyEmpty ? new[] { "open", "close" } : new[] { "open", "claim", "close" }, clicks);
         Assert.Equal(failedClaim || failedClose ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
         Assert.Equal(!alreadyEmpty && !failedClaim && !failedClose, result.RewardClaimed);
+    }
+
+    [Fact]
+    public void AlreadyOpenAquariumCannotBeTreatedAsSafeToResumeFishing()
+    {
+        var clock = new Clock();
+        using var vision = Vision();
+        var result = AquariumWorkflow.Run(clock, vision, () => Frame(4), ms => clock.Delay(ms, default),
+            _ => throw new Exception("No click should be sent to an already open aquarium."), default);
+        Assert.Equal(ActionOutcome.Unknown, result.Outcome);
+        Assert.False(result.RetryableWithoutRecovery);
+    }
+
+    [Fact]
+    public void MissingNavigationBacksOffWithoutPretendingRewardsWereClaimed()
+    {
+        var clock = new Clock();
+        var schedule = new AquariumSchedule(clock);
+        var now = DateTime.UtcNow;
+        Assert.True(schedule.IsDue(DateTime.MinValue, 15, now));
+        schedule.Defer();
+        clock.Timestamp = 59999;
+        Assert.False(schedule.IsDue(DateTime.MinValue, 15, now));
+        clock.Timestamp++;
+        Assert.True(schedule.IsDue(DateTime.MinValue, 15, now));
+        schedule.Defer();
+        clock.Timestamp += 119999;
+        Assert.False(schedule.IsDue(DateTime.MinValue, 15, now));
+        clock.Timestamp++;
+        Assert.True(schedule.IsDue(DateTime.MinValue, 15, now));
+        schedule.Checked();
+        Assert.False(schedule.IsDue(DateTime.MinValue, 15, now));
     }
 
     [Fact]

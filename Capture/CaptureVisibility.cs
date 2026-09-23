@@ -35,6 +35,7 @@ public static class CaptureVisibility
         {
             if (window == target) { found = true; return false; }
             if (!Win32.IsWindowVisible(window) || Win32.IsIconic(window)) return true;
+            if (CaptureExclusion.IsExcluded(window)) return true;
             if (!HasOpaqueBounds(GetWindowLong(window, -20))) return true;
             if (DwmGetWindowAttribute(window, 14, out int cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
             if (Win32.GetWindowRect(window, out var bounds) &&

@@ -4,10 +4,10 @@ namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
     int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
-    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false);
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
-public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false);
+public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false, bool RetryableWithoutRecovery = false);
 
 public interface IWorkflowVision
 {
@@ -19,7 +19,7 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
 {
     private readonly string _directory;
     private readonly Dictionary<string, Mat> _templates = new();
-    private readonly Dictionary<(string Name, int ReferenceHeight, bool Smooth), Mat> _scaled = new();
+    private readonly Dictionary<(string Name, int ReferenceHeight, bool Smooth, double Scale), Mat> _scaled = new();
     private int _height;
     public TemplateWorkflowVision(string directory) => _directory = directory;
     public string[] MissingTemplates(IEnumerable<string> names) => names.Distinct()
@@ -27,12 +27,24 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         .ToArray();
     public (bool Found, Point Center, double Confidence) Find(Mat frame, WorkflowTarget target)
     {
-        var primary = FindSingle(frame, target);
+        var primary = FindAtScales(frame, target);
         if (primary.Found || target.AlternateTemplate == null || target.AlternateReferenceHeight <= 0) return primary;
-        var alternate = FindSingle(frame, target with { Name = target.AlternateTemplate, ReferenceHeight = target.AlternateReferenceHeight });
+        var alternate = FindAtScales(frame, target with { Name = target.AlternateTemplate, ReferenceHeight = target.AlternateReferenceHeight });
         return alternate.Confidence > primary.Confidence ? alternate : primary;
     }
-    private (bool Found, Point Center, double Confidence) FindSingle(Mat frame, WorkflowTarget target)
+    private (bool Found, Point Center, double Confidence) FindAtScales(Mat frame, WorkflowTarget target)
+    {
+        var best = FindSingle(frame, target, 1);
+        if (best.Found || !target.SearchNearbyScales) return best;
+        foreach (double scale in new[] { .99, 1.01, .98, 1.02 })
+        {
+            var candidate = FindSingle(frame, target, scale);
+            if (candidate.Confidence > best.Confidence) best = candidate;
+            if (best.Found) break;
+        }
+        return best;
+    }
+    private (bool Found, Point Center, double Confidence) FindSingle(Mat frame, WorkflowTarget target, double scale)
     {
         string path = System.IO.Path.Combine(_directory, target.Name + ".png");
         if (!System.IO.File.Exists(path)) return (false, default, 0);
@@ -45,12 +57,12 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             _scaled.Clear(); _height = frame.Height;
         }
         // Preserve the reviewed capture's reference height to avoid resampling small UI text twice.
-        var scaleKey = (target.Name, target.ReferenceHeight, target.Smooth);
+        var scaleKey = (target.Name, target.ReferenceHeight, target.Smooth, scale);
         if (!_scaled.TryGetValue(scaleKey, out var scaled))
         {
             scaled = new Mat();
-            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * frame.Height / (double)target.ReferenceHeight)),
-                Math.Max(1, (int)Math.Round(template.Height * frame.Height / (double)target.ReferenceHeight))));
+            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * frame.Height / (double)target.ReferenceHeight * scale)),
+                Math.Max(1, (int)Math.Round(template.Height * frame.Height / (double)target.ReferenceHeight * scale))));
             if (target.Smooth) Cv2.GaussianBlur(scaled, scaled, new Size(3, 3), 0);
             _scaled[scaleKey] = scaled;
         }

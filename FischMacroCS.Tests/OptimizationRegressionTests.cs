@@ -9,6 +9,13 @@ namespace FischMacroCS.Tests;
 public class OptimizationRegressionTests
 {
     [Theory]
+    [InlineData(true, 0x11u, true)]
+    [InlineData(false, 0x11u, false)]
+    [InlineData(true, 1u, false)]
+    [InlineData(true, 0u, false)]
+    public void OnlyRegisteredCaptureExcludedDashboardCanBypassOcclusion(bool registered, uint affinity, bool expected)
+        => Assert.Equal(expected, CaptureExclusion.CanIgnore(registered, affinity));
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void AfkModePreservesPreferencesAcrossSerialization(bool preference)
@@ -18,7 +25,7 @@ public class OptimizationRegressionTests
         Assert.True(settings.AfkPerformanceMode);
         Assert.False(settings.PreviewEnabled);
         Assert.False(settings.JitterEnabled);
-        Assert.False(settings.KeepOnTop);
+        Assert.Equal(preference, settings.KeepOnTop);
         var restored = System.Text.Json.JsonSerializer.Deserialize<Settings>(System.Text.Json.JsonSerializer.Serialize(settings))!;
         restored.AfkPerformanceMode = false;
         Assert.Equal(preference, restored.PreviewEnabled);
