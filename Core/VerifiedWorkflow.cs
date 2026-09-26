@@ -97,6 +97,31 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             Cv2.MatchTemplate(gray, templateGray, score, TemplateMatchModes.CCoeffNormed);
             Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
         }
+        if (target.BlueText && confidence < target.MinimumConfidence)
+        {
+            // Translucent navigation can sit over scenery with the same hue as its
+            // text. Local brightness contrast isolates glyphs without masking in the
+            // entire blue background or reducing the recognition threshold.
+            using var sceneHsv = new Mat(); using var glyphHsv = new Mat();
+            using var sceneValue = new Mat(); using var glyphValue = new Mat();
+            Cv2.CvtColor(target.Smooth ? smoothed : roi, sceneHsv, ColorConversionCodes.BGR2HSV);
+            Cv2.CvtColor(scaled, glyphHsv, ColorConversionCodes.BGR2HSV);
+            Cv2.ExtractChannel(sceneHsv, sceneValue, 2);
+            Cv2.ExtractChannel(glyphHsv, glyphValue, 2);
+            int kernelSize = Math.Max(3, (scaled.Height / 4) | 1);
+            using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kernelSize, kernelSize));
+            Cv2.MorphologyEx(sceneValue, sceneValue, MorphTypes.TopHat, kernel);
+            Cv2.MorphologyEx(glyphValue, glyphValue, MorphTypes.TopHat, kernel);
+            Cv2.MatchTemplate(sceneValue, glyphValue, score, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(score, out _, out double shapeConfidence, out _, out Point shapeLocation);
+            if (double.IsFinite(shapeConfidence) && shapeConfidence > confidence)
+            {
+                using var candidate = new Mat(sceneHsv, new Rect(shapeLocation.X, shapeLocation.Y, scaled.Width, scaled.Height));
+                using var blue = new Mat();
+                Cv2.InRange(candidate, new Scalar(85, 45, 95), new Scalar(125, 255, 255), blue);
+                if (Cv2.CountNonZero(blue) >= 5) { confidence = shapeConfidence; location = shapeLocation; }
+            }
+        }
         return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
     }

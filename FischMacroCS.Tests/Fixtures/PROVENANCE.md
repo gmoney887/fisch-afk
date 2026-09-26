@@ -53,3 +53,20 @@ Production `Assets/death_wasted.png` is a byte-identical copy of the fixture des
 `catch_sequence/` contains unmodified frames467..475 from session `session_20260920_015859_519_4c5a71f8c4fe430ba8b91b1204cd2f21` on the stacked-catch corrected build. All nine were directly inspected. Frames467..470 show the moving active reel,471 shows its downward exit animation,472..475 show the actual player Negative Scrap Metal3kg reward fading in. No chat or player identifiers are in these track crops. `sequence.json` retains each original frame ID, timestamp, capture/viewport geometry and SHA256; expected labels are from direct image review, not app outcomes. The test uses one VisionProcessor across the sequence, verifies no premature player catch, retains active reel detection before animation, and requires two separately recorded banner matches by the settled frames. It covers this chronological transition, not a whole cast/lure cycle or native input delivery.
 
 Aquarium fixtures `aquarium_1.png`, `aquarium_4.png`, `aquarium_5.png`, and `aquarium_9.png` derive from the correspondingly numbered frames of first-PC session `190214_817_e8156312e4e64b15a6cb675af27e9905` (3424 x 1353). They preserve only the top Aquariums control, Profit/Claim/balance region, close X, and central reward notification excerpt; other pixels are black. Desktop, macro preview, player list, and unrelated inventory are removed. Frame 4 is unclaimed; frame 5 has zero balance after the manual claim; frame 9 has the aquarium closed while the old redeemed toast remains. Assets/Workflows contains native-resolution control crops from frames 1, 4, and 5. Scaled/center-cropped variants are derived geometry regressions from this same development recording, not independent live validation.
+
+### Seraphic Rod Tilted Catch Bar
+`reel_seraphic_tilted_bar.png` is unmodified frame 29 from session `session_20260926_034650_040_30e89b1894a94c94860a42549f5dde63` (viewport 3440 x 1369, track ROI 968, 1013, 1504, 273). It captures the Seraphic Rod's 764px wide catch bar tilted at -5.8 degrees due to "The Divine Judgement" screen shake. Used in `ReelTrackingRegressionTests` to verify rotated rectangle (`Cv2.MinAreaRect`) detection under visual rotation without losing track.
+
+### Cyan control bar, September 26
+
+`reel_cyan_left.png` and `reel_cyan_center.png` are unmodified frames 160 and 172 from
+`session_20260926_153223_142_af9f0c0fbc324f3db404bd36aa1e0caf`, app 1.0.17.0,
+viewport 3440 x 1369, ROI (968, 1013, 1504, 273). Direct inspection shows a cyan
+control bar, slate needle, and white progress meter over blue scenery. No chat or
+player identifiers appear in these crops. The journal repeatedly reports
+"Bar Disappeared / Concluding..." with zero bar bounds while the needle is tracked.
+Frame 160 SHA256: `0DFAA119DDC3CC6E1EEF8D8AE024F40A44F1DB2CA38FBB33BBB84D146C437D4E`.
+Frame 172 SHA256: `4A491014D4AE0F9261CC7575294105F69DEEA7DBBB54B7689C5C12F0FABA78EB`.
+Negative variants erase the needle or progress meter. The worker replay resizes
+frame 160 to its test viewport and verifies reeling presses and a subsequent catch;
+this is simulated input verification, not a new live game run.

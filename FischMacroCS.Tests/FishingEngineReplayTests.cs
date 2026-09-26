@@ -8,6 +8,65 @@ namespace FischMacroCS.Tests;
 
 public class FishingEngineReplayTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChangedViewDuringOrAfterCatchAllowsProductiveFishing(bool changeAfterCatch)
+    {
+        var clock = new Clock();
+        var input = new Input(clock);
+        using var texture = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        using var other = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        var rng = new RNG(123); rng.Fill(texture, DistributionType.Uniform, 0, 255);
+        rng.Fill(other, DistributionType.Uniform, 0, 255);
+        using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "reel_active_recovery_21.png"));
+        using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "reel_catch_live.png"));
+        FishingEngine? engine = null;
+        bool resumed = false;
+        long? firstCatchAt = null;
+        Mat Render()
+        {
+            var frame = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.All(20));
+            var area = new Rect(0, (int)(Desktop.Height * .44), Desktop.Width, (int)(Desktop.Height * .29));
+            if (engine!.TotalCatches > 0) firstCatchAt ??= clock.Timestamp;
+            bool changed = changeAfterCatch ? firstCatchAt.HasValue : clock.Timestamp >= 5000;
+            using var source = new Mat(changed ? other : texture, area);
+            using var destination = new Mat(frame, area);
+            Cv2.CvtColor(source, destination, ColorConversionCodes.GRAY2BGR);
+            bool nextReel = changeAfterCatch && firstCatchAt.HasValue &&
+                clock.Timestamp - firstCatchAt.Value >= 6000 && clock.Timestamp - firstCatchAt.Value < 10000;
+            if (clock.Timestamp < 10000 || nextReel || engine.CurrentState == MacroState.PostCatch)
+            {
+                var strip = clock.Timestamp < 10000 || nextReel ? reel : caught;
+                using var target = new Mat(frame, new Rect((frame.Width - strip.Width) / 2, 1015, strip.Width, strip.Height));
+                strip.CopyTo(target);
+            }
+            int left = Desktop.Width / 2 - (69 * 8 + 68) / 2;
+            for (int i = 0; i < 9; i++)
+                Cv2.Rectangle(frame, new Rect(left + i * 69, Desktop.Height - 70, 68, 68), i == 0 ? Scalar.White : Scalar.All(60), 1);
+            return frame;
+        }
+        using var frames = new Frames(Render, clock);
+        using var running = engine = new FishingEngine(new Settings { EnableRecording = false,
+            EnableAutoClaimAquarium = false, EnableAntiAfk = false, EnableWatchdogRecovery = false,
+            ShakeMode = "Disabled" }, frames, frames, clock: clock, desktop: new Desktop(), hardware: input);
+        clock.Tick = () =>
+        {
+            int targetCatches = changeAfterCatch ? 2 : 1;
+            if (engine.TotalCatches >= targetCatches && engine.CurrentState == MacroState.Casting) { resumed = true; engine.Stop(); }
+            if (clock.Timestamp > 26000) engine.Stop();
+        };
+        engine.Start();
+        try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(30)); }
+        finally { engine.Stop(); }
+        Assert.Null(engine.PauseReason);
+        Assert.True(resumed);
+        Assert.Equal(changeAfterCatch ? 2 : 1, engine.TotalCatches);
+        Assert.False(input.Held);
+        Assert.Empty(input.HeldKeys);
+        Assert.Equal(0, engine.WatchdogRecoveryCount);
+    }
+
     [Fact]
     public async Task PersistentViewChangeStopsAndReleasesInputsWithoutWalking()
     {
@@ -274,6 +333,7 @@ public class FishingEngineReplayTests
     [InlineData("crates-overlay")]
     [InlineData("aquarium-overlay")]
     [InlineData("compact-reel")]
+    [InlineData("cyan-reel")]
     [InlineData("companion-bonus")]
     [InlineData("maximized-catch")]
     [InlineData("stacked-catch")]
@@ -350,9 +410,12 @@ public class FishingEngineReplayTests
             input.RejectRemaining = scenario == "reject-up-twice" ? 2 : 1;
         }
         using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
-            scenario == "compact-reel" ? "reel_live_false_exit.png" : "reel_active_recovery_21.png"));
+            scenario == "cyan-reel" ? "reel_cyan_left.png" : scenario == "compact-reel" ? "reel_live_false_exit.png" : "reel_active_recovery_21.png"));
         using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
             scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
+        if (scenario == "cyan-reel")
+            Cv2.Resize(reel, reel, new Size((int)Math.Round(reel.Width * Desktop.Height / 1369.0),
+                (int)Math.Round(reel.Height * Desktop.Height / 1369.0)));
         if (scenario == "maximized-catch")
             Cv2.Resize(caught, caught, new Size((int)Math.Round(caught.Width * Desktop.Height / 1369.0), (int)Math.Round(caught.Height * Desktop.Height / 1369.0)));
         using var shakeStream = typeof(FishingEngine).Assembly.GetManifestResourceStream("FischMacroCS.Assets.shake_template.png")!;
@@ -371,6 +434,7 @@ public class FishingEngineReplayTests
         int geometryInputStart = -1;
         int prematureCasts = 0;
         int castPresses = 0;
+        int cyanReelPresses = 0;
         bool recoveredStall = false;
         bool workflowInputError = scenario is "crates-input-error" or "aquarium-input-error";
         bool workflowStop = scenario is "crates-stop" or "aquarium-stop";
@@ -512,6 +576,7 @@ public class FishingEngineReplayTests
             void Paste(Mat source)
             {
                 int top = (scenario == "compact-reel" && ReferenceEquals(source, reel)) || (scenario is "maximized-catch" or "stacked-catch" && ReferenceEquals(source, caught)) ? 1001 : 1015;
+                if (scenario == "cyan-reel" && ReferenceEquals(source, reel)) top = (int)Math.Round(1013 * Desktop.Height / 1369.0);
                 using var target = new Mat(full, new Rect((full.Width-source.Width)/2, top, source.Width, source.Height));
                 source.CopyTo(target);
             }
@@ -599,6 +664,7 @@ public class FishingEngineReplayTests
                 t.Dispose();
             };
             input.AfterDown = (x,y) => {
+                if (scenario == "cyan-reel" && engine.CurrentState == MacroState.Reeling) cyanReelPresses++;
                 if (engine.CurrentState == MacroState.Casting && !sawReel) castPresses++;
                 if (reconnectScenario && clock.Timestamp < unavailableUntil)
                 {
@@ -837,6 +903,7 @@ public class FishingEngineReplayTests
                 return;
             }
             Assert.True(sawLure && sawReel && sawPostCatch && nextCast, $"States: {string.Join(',', states)}; clock={clock.Timestamp}; action={lastAction}");
+            if (scenario == "cyan-reel") Assert.True(cyanReelPresses > 0, "The worker must control the cyan bar, not merely wait for the replay catch.");
             Assert.Equal(catchVisible ? (workflowScenario ? 2 : run) : 0, engine.TotalCatches);
             Assert.Equal(!catchVisible || stallScenario ? 1 : 0, engine.UnknownCatches);
             Assert.Equal(0, engine.TotalFails);

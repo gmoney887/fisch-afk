@@ -148,19 +148,50 @@ public static partial class Win32
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, [MarshalAs(UnmanagedType.Bool)] bool fAttach);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
 
     public static void ForceSetForegroundWindow(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero) return;
+        if (IsIconic(hWnd))
+        {
+            ShowWindowAsync(hWnd, SW_RESTORE);
+        }
+
         IntPtr fgWnd = GetForegroundWindow();
         if (fgWnd == hWnd) return;
 
-        // Do not join the worker's input queue to another UI thread. Foreground
-        // activation can otherwise block behind that thread during diagnostics.
-        // Callers must verify focus and pause if Windows denies activation.
-        SetForegroundWindow(hWnd);
+        uint fgThread = GetWindowThreadProcessId(fgWnd, out _);
+        uint curThread = GetCurrentThreadId();
+
+        if (fgThread != 0 && fgThread != curThread)
+        {
+            AttachThreadInput(curThread, fgThread, true);
+            BringWindowToTop(hWnd);
+            ShowWindow(hWnd, SW_SHOW);
+            SetForegroundWindow(hWnd);
+            AttachThreadInput(curThread, fgThread, false);
+        }
+        else
+        {
+            BringWindowToTop(hWnd);
+            ShowWindow(hWnd, SW_SHOW);
+            SetForegroundWindow(hWnd);
+        }
+
+        if (GetForegroundWindow() != hWnd)
+        {
+            // Windows grants foreground activation rights upon receiving user input
+            keybd_event(0x12 /* VK_MENU */, 0, 0, 0);
+            keybd_event(0x12 /* VK_MENU */, 0, KEYEVENTF_KEYUP, 0);
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+        }
     }
 
     [DllImport("user32.dll")]
@@ -829,6 +860,7 @@ public static partial class Win32
     public const uint SWP_SHOWWINDOW = 0x0040;
     public const uint SWP_NOACTIVATE = 0x0010;
     public const int SW_RESTORE = 9;
+    public const int SW_SHOW = 5;
     public const uint SPI_GETWORKAREA = 0x0030;
 
     [DllImport("user32.dll", SetLastError = true)]

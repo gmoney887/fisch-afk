@@ -69,6 +69,25 @@ public class AutomationRuntimeTests
         budget.ConfirmProgress(); Assert.True(budget.TryBegin());
     }
     [Fact]
+    public void RecoveryBudgetResetsAttemptsAfterCooldownWindow()
+    {
+        var clock = new FakeClock();
+        var budget = new RecoveryBudget(clock, cooldownMs: 60000);
+        Assert.True(budget.TryBegin());
+        Assert.True(budget.TryBegin());
+        Assert.True(budget.TryBegin());
+        Assert.False(budget.TryBegin());
+
+        // Advance 30 seconds (still within cooldown)
+        clock.Delay(30000, default);
+        Assert.False(budget.TryBegin());
+
+        // Advance another 35 seconds (total 65s > 60s cooldown)
+        clock.Delay(35000, default);
+        Assert.True(budget.TryBegin());
+        Assert.Equal(1, budget.Attempts);
+    }
+    [Fact]
     public async Task CoordinatorSerializesRequestsOnOneOwner()
     {
         using var coordinator = new AutomationCoordinator();

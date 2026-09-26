@@ -39,10 +39,11 @@ class Program
             {
                 Pump();
                 using var frame = capture.CaptureClientRegion(target, 30, 30, 40, 40);
+                if (frame == null || frame.Empty()) continue;
                 using var hsv = new Mat(); using var mask = new Mat();
-                Cv2.CvtColor(frame!, hsv, ColorConversionCodes.BGR2HSV);
+                Cv2.CvtColor(frame, hsv, ColorConversionCodes.BGR2HSV);
                 Cv2.InRange(hsv, new Scalar(0, 200, 200), new Scalar(5, 255, 255), mask);
-                red = Cv2.CountNonZero(mask) > frame!.Total() * .95;
+                red = Cv2.CountNonZero(mask) > frame.Total() * .95;
             } while (!red && DateTime.UtcNow < deadline);
             if (!red) throw new Exception("Excluded overlay did not reveal underlying red scene to BitBlt.");
             if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Dashboard not physically on top.");

@@ -6,6 +6,64 @@ namespace FischMacroCS.Tests;
 public class AquariumWorkflowTests
 {
     [Fact]
+    public void BlueSceneryNavigationCanCompleteVerifiedOpenClaimAndClose()
+    {
+        using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_blue_1369.png"));
+        using var closed = new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black);
+        using (var region = new Mat(closed, new Rect(closed.Width / 2 - 230, 0, strip.Width, strip.Height))) strip.CopyTo(region);
+        int stage = 0;
+        var clicks = new List<string>();
+        Mat Capture() => stage is 0 or 3 ? closed.Clone() : Frame(stage == 1 ? 4 : 5, 1369, 3440);
+        void Click(Point point)
+        {
+            if (point.Y < 70) { clicks.Add("open"); stage = 1; }
+            else if (point.Y < 250) { clicks.Add("close"); stage = 3; }
+            else { clicks.Add("claim"); stage = 2; }
+        }
+        var clock = new Clock();
+        using var vision = Vision();
+        var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
+        Assert.Equal(new[] { "open", "claim", "close" }, clicks);
+        Assert.Equal(ActionOutcome.ConfirmedSuccess, result.Outcome);
+        Assert.True(result.RewardClaimed);
+    }
+
+    [Theory]
+    [InlineData("aquarium_nav_blue_1369.png")]
+    [InlineData("aquarium_nav_blue_00001702.png")]
+    [InlineData("aquarium_nav_blue_00001706.png")]
+    public void BlueSceneryBehindTranslucentNavigationDoesNotHideItsLettering(string fixture)
+    {
+        using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+        using var frame = new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black);
+        using (var region = new Mat(frame, new Rect(frame.Width / 2 - 230, 0, strip.Width, strip.Height))) strip.CopyTo(region);
+        using var vision = Vision();
+        var match = vision.Find(frame, AquariumWorkflow.Navigation);
+        Assert.True(match.Found, $"{fixture}: {match.Confidence}");
+        Assert.True(match.Confidence >= AquariumWorkflow.Navigation.MinimumConfidence);
+        Assert.InRange(match.Center.X, 1820, 1830);
+        Assert.InRange(match.Center.Y, 27, 37);
+    }
+
+    [Theory]
+    [InlineData(181)] // Menu label from the same captured top bar.
+    [InlineData(75)] // Shop label.
+    [InlineData(-1)] // Blue background without lettering.
+    public void BlueSceneryOrOtherNavigationLabelsAreNotAquarium(int sourceX)
+    {
+        using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_blue_1369.png"));
+        using (var button = new Mat(strip, new Rect(287, 23, 99, 18)))
+        {
+            if (sourceX < 0) button.SetTo(new Scalar(110, 65, 20));
+            else { using var source = new Mat(strip, new Rect(sourceX, 23, 99, 18)); source.CopyTo(button); }
+        }
+        using var frame = new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black);
+        using (var region = new Mat(frame, new Rect(frame.Width / 2 - 230, 0, strip.Width, strip.Height))) strip.CopyTo(region);
+        using var vision = Vision();
+        Assert.False(vision.Find(frame, AquariumWorkflow.Navigation).Found);
+    }
+
+    [Fact]
     public void FailedLiveSessionNavigationIsRecognizedWithoutLoweringConfidence()
     {
         using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_1369.png"));

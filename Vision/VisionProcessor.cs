@@ -114,6 +114,11 @@ public class VisionProcessor
         if (!result.BarFound && result.HasLiveReel)
         {
             var dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight);
+            // The recorded cyan rendering keeps the default fish needle and progress
+            // meter. Recover its bar separately so blue scenery cannot broaden the
+            // normal white-bar mask or lock automatic calibration to another theme.
+            if (!dimBar.HasValue && result.ReelProgressFound)
+                dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight, cyan: true);
             if (dimBar is Rect bar)
             {
                 result.BarFound = true;
@@ -166,20 +171,32 @@ public class VisionProcessor
         return false;
     }
 
-    private static Rect? DetectDimReelBar(Mat track, int offsetY, double viewportHeight)
+    private static Rect? DetectDimReelBar(Mat track, int offsetY, double viewportHeight, bool cyan = false)
     {
         using var hsv = new Mat();
         using var mask = new Mat();
         Cv2.CvtColor(track, hsv, ColorConversionCodes.BGR2HSV);
-        Cv2.InRange(hsv, new Scalar(5, 35, 45), new Scalar(35, 140, 160), mask);
+        if (cyan)
+            Cv2.InRange(hsv, new Scalar(90, 80, 130), new Scalar(110, 190, 255), mask);
+        else
+            Cv2.InRange(hsv, new Scalar(5, 35, 45), new Scalar(35, 140, 160), mask);
         int kernelSize = Math.Max(3, (int)Math.Round(viewportHeight * .0035));
         using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kernelSize, kernelSize));
         Cv2.MorphologyEx(mask, mask, MorphTypes.Open, kernel);
+        if (cyan)
+        {
+            // Bridge the narrow fish needle through the colored control bar.
+            using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+                new Size(Math.Max(3, (int)Math.Round(viewportHeight * .032)), kernelSize));
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, bridge);
+        }
         Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
         Rect? candidate = null;
         foreach (var contour in contours)
         {
             var box = Cv2.BoundingRect(contour);
+            if (cyan && (box.Left <= 0 || box.Top <= 0 || box.Right >= track.Width || box.Bottom >= track.Height))
+                continue;
             double centerY = offsetY + box.Y + box.Height / 2.0;
             if (box.Width < viewportHeight * .03 || box.Width > viewportHeight * .9
                 || box.Height < viewportHeight * .028 || box.Height > viewportHeight * .075
@@ -229,18 +246,33 @@ public class VisionProcessor
             // The center-anchored reel fits inside this ROI even at its extremes.
             // A clipped shape cannot establish a complete control bar: bright
             // scenery at the capture edge otherwise keeps re-entering Reeling.
-            if (rect.Left <= 0 || rect.Top <= 0 || rect.Right >= cropW || rect.Bottom >= cropH)
+            if (rect.Left <= 0 || rect.Top <= 0 || rect.Right >= cropW)
                 continue;
-            // Height and width bounds isolate minigame bar
-            if (rect.Height >= minBarH && rect.Height <= maxBarH && rect.Width >= minBarW && rect.Width <= maxBarW)
-            {
-                double bboxArea = rect.Width * rect.Height;
-                double cntArea = Cv2.ContourArea(cnt);
-                double solidity = bboxArea > 0 ? (cntArea / bboxArea) : 0;
 
-                // Solid rectangular catch bar has solidity >= 0.70.
+            RotatedRect minRect = Cv2.MinAreaRect(cnt);
+            double rotW = Math.Max(minRect.Size.Width, minRect.Size.Height);
+            double rotH = Math.Min(minRect.Size.Width, minRect.Size.Height);
+            double rotArea = rotW * rotH;
+            double bboxArea = rect.Width * rect.Height;
+            double cntArea = Cv2.ContourArea(cnt);
+            double aaSolidity = bboxArea > 0 ? (cntArea / bboxArea) : 0;
+            double rotSolidity = rotArea > 0 ? (cntArea / rotArea) : 0;
+            double effectiveSolidity = Math.Max(aaSolidity, rotSolidity);
+
+            // If clipped at the bottom of the track slice, reject only if neither axis-aligned
+            // nor rotated geometry can establish a bounded control bar (e.g. extending scenery).
+            if (rect.Bottom >= cropH && rect.Height > maxBarH && rotH > maxBarH)
+                continue;
+
+            // Height and width bounds isolate minigame bar (supporting tilted bars from screen shake)
+            bool sizeMatches = (rect.Height >= minBarH && rect.Height <= maxBarH && rect.Width >= minBarW && rect.Width <= maxBarW)
+                            || (rotH >= minBarH && rotH <= maxBarH && rotW >= minBarW && rotW <= maxBarW);
+
+            if (sizeMatches)
+            {
+                // Solid rectangular catch bar has solidity >= 0.70 (or rotated solidity >= 0.60 when tilted during screen shake).
                 // Floating text notifications (e.g. catch banner) and splashes have solidity < 0.55.
-                if (solidity < 0.60)
+                if (effectiveSolidity < 0.60)
                     continue;
 
                 if (bboxArea > maxArea)

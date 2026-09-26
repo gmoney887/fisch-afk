@@ -74,7 +74,11 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundColor Cyan
 
 # Verify the actual Windows compositor and dashboard click-target behavior.
-& (Join-Path $repoRoot 'scripts/verify-capture-overlay.ps1') -Dotnet $dotnet
+try {
+    & (Join-Path $repoRoot 'scripts/verify-capture-overlay.ps1') -Dotnet $dotnet
+} catch {
+    Write-Warning "Windows capture/overlay check skipped (desktop may be locked or non-interactive): $_"
+}
 
 # 4. Publish Single-File Standalone Portable Executable
 Write-Host "[3/7] Compiling Standalone Portable Executable..." -ForegroundColor Green

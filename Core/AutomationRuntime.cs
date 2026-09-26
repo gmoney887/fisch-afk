@@ -55,10 +55,40 @@ public sealed class CatchOutcomeTracker
 /// <summary>Limit each recovery burst; verified progress or a cooldown permits another burst.</summary>
 public sealed class RecoveryBudget
 {
+    private readonly IClock? _clock;
+    private readonly double _cooldownMs;
+    private long? _lastAttemptTicks;
+
+    public RecoveryBudget(IClock? clock = null, double cooldownMs = 60000)
+    {
+        _clock = clock;
+        _cooldownMs = cooldownMs;
+    }
+
     public int Attempts { get; private set; }
-    public bool TryBegin() { if (Attempts >= 3) return false; Attempts++; return true; }
-    public void ConfirmProgress() => Attempts = 0;
-    public void ResetAfterCooldown() => Attempts = 0;
+
+    public bool TryBegin()
+    {
+        if (_clock != null && _lastAttemptTicks.HasValue)
+        {
+            if (_clock.ElapsedMilliseconds(_lastAttemptTicks.Value) >= _cooldownMs)
+            {
+                Attempts = 0;
+            }
+        }
+        if (Attempts >= 3) return false;
+        Attempts++;
+        if (_clock != null) _lastAttemptTicks = _clock.Timestamp;
+        return true;
+    }
+
+    public void ConfirmProgress()
+    {
+        Attempts = 0;
+        _lastAttemptTicks = null;
+    }
+
+    public void ResetAfterCooldown() => ConfirmProgress();
 }
 
 /// <summary>One owner for all workflows. Nested calls stay on the owner thread.</summary>

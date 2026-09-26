@@ -958,6 +958,14 @@ public partial class MainWindow : Window
             return;
         }
 
+        IntPtr roblox = Win32.FindRobloxWindow();
+        if (roblox == IntPtr.Zero)
+        {
+            MessageBox.Show("Roblox window was not found. Please launch Roblox and join Fisch first.", "Claim Aquarium", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        Win32.ForceSetForegroundWindow(roblox);
+
         var btn = sender as Button;
         string origContent = btn?.Content?.ToString() ?? "Claim";
         if (btn != null)
@@ -1323,6 +1331,14 @@ public partial class MainWindow : Window
             if (BtnTestOpenCrates != null) BtnTestOpenCrates.Content = "Stopping...";
             return;
         }
+
+        IntPtr roblox = Win32.FindRobloxWindow();
+        if (roblox == IntPtr.Zero)
+        {
+            MessageBox.Show("Roblox window was not found. Please launch Roblox and join Fisch first.", "Open Crates", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        Win32.ForceSetForegroundWindow(roblox);
 
         int maxTypes = 25;
         if (int.TryParse(TxtCrateMaxTypes?.Text, out int m) && m >= 0 && m <= 999) maxTypes = m;
