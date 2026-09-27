@@ -76,7 +76,7 @@ public class Settings
     // Auto Crate Opener ('G' Equipment Menu)
     public bool EnableAutoOpenCrates { get; set; } = false;
     public int CrateIntervalCatches { get; set; } = 15;
-    public int CrateMaxTypes { get; set; } = 0; // 0 = All crates until empty
+    public int CrateMaxTypes { get; set; } = 0; // Maximum stack-opening batches; 0 = until empty (safety limit 999 batches)
     public int CrateStartSlot { get; set; } = 2;
     public int CrateEndSlot { get; set; } = 7;
     public int CrateSecondsPerSlot { get; set; } = 5;

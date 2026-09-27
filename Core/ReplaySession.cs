@@ -82,7 +82,8 @@ public sealed class ReplaySession
         // PC/session provenance travels with every fixture. Never split neighboring frames independently.
         Directory.CreateDirectory(destination);
         string stem = SessionId + "_" + Path.GetFileNameWithoutExtension(frame.File);
-        File.Copy(Path.Combine(DirectoryPath, frame.File), Path.Combine(destination, stem + ".png"), true);
+        using (var image = Cv2.ImRead(Path.Combine(DirectoryPath, frame.File)))
+            Cv2.ImWrite(Path.Combine(destination, stem + ".png"), image);
         File.WriteAllText(Path.Combine(destination, stem + ".json"), JsonSerializer.Serialize(new
         {
             SchemaVersion = 1, SessionId, PcId, PartitionGroup = PcId == "unknown" ? SessionId : PcId,

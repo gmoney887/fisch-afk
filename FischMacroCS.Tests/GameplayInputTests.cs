@@ -11,6 +11,7 @@ public class GameplayInputTests
         public bool RejectNextKeyRelease { get; set; }
         public string? RejectedMouseOperation { get; set; }
         public int RejectedRightReleases { get; set; }
+        public Action<byte, uint>? KeyEdge { get; set; }
         private void Mouse(string operation)
         {
             Events.Add(operation);
@@ -34,6 +35,7 @@ public class GameplayInputTests
         public void keybd_event(byte key, byte scan, uint flags, int extra)
         {
             Events.Add($"key:{key}:{flags}");
+            KeyEdge?.Invoke(key, flags);
             if (flags == Win32.KEYEVENTF_KEYUP && RejectNextKeyRelease)
             { RejectNextKeyRelease = false; throw new GameplayInterruptedException("Input rejected"); }
         }
@@ -123,4 +125,64 @@ public class GameplayInputTests
         Assert.Throws<OperationCanceledException>(() => input.SendHardwareClick(100, 100, 10, 10, (IntPtr)1));
         Assert.Equal(new[] { "move", "down", "up:1:10:10" }, hardware.Events);
     }
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("carp", false)]
+    [InlineData("crates", true)]
+    [InlineData("old saved search", true)]
+    [InlineData("cratecrate", true)]
+    public void ReplacingSavedSingleLineTextWorksEvenWhenControlAIsIgnored(string saved, bool ignoreControlA)
+    {
+        string text = saved;
+        int caret = saved.Length / 2, anchor = caret;
+        bool control = false, shift = false;
+        var hardware = new Hardware();
+        hardware.KeyEdge = (key, flags) =>
+        {
+            bool down = flags == 0;
+            if (key == 0x11) { control = down; return; }
+            if (key == 0x10) { shift = down; return; }
+            if (!down) return;
+            if (key == 0x41 && control)
+            {
+                if (!ignoreControlA) { anchor = 0; caret = text.Length; }
+                return;
+            }
+            if (key is 0x24 or 0x23)
+            {
+                caret = key == 0x24 ? 0 : text.Length;
+                if (!shift) anchor = caret;
+                return;
+            }
+            int left = Math.Min(caret, anchor), length = Math.Abs(caret - anchor);
+            if (length > 0) { text = text.Remove(left, length); caret = anchor = left; }
+            if (key == 8)
+            {
+                if (length == 0 && caret > 0) { text = text.Remove(caret - 1, 1); caret--; }
+            }
+            else { text = text.Insert(caret, char.ToLowerInvariant((char)key).ToString()); caret++; }
+            anchor = caret;
+        };
+        var input = new GameplayInput(() => { }, _ => { }, hardware: hardware);
+        for (int pass = 0; pass < 2; pass++)
+        {
+            input.SelectAllAndClear();
+            Assert.Equal("", text);
+            input.SendKeyString("crate");
+            Assert.Equal("crate", text);
+        }
+        Assert.False(control);
+        Assert.False(shift);
+    }
+
+    [Fact]
+    public void CancellationDuringFallbackSelectionReleasesShift()
+    {
+        bool shiftHeld = false;
+        var hardware = new Hardware { KeyEdge = (key, flags) => { if (key == 0x10) shiftHeld = flags == 0; } };
+        var input = new GameplayInput(() => { }, _ => { if (shiftHeld) throw new OperationCanceledException(); }, hardware: hardware);
+        Assert.Throws<OperationCanceledException>(() => input.SelectAllAndClear());
+        Assert.False(shiftHeld);
+    }
+
 }

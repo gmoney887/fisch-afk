@@ -35,7 +35,7 @@ public sealed class FlightRecorder : IDisposable
         _baseDir = customDir ?? AppDataPaths.FilePath("recordings");
         MaxRecordingsToKeep = maxRecordings;
     }
-    public void StartSession(int frameWidth, int frameHeight, object? metadata = null)
+    public void StartSession(int frameWidth, int frameHeight, object? metadata = null, bool demonstration = false)
     {
         StopSession();
         // Reserve the active session's worst-case frame/journal footprint before accepting it.
@@ -58,8 +58,9 @@ public sealed class FlightRecorder : IDisposable
                 AppVersion = typeof(FlightRecorder).Assembly.GetName().Version?.ToString(),
                 DetectorVersion = "2", StartedUtc = DateTime.UtcNow, MonotonicStart = started,
                 TimestampFrequency = Stopwatch.Frequency, Width = frameWidth, Height = frameHeight,
+                Demonstration = demonstration,
                 Metadata = JsonSerializer.SerializeToElement(metadata, Json), Privacy = "Raw gameplay may contain player names and chat. Review before sharing." };
-            _writer = Task.Run(() => WriteSession(queue, directory, manifest, started));
+            _writer = Task.Run(() => WriteSession(queue, directory, manifest, started, demonstration));
             _writers.RemoveAll(t => t.IsCompleted);
             _writers.Add(_writer);
         }
@@ -110,7 +111,7 @@ public sealed class FlightRecorder : IDisposable
         }
     }
     private readonly ConcurrentDictionary<BlockingCollection<Entry>, (string Outcome, long Dropped, object? Statistics, long End)> _completion = new();
-    private void WriteSession(BlockingCollection<Entry> queue, string directory, object manifest, long start)
+    private void WriteSession(BlockingCollection<Entry> queue, string directory, object manifest, long start, bool demonstration)
     {
         try
         {
@@ -127,6 +128,8 @@ public sealed class FlightRecorder : IDisposable
             long firstIncidentUntil = 0;
             bool firstIncidentSeen = false;
             int successes = 0;
+            long demonstrationBytes = 0;
+            bool demonstrationFull = false;
             foreach (var entry in queue.GetConsumingEnumerable())
             {
                 var data = JsonSerializer.SerializeToElement(entry.Data, Json);
@@ -158,13 +161,34 @@ public sealed class FlightRecorder : IDisposable
                 using (entry.Frame)
                 {
                     if (entry.Frame != null) Interlocked.Add(ref _queuedBytes, -(entry.Frame.Total() * entry.Frame.ElemSize()));
-                    string? filename = entry.Frame == null ? null : $"frame_{entry.Id:D8}.png";
+                    string? filename = entry.Frame == null || demonstrationFull ? null
+                        : $"frame_{entry.Id:D8}." + (demonstration ? "jpg" : "png");
                     if (filename != null)
                     {
                         string path = Path.Combine(directory, filename);
-                        Cv2.ImWrite(path, entry.Frame!); frames++;
+                        if (demonstration) Cv2.ImWrite(path, entry.Frame!, new ImageEncodingParam(ImwriteFlags.JpegQuality, 95));
+                        else Cv2.ImWrite(path, entry.Frame!);
+                        frames++;
                         long bytes = new FileInfo(path).Length;
-                        if (entry.Timestamp <= preserveUntil) preserved.Add(path, entry.Timestamp, bytes, entry.Timestamp <= failureUntil,
+                        if (demonstration)
+                        {
+                            // Manual demonstrations retain their beginning. End the session at
+                            // the budget instead of silently recycling the steps being taught.
+                            demonstrationBytes += bytes;
+                            if (demonstrationBytes >= 200L * 1024 * 1024 || entry.Timestamp - start >= 600 * Stopwatch.Frequency)
+                            {
+                                demonstrationFull = true;
+                                lock (_gate)
+                                {
+                                    if (ReferenceEquals(_queue, queue))
+                                    {
+                                        LastError = "Demonstration recording reached its storage or 10-minute limit; all preceding frames were retained.";
+                                        StopSession("Demonstration limit reached");
+                                    }
+                                }
+                            }
+                        }
+                        else if (entry.Timestamp <= preserveUntil) preserved.Add(path, entry.Timestamp, bytes, entry.Timestamp <= failureUntil,
                             firstIncidentSeen && entry.Timestamp <= firstIncidentUntil);
                         else { rolling.Enqueue((path, entry.Timestamp, bytes)); rollingBytes += bytes; }
                         while (rolling.TryPeek(out var old) && (entry.Timestamp - old.Timestamp > 15 * Stopwatch.Frequency || rolling.Count > 165 || rollingBytes > 64L * 1024 * 1024))

@@ -2,7 +2,7 @@ using FischMacroCS.Native;
 
 namespace FischMacroCS.Core;
 
-internal static class GameplayStartup
+public static class GameplayStartup
 {
     // Restoring a minimized window and foreground activation are asynchronous.
     // This grace period is only for startup; input-time focus checks remain strict.

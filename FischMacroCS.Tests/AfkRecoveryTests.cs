@@ -114,7 +114,8 @@ public class AfkRecoveryTests
     {
         Assert.Equal(IntPtr.Size == 8 ? 40 : 28, Marshal.SizeOf<Win32.KEYBOARDINPUT>());
         var input = Win32.KeyboardInput(0x7E, Win32.KEYEVENTF_KEYUP);
-        Assert.Equal(1u, input.type); Assert.Equal(0x7E, input.data.keyboard.wVk);
-        Assert.Equal(Win32.KEYEVENTF_KEYUP, input.data.keyboard.dwFlags);
+        Assert.Equal(1u, input.type); Assert.Equal(0, input.data.keyboard.wVk);
+        Assert.Equal(Win32.KEYEVENTF_KEYUP | 8u, input.data.keyboard.dwFlags);
+        Assert.NotEqual(0, input.data.keyboard.wScan);
     }
 }

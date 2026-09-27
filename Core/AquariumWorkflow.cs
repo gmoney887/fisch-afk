@@ -20,39 +20,77 @@ public static class AquariumWorkflow
         var missing = vision.MissingTemplates(TemplateNames);
         if (missing.Length > 0)
             return new(ActionOutcome.Unknown, "Automation unavailable: reviewed visual templates are missing (" + string.Join(", ", missing) + ").");
+        bool Stable(Func<Mat, bool> predicate)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                using var frame = capture();
+                if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid aquarium capture.");
+                if (!predicate(frame)) return false;
+                if (i == 0) delay(100);
+            }
+            return true;
+        }
+        bool Panel(Mat frame) => vision.Find(frame, Claim).Found && vision.Find(frame, Close).Found;
         var workflow = new VerifiedWorkflow(clock, vision, capture, delay, evidence);
-        bool attemptedOpen = false;
-        var opened = workflow.Run([new("Open aquarium", Navigation, Claim,
-            point => { attemptedOpen = true; click(point); }, TimeoutMs: 5000)], cancellation);
+        bool alreadyOpen = Stable(Panel);
+        var opened = alreadyOpen
+            ? new WorkflowResult(ActionOutcome.ConfirmedSuccess, "Existing aquarium panel confirmed")
+            : workflow.Run([new("Open aquarium", Navigation, Claim,
+                click, TimeoutMs: 5000)], cancellation);
         if (opened.Outcome != ActionOutcome.ConfirmedSuccess)
         {
-            if (attemptedOpen) return opened;
-            using var latest = capture();
-            // A manually opened aquarium is not a harmless missing-navigation case.
-            bool panelAbsent = latest != null && !latest.Empty() && !vision.Find(latest, Claim).Found && !vision.Find(latest, Close).Found;
-            return opened with { RetryableWithoutRecovery = panelAbsent };
+            var cleanup = ClosePanel(clock, vision, capture, delay, click, cancellation, evidence);
+            return opened with { RetryableWithoutRecovery = cleanup.Outcome == ActionOutcome.ConfirmedSuccess };
         }
 
-        bool empty = true;
-        for (int i = 0; i < 2; i++)
-        {
-            cancellation.ThrowIfCancellationRequested();
-            using var frame = capture();
-            if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid aquarium capture.");
-            empty &= vision.Find(frame, Claim).Found && vision.Find(frame, EmptyBalance).Found;
-            if (i == 0) delay(100);
-        }
+        bool empty = Stable(frame => vision.Find(frame, Claim).Found && vision.Find(frame, EmptyBalance).Found);
         var claimed = empty
             ? new WorkflowResult(ActionOutcome.ConfirmedSuccess, "No unclaimed aquarium rewards")
             : workflow.Run([new("Claim reward", Claim, EmptyBalance, click, 5000)], cancellation);
 
         // Close even after an unconfirmed claim, but only through a freshly detected close button.
         // Cancellation/focus loss still propagates without issuing further input.
-        var closed = workflow.Run([new("Close aquarium", Close, Claim, click, ExpectedPresent: false)], cancellation);
+        var closed = ClosePanel(clock, vision, capture, delay, click, cancellation, evidence, requireCloseAction: true);
         if (closed.Outcome != ActionOutcome.ConfirmedSuccess) return closed;
-        if (claimed.Outcome != ActionOutcome.ConfirmedSuccess) return claimed;
+        if (claimed.Outcome != ActionOutcome.ConfirmedSuccess)
+            return claimed with { RetryableWithoutRecovery = true };
         return new(ActionOutcome.ConfirmedSuccess, empty
             ? "No unclaimed aquarium rewards; aquarium closure confirmed"
             : "Aquarium balance cleared after claim; aquarium closure confirmed", RewardClaimed: !empty);
     }
+
+    public static WorkflowResult ClosePanel(IClock clock, IWorkflowVision vision, Func<Mat?> capture,
+        Action<int> delay, Action<Point> click, CancellationToken cancellation, Action<string>? evidence = null,
+        bool requireCloseAction = false)
+    {
+        bool clicked = false;
+        int absent = 0, closeMatches = 0;
+        long start = clock.Timestamp;
+        do
+        {
+            cancellation.ThrowIfCancellationRequested();
+            using var frame = capture();
+            if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid aquarium cleanup capture.");
+            var close = vision.Find(frame, Close);
+            bool claim = vision.Find(frame, Claim).Found;
+            absent = !close.Found && !claim ? absent + 1 : 0;
+            // Claim animations can temporarily obscure both controls. Once we
+            // opened the panel, absence alone cannot prove that we closed it.
+            if (absent >= 2 && (!requireCloseAction || clicked))
+                return new(ActionOutcome.ConfirmedSuccess, "Aquarium panel closure confirmed");
+            closeMatches = close.Found ? closeMatches + 1 : 0;
+            if (closeMatches >= 2 && !clicked)
+            {
+                cancellation.ThrowIfCancellationRequested();
+                click(close.Center);
+                clicked = true;
+                evidence?.Invoke("Closing aquarium before resuming fishing");
+            }
+            delay(100);
+        } while (clock.ElapsedMilliseconds(start) < (requireCloseAction ? 8000 : 3000));
+        return new(ActionOutcome.Unknown, "Aquarium panel closure was not fully confirmed");
+    }
+
 }

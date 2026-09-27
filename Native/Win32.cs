@@ -379,8 +379,19 @@ public static partial class Win32
     public struct KEYBOARDINPUT { public uint type; public INPUTUNION data; }
     [DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)]
     private static extern uint SendKeyboardInput(uint count, [In] KEYBOARDINPUT[] inputs, int size);
-    public static KEYBOARDINPUT KeyboardInput(byte key, uint flags) => new()
-    { type = 1, data = new INPUTUNION { keyboard = new KEYBDINPUT { wVk = key, dwFlags = flags } } };
+    public static KEYBOARDINPUT KeyboardInput(byte key, uint flags)
+    {
+        // Game input needs a physical scan code; a VK-only event with scan=0
+        // can reach text controls while being ignored by gameplay bindings.
+        uint scan = MapVirtualKey(key, 4); // MAPVK_VK_TO_VSC_EX, including E0 prefix
+        bool extended = (scan & 0xFF00) is 0xE000 or 0xE100;
+        return new() { type = 1, data = new INPUTUNION { keyboard = new KEYBDINPUT
+        {
+            wVk = scan == 0 ? key : (ushort)0,
+            wScan = (ushort)(scan & 0xFF),
+            dwFlags = flags | (scan == 0 ? 0u : 0x0008u) | (extended ? 0x0001u : 0u)
+        } } };
+    }
     public static void SendKeyboardEvent(byte key, uint flags)
     {
         RequireInputAccepted(1, SendKeyboardInput(1, new[] { KeyboardInput(key, flags) }, Marshal.SizeOf<KEYBOARDINPUT>()), "keyboard");

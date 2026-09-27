@@ -8,6 +8,27 @@ namespace FischMacroCS.Tests;
 
 public class RecordingReplayTests : IDisposable
 {
+    [Fact]
+    public void DemonstrationKeepsEarlyFramesOutsideTheRollingWindow()
+    {
+        string session;
+        using (var recorder = new FlightRecorder(_root))
+        {
+            recorder.StartSession(100, 80, demonstration: true);
+            session = recorder.CurrentSessionDirectory!;
+            using var frame = new Mat(80, 100, MatType.CV_8UC3, Scalar.White);
+            // ROI cadence is 100 ms: exceed the ordinary 15-second retention
+            // without needing large images or an unbounded recording.
+            for (int i = 0; i < 155; i++)
+            {
+                recorder.RecordFrame(frame, new Rect(0, 0, 100, 80), new Rect(0, 0, 200, 160), 1);
+                Thread.Sleep(105);
+            }
+        }
+        Assert.True(File.Exists(Path.Combine(session, "frame_00000001.jpg")));
+        Assert.Equal(155, new ReplaySession(session).Frames.Count);
+    }
+
     [Theory]
     [InlineData("catch_stacked_rewards.png", true)]
     [InlineData("companion_bonus_only.png", false)]

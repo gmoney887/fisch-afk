@@ -70,3 +70,22 @@ Frame 172 SHA256: `4A491014D4AE0F9261CC7575294105F69DEEA7DBBB54B7689C5C12F0FABA7
 Negative variants erase the needle or progress meter. The worker replay resizes
 frame 160 to its test viewport and verifies reeling presses and a subsequent catch;
 this is simulated input verification, not a new live game run.
+# Crate workflow fixtures (2026-09-26)
+
+`crate_ui_14.png`, `crate_ui_15.png`, and `crate_ui_16.png` retain UI regions from
+the matching frames of local passive demonstration
+`session_20260918_210223_377_bf9e92419b4e4db79dbab0632e2fbb1e` (3440 x 1369).
+Other pixels are blacked out. These show selected inventory, quantity 1, and an
+unobstructed manually opened Quality Bait Crate reward respectively.
+
+`crate_wrong-filter.png`, `crate_quantity-two.png`, `crate_quantity-blank.png`, and
+`crate_fish-search.png` retain central UI regions from frames 9, 21, 33, and 5 of
+`session_20260918_190519_705_1b604b6d7aeb4bcfac19dfcd326bd8da` (3424 x 1353).
+The wrong-filter frame searches `crates`, which is deliberately NOT accepted as
+empty inventory. These are regression examples, not automated live acceptance.
+
+Current inventory fixtures preserve the UI band (1200,950,1020,419) on a 3440x1369 canvas. crate_inventory_current.png comes from the September 26 computer-control screenshot (title bar removed); crate_inventory_native.png comes from frame 5 of the local live-scan-attempt recording. Current header and search templates are native crops (1413,985,91,15) and (1725,1026,43,18). Other pixels are masked; these are two captures of the current layout, not independent resolution validation.
+
+Current reward fixture crate_reward_current.png retains (3100,960,324,100) from frame 7 of artifacts/live-fix6 (3424x1353). Current reward templates crop Opened (3220,984,59,20) and Crate (3348,982,54,21). crate_selected_current.png retains (1200,950,1020,403) from frame 2 of artifacts/live-fix7. These regression fixtures come from live app runs on September 26; all other pixels are masked.
+
+crate_reward_mutated.png and crate_reward_silver.png are masked reward-only regions from local September 27 crate retries (artifacts/crate-speed-live/frame_00000006.jpg and artifacts/crate-speed-live3/frame_00000007.jpg). crate-opened-mutated.png is the Opened text crop at (3143,983)-(3201,1006) from the first frame. Player/chat content is excluded. These cover transparent reward text over changing game scenery.

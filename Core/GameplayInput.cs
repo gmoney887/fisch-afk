@@ -82,8 +82,25 @@ public sealed class GameplayInput(Action validate, Action<int> delay, Action<str
     public void SelectAllAndClear()
     {
         keybd_event(0x11, 0, 0, 0);
-        try { SendKeyPress('a'); } finally { keybd_event(0x11, 0, Win32.KEYEVENTF_KEYUP, 0); }
+        try { delay(50); SendKeyPress('a'); delay(50); }
+        finally { keybd_event(0x11, 0, Win32.KEYEVENTF_KEYUP, 0); }
+        delay(75);
         SendKeyPress('\b');
+        delay(75);
+        // Roblox's single-line fields can miss Ctrl+A while taking focus.
+        // Independently select the entire line before typing the replacement.
+        void PressVirtual(byte vk)
+        {
+            keybd_event(vk, 0, 0, 0);
+            try { delay(45); } finally { keybd_event(vk, 0, Win32.KEYEVENTF_KEYUP, 0); }
+        }
+        PressVirtual(0x24); // Home
+        keybd_event(0x10, 0, 0, 0); // Shift
+        try { delay(50); PressVirtual(0x23); delay(50); } // End
+        finally { keybd_event(0x10, 0, Win32.KEYEVENTF_KEYUP, 0); }
+        delay(75);
+        SendKeyPress('\b');
+        delay(100);
     }
     public void ReleaseAll()
     {

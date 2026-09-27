@@ -235,7 +235,7 @@ public partial class MainWindow : Window
     private bool _isObserving;
     private void Observe_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.IsRunning || _closing || _isDiagnosticRunning) return;
+        if (_engine.IsRunning || _closing || _isDiagnosticRunning || _aquariumCts != null || _crateCts != null) return;
         _isObserving = true;
         _engine.Start(observeOnly: true);
         UpdateUIState(_engine.IsRunning);
@@ -251,6 +251,12 @@ public partial class MainWindow : Window
     private async void ToggleMacro()
     {
         if (_closing || _isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
+        if (_aquariumCts != null || _crateCts != null)
+        {
+            _aquariumCts?.Cancel();
+            _crateCts?.Cancel();
+            return;
+        }
 
         if (_engine.IsRunning)
         {
@@ -385,7 +391,7 @@ public partial class MainWindow : Window
         {
             BtnOpenCrates.IsEnabled = enabled;
             BtnOpenCrates.Opacity = enabled ? 1.0 : 0.45;
-            BtnOpenCrates.ToolTip = enabled ? "Requires NOT Fishing: Unequips rod, opens Equipment ('g'), searches 'crate', unpacks all crates, and re-equips rod" : tip;
+            BtnOpenCrates.ToolTip = enabled ? "Requires NOT Fishing: Searches the inventory, opens and verifies one crate at a time up to the limit, then re-equips your rod" : tip;
         }
         if (BtnTestClaim != null)
         {
@@ -845,7 +851,7 @@ public partial class MainWindow : Window
 
         if (showNotification)
         {
-            MessageBox.Show($"Configuration saved!\nRod Slot: [{_settings.RodSlot}]\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Heal Watchdog: [{(_settings.EnableWatchdogRecovery ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} types)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show($"Configuration saved!\nRod Slot: [{_settings.RodSlot}]\nCasting: 100% Dynamic Vision Auto-Cast\nAuto-Shake: [{_settings.ShakeMode}]\nAnti-AFK Kick: [{(_settings.EnableAntiAfk ? "Enabled" : "Disabled")}]\nHuman Jitter: [{(_settings.EnableHumanizedJitter ? "Enabled" : "Disabled")}]\nAuto-Heal Watchdog: [{(_settings.EnableWatchdogRecovery ? "Enabled" : "Disabled")}]\nAuto-Claim Aquarium: [{(_settings.EnableAutoClaimAquarium ? $"Every {_settings.AquariumClaimIntervalMinutes}m" : "Disabled")}]\nAuto-Open Crates: [{(_settings.EnableAutoOpenCrates ? $"Every {_settings.CrateIntervalCatches} catches (max {_settings.CrateMaxTypes} crates)" : "Disabled")}]\nStart/Stop Hotkey: [{_settings.ToggleHotkey}]\nRe-equip Hotkey: [{_settings.ReEquipHotkey}]\nTheme: [{_settings.SelectedTheme}]", "Fat Dad's Fisch AFK Pro", MessageBoxButton.OK, MessageBoxImage.Information);
         }
     }
 
@@ -949,70 +955,63 @@ public partial class MainWindow : Window
 
 
 
+    private CancellationTokenSource? _aquariumCts;
+
     private async void BtnClaimAquarium_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null || _isDiagnosticRunning || _closing) return;
-        if (_engine.IsRunning)
+        if (_engine == null || _isDiagnosticRunning || _closing || _crateCts != null) return;
+        if (_aquariumCts != null)
         {
-            MessageBox.Show("Fishing is currently running!\n\nPlease stop fishing [F6] before running standalone Aquarium claim.", "Claim Aquarium", MessageBoxButton.OK, MessageBoxImage.Information);
+            _aquariumCts.Cancel();
+            BtnClaimAquarium.Content = BtnTestClaim.Content = "Stopping...";
             return;
         }
-
+        if (_engine.IsRunning)
+        {
+            MessageBox.Show("Stop fishing [F6] before running a standalone aquarium claim.", "Claim Aquarium", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
         IntPtr roblox = Win32.FindRobloxWindow();
         if (roblox == IntPtr.Zero)
         {
             MessageBox.Show("Roblox window was not found. Please launch Roblox and join Fisch first.", "Claim Aquarium", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        Win32.ForceSetForegroundWindow(roblox);
-
-        var btn = sender as Button;
-        string origContent = btn?.Content?.ToString() ?? "Claim";
-        if (btn != null)
-        {
-            btn.IsEnabled = false;
-            btn.Content = "Claiming...";
-        }
-
-        if (BtnToggle != null)
-        {
-            BtnToggle.IsEnabled = false;
-            BtnToggle.Opacity = 0.5;
-        }
-
+        using var source = new CancellationTokenSource();
+        _aquariumCts = source;
+        var claimContent = BtnClaimAquarium.Content;
+        var testContent = BtnTestClaim.Content;
+        BtnClaimAquarium.Content = BtnTestClaim.Content = "⏹ Stop";
+        BtnToggle.IsEnabled = false;
+        BtnToggle.Opacity = 0.5;
+        BtnOpenCrates.IsEnabled = BtnTestOpenCrates.IsEnabled = false;
         bool success = false;
+        var previousWindowState = WindowState;
         try
         {
-            await Task.Run(() =>
-            {
-                success = _engine.ExecuteAquariumClaim();
-            });
+            // Capture exclusion hides our pixels, but does not make the window click-through.
+            WindowState = WindowState.Minimized;
+            // Let the initiating button event finish before transferring foreground ownership.
+            await Dispatcher.InvokeAsync(() => Win32.ForceSetForegroundWindow(roblox), System.Windows.Threading.DispatcherPriority.Background);
+            success = await Task.Run(() => _engine.ExecuteAquariumClaim(ct: source.Token), source.Token);
         }
+        catch (OperationCanceledException) { }
         finally
         {
-            if (btn != null)
-            {
-                btn.IsEnabled = true;
-                btn.Content = origContent;
-            }
-            if (BtnToggle != null)
-            {
-                BtnToggle.IsEnabled = true;
-                BtnToggle.Opacity = 1.0;
-            }
+            if (!_closing) WindowState = previousWindowState;
+            _aquariumCts = null;
+            BtnClaimAquarium.Content = claimContent;
+            BtnTestClaim.Content = testContent;
+            BtnToggle.IsEnabled = true;
+            BtnToggle.Opacity = 1;
+            BtnOpenCrates.IsEnabled = BtnTestOpenCrates.IsEnabled = true;
         }
-
-        if (!success)
-        {
-            MessageBox.Show(_engine.LastAquariumEvidence ?? _engine.PauseReason ?? "Aquarium reward was not confirmed. Review the recording; no claim was counted.", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
-        else
-        {
-            string recMsg = !string.IsNullOrEmpty(_engine.LastAquariumReplicationDir)
-                ? $"\n\nDiagnostic snapshots saved to:\n{_engine.LastAquariumReplicationDir}"
-                : "";
-            MessageBox.Show($"{_engine.LastAquariumEvidence}{recMsg}", "Aquarium Auto-Claim", MessageBoxButton.OK, MessageBoxImage.Information);
-        }
+        if (_closing || source.IsCancellationRequested) return;
+        string message = success ? _engine.LastAquariumEvidence ?? "Aquarium check completed."
+            : _engine.PauseReason ?? _engine.LastAquariumEvidence ?? "Aquarium reward was not confirmed; no claim was counted.";
+        TxtAction.Text = message;
+        MessageBox.Show(message, "Aquarium Auto-Claim", MessageBoxButton.OK,
+            success ? MessageBoxImage.Information : MessageBoxImage.Warning);
     }
 
     private void ChkAutoPreFlight_Changed(object sender, RoutedEventArgs e)
@@ -1035,6 +1034,8 @@ public partial class MainWindow : Window
     private Task<PreFlightReport>? _diagnosticTask;
     private void EmergencyStop()
     {
+        _aquariumCts?.Cancel();
+        _crateCts?.Cancel();
         _diagnosticCts?.Cancel();
         _hasPreFlightPassed = false;
         _engine.Stop(_closing ? "Window closing" : "Emergency stop");
@@ -1066,7 +1067,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> RunPreFlightDiagnosticAsync()
     {
-        if (_isDiagnosticRunning || _closing) return false;
+        if (_isDiagnosticRunning || _closing || _aquariumCts != null || _crateCts != null) return false;
         _isDiagnosticRunning = true;
         _hasPreFlightPassed = false;
         using var diagnosticCts = new CancellationTokenSource();
@@ -1316,7 +1317,7 @@ public partial class MainWindow : Window
 
     private async void BtnOpenCrates_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null || _isDiagnosticRunning || _closing) return;
+        if (_engine == null || _isDiagnosticRunning || _closing || _aquariumCts != null) return;
         if (_engine.IsRunning)
         {
             MessageBox.Show("Fishing is currently running!\n\nPlease stop fishing [F6] before running standalone Crate unpack.", "Open Crates", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -1338,16 +1339,12 @@ public partial class MainWindow : Window
             MessageBox.Show("Roblox window was not found. Please launch Roblox and join Fisch first.", "Open Crates", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        Win32.ForceSetForegroundWindow(roblox);
 
         int maxTypes = 25;
         if (int.TryParse(TxtCrateMaxTypes?.Text, out int m) && m >= 0 && m <= 999) maxTypes = m;
 
         _crateCts = new CancellationTokenSource();
         var ct = _crateCts.Token;
-
-        var origOpenContent = BtnOpenCrates?.Content;
-        var origTestContent = BtnTestOpenCrates?.Content;
 
         if (BtnOpenCrates != null)
         {
@@ -1367,9 +1364,13 @@ public partial class MainWindow : Window
         }
 
         bool success = false;
+        var previousWindowState = WindowState;
 
         try
         {
+            // Keep the pinned app from intercepting inventory and confirmation clicks.
+            WindowState = WindowState.Minimized;
+            await Dispatcher.InvokeAsync(() => Win32.ForceSetForegroundWindow(roblox), System.Windows.Threading.DispatcherPriority.Background);
             await Task.Run(() =>
             {
                 success = _engine.ExecuteAutoOpenCrates(maxTypes, (progress) =>
@@ -1387,6 +1388,7 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         finally
         {
+            if (!_closing) WindowState = previousWindowState;
             _crateCts?.Dispose();
             _crateCts = null;
 
@@ -1418,7 +1420,6 @@ public partial class MainWindow : Window
                 MessageBox.Show(reason, "Auto Crate Opener", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
-
 
 
     private void CmbShakeMode_SelectionChanged(object sender, SelectionChangedEventArgs e)

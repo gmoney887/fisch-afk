@@ -6,6 +6,20 @@ namespace FischMacroCS.Tests;
 public class AquariumWorkflowTests
 {
     [Fact]
+    public void RewardAnimationCannotCountAsClosingAKnownOpenPanel()
+    {
+        var clock = new Clock();
+        using var vision = Vision();
+        bool clicked = false;
+        Mat Capture() => clock.Timestamp < 600 || clicked
+            ? new Mat(1353, 3424, MatType.CV_8UC3, Scalar.Black) : Frame(5);
+        var result = AquariumWorkflow.ClosePanel(clock, vision, Capture,
+            ms => clock.Delay(ms, default), _ => clicked = true, default, requireCloseAction: true);
+        Assert.True(clicked);
+        Assert.True(clock.Timestamp >= 600);
+        Assert.Equal(ActionOutcome.ConfirmedSuccess, result.Outcome);
+    }
+    [Fact]
     public void BlueSceneryNavigationCanCompleteVerifiedOpenClaimAndClose()
     {
         using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_nav_blue_1369.png"));
@@ -178,17 +192,58 @@ public class AquariumWorkflowTests
         Assert.Equal(alreadyEmpty ? new[] { "open", "close" } : new[] { "open", "claim", "close" }, clicks);
         Assert.Equal(failedClaim || failedClose ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
         Assert.Equal(!alreadyEmpty && !failedClaim && !failedClose, result.RewardClaimed);
+        Assert.Equal(failedClaim && !failedClose, result.RetryableWithoutRecovery);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AlreadyOpenAquariumClaimsOrChecksThenCloses(bool empty)
+    {
+        var clock = new Clock(); using var vision = Vision();
+        int stage = empty ? 2 : 1;
+        var clicks = new List<string>();
+        Mat Capture() => Frame(stage == 3 ? 1 : stage == 2 ? 5 : 4);
+        void Click(Point point)
+        {
+            Assert.True(point.Y > 70, "An already open aquarium must not be toggled through navigation.");
+            if (point.Y < 250) { clicks.Add("close"); stage = 3; }
+            else { clicks.Add("claim"); stage = 2; }
+        }
+        var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
+        Assert.Equal(empty ? new[] { "close" } : new[] { "claim", "close" }, clicks);
+        Assert.Equal(ActionOutcome.ConfirmedSuccess, result.Outcome);
+        Assert.Equal(!empty, result.RewardClaimed);
     }
 
     [Fact]
-    public void AlreadyOpenAquariumCannotBeTreatedAsSafeToResumeFishing()
+    public void PartiallyDisappearedPanelIsNotConfirmedClosed()
     {
-        var clock = new Clock();
-        using var vision = Vision();
-        var result = AquariumWorkflow.Run(clock, vision, () => Frame(4), ms => clock.Delay(ms, default),
-            _ => throw new Exception("No click should be sent to an already open aquarium."), default);
+        var clock = new Clock(); using var vision = Vision();
+        int stage = 0;
+        Mat Capture()
+        {
+            var frame = Frame(stage == 0 ? 1 : stage == 1 ? 4 : 5);
+            if (stage == 3)
+                Cv2.Rectangle(frame, new Rect(1300, 650, 200, 120), Scalar.Black, -1);
+            return frame;
+        }
+        void Click(Point p) { stage = p.Y < 70 ? 1 : p.Y < 250 ? 3 : 2; }
+        var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
         Assert.Equal(ActionOutcome.Unknown, result.Outcome);
-        Assert.False(result.RetryableWithoutRecovery);
+        Assert.Contains("closure", result.Evidence);
+        Assert.False(result.RewardClaimed);
+    }
+
+    [Fact]
+    public void FocusLossDuringInitialPanelCheckSendsNoInput()
+    {
+        var clock = new Clock(); using var vision = Vision();
+        int captures = 0, clicks = 0;
+        Assert.Throws<GameplayInterruptedException>(() => AquariumWorkflow.Run(clock, vision,
+            () => ++captures == 1 ? Frame(4) : throw new GameplayInterruptedException("Focus lost"),
+            ms => clock.Delay(ms, default), _ => clicks++, default));
+        Assert.Equal(0, clicks);
     }
 
     [Fact]

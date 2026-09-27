@@ -163,20 +163,8 @@ public class FishingEngine : IDisposable
         _deathContextRecorded = false;
         _coordinator.ThrowIfCancelled();
         _operationCancellation.ThrowIfCancellationRequested();
-        _activeWindow = _desktop.FindRobloxWindow();
-        if (_activeWindow != IntPtr.Zero)
-        {
-            if (_desktop.IsIconic(_activeWindow))
-                _desktop.ShowWindowAsync(_activeWindow, Win32.SW_RESTORE);
-            _desktop.ForceSetForegroundWindow(_activeWindow);
-            for (int i = 0; i < 10; i++)
-            {
-                if (_desktop.GetForegroundWindow() == _activeWindow) break;
-                _clock.Delay(25, _operationCancellation);
-            }
-        }
-        _desktop.GetClientRect(_activeWindow, out _activeGeometry);
-        _activeDpi = _desktop.GetDpiForWindow(_activeWindow);
+        (_activeWindow, _activeGeometry, _activeDpi) = GameplayStartup.Acquire(
+            _desktop, _clock, _operationCancellation, _coordinator.ThrowIfCancelled);
         ValidateGameplay();
         _recordingStartCatches = _lifetimeCatches; _recordingStartFails = _lifetimeFails; _recordingStartUnknown = _lifetimeUnknown;
         _recordingStartRecoveries = _lifetimeRecoveries;
@@ -325,9 +313,40 @@ public class FishingEngine : IDisposable
         _deathContextRecorded = false;
         if (DisconnectDetector.TryFindReconnect(frame, h, out _)) return RecoveryView.Reconnect;
         if (ContinueScreenDetector.IsContinueScreen(frame, h)) return RecoveryView.Continue;
+        if (_aquariumCleanupPending && !TryCleanupAquarium()) return RecoveryView.Unknown;
         if (TryResumeVisibleReel()) { _recoveryResumedReel = true; return RecoveryView.Gameplay; }
         IsRodEquipped(_activeWindow, w, h);
         return _lastHotbarGeometryConfirmed ? RecoveryView.Gameplay : RecoveryView.Loading;
+    }
+
+    private bool TryCleanupAquarium()
+    {
+        if (_lastAquariumCleanup.HasValue && _clock.ElapsedMilliseconds(_lastAquariumCleanup.Value) < 5000) return false;
+        _lastAquariumCleanup = _clock.Timestamp;
+        try
+        {
+            using var vision = new TemplateWorkflowVision(_workflowTemplateDirectory);
+            var result = AquariumWorkflow.ClosePanel(_clock, vision, () =>
+            {
+                ValidateGameplay();
+                return _capture.CaptureClientRegion(_activeWindow, 0, 0, _activeGeometry.Width, _activeGeometry.Height);
+            }, Delay, point =>
+            {
+                ValidateGameplay();
+                var screen = new Win32.POINT { X = point.X, Y = point.Y };
+                if (!_desktop.ClientToScreen(_activeWindow, ref screen)) throw new GameplayInterruptedException("Aquarium cleanup coordinate conversion failed.");
+                _input.SendHardwareClick(screen.X, screen.Y, point.X, point.Y, _activeWindow);
+            }, _operationCancellation);
+            _recorder.RecordEvent("aquarium-cleanup", result);
+            _aquariumCleanupPending = result.Outcome != ActionOutcome.ConfirmedSuccess;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            // Optional reward cleanup must not clear the user's persistent fishing request.
+            SessionLogger.Instance.Log("AQUARIUM", "Cleanup will retry: " + ex.Message);
+        }
+        return !_aquariumCleanupPending;
     }
 
     private void TryReconnect()
@@ -503,6 +522,8 @@ public class FishingEngine : IDisposable
     private bool _isAquariumClaimPending = false;
     private bool _skipAquariumThisSession;
     private bool _aquariumCanRetryWithoutRecovery;
+    private bool _aquariumCleanupPending;
+    private long? _lastAquariumCleanup;
     private bool _skipCratesThisSession;
 
     public void CheckAquariumClaimHeartbeat()
@@ -525,58 +546,58 @@ public class FishingEngine : IDisposable
     {
         ValidateGameplay();
         int w = _activeGeometry.Width, h = _activeGeometry.Height;
-        WorkflowTarget Target(string name, double x, double y, double radius = .1) => new(name, x, y, radius);
         void Click(Point point)
         {
             ValidateGameplay();
             var screen = new Win32.POINT { X = point.X, Y = point.Y };
             if (!_desktop.ClientToScreen(_activeWindow, ref screen)) throw new GameplayInterruptedException("Coordinate conversion failed.");
-            _input.SendHardwareClick(screen.X, screen.Y, point.X, point.Y, _activeWindow);
+            // Allow Roblox's GUI pointer handling to settle before the hardware click.
+            if (!aquarium)
+            {
+                _input.SendHardwareMouseMove(screen.X, screen.Y, window: _activeWindow);
+                _input.SendRelativeMove(2, 1);
+                Delay(25);
+                _input.SendRelativeMove(-2, -1);
+                Delay(100);
+            }
+            _input.SendHardwareClick(screen.X, screen.Y, aquarium ? point.X : -1,
+                aquarium ? point.Y : -1, _activeWindow);
+        }
+        Mat? CaptureWorkflow()
+        {
+            ValidateGameplay();
+            return _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
         }
         using var workflowVision = new TemplateWorkflowVision(_workflowTemplateDirectory);
-        var workflow = new VerifiedWorkflow(_clock, workflowVision,
-            () => _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h), Delay,
-            message => { SessionLogger.Instance.Log("WORKFLOW", message); progress?.Invoke(message); });
         if (aquarium)
         {
             return AquariumWorkflow.Run(_clock, workflowVision,
-                () => _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h), Delay, Click, _operationCancellation,
+                CaptureWorkflow, Delay, Click, _operationCancellation,
                 message => { SessionLogger.Instance.Log("AQUARIUM", message); progress?.Invoke(message); });
         }
-        var search = workflow.Run([
-            new("Open equipment", Target("equipment-button", 0, .9, .25), Target("equipment-search", .0498, .298), Click),
-            new("Search crates", Target("equipment-search", .0498, .298), Target("crate-item", -.1458, .435), point =>
-                { Click(point); _input.SelectAllAndClear(); _input.SendKeyString("crate"); }),
-        ], _operationCancellation);
-        if (search.Outcome != ActionOutcome.ConfirmedSuccess)
-        {
-            if (search.Evidence != "Search crates: expected result not detected") return search;
-            // Empty inventory requires its own positive visual evidence, never a missing dialog.
-            using var emptyFrame = _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
-            using var emptyVision = new TemplateWorkflowVision(_workflowTemplateDirectory);
-            if (emptyFrame == null || !emptyVision.Find(emptyFrame, Target("equipment-empty", 0, .5, .4)).Found) return search;
-            var closed = workflow.Run([new("Close empty equipment", Target("equipment-close", .3, .3, .3),
-                Target("equipment-search", .0498, .298), Click, ExpectedPresent: false)], _operationCancellation);
-            return closed.Outcome == ActionOutcome.ConfirmedSuccess
-                ? new(ActionOutcome.ConfirmedSuccess, "Empty inventory and equipment closure visually confirmed") : closed;
-        }
-        return workflow.Run([
-            new("Select crate", Target("crate-item", -.1458, .435), Target("crate-quantity", 0, .52), Click),
-            new("Select all", Target("crate-max", 0, .52, .3), Target("crate-all-selected", 0, .52, .3), Click),
-            new("Open crate", Target("crate-confirm", -.1173, .571), Target("crate-reward", 0, .5, .4), Click, 8000),
-            new("Dismiss reward", Target("crate-reward-close", 0, .5, .4), Target("crate-reward", 0, .5, .4), Click, ExpectedPresent: false),
-            new("Close equipment", Target("equipment-close", .3, .3, .3), Target("equipment-search", .0498, .298), Click, ExpectedPresent: false)
-        ], _operationCancellation);
+        using var crateVision = new CrateVision(_workflowTemplateDirectory);
+        return CrateWorkflow.Run(crateVision, CaptureWorkflow, Delay, Click, _input.SendKeyPress,
+            text => { _input.SelectAllAndClear(); _input.SendKeyString(text); }, _operationCancellation,
+            progress, _clock);
     }
 
-    public bool ExecuteAquariumClaim(bool recordReplication = true)
+    public bool ExecuteAquariumClaim(bool recordReplication = true, CancellationToken ct = default)
     {
-        if (!_coordinator.IsOwner) return RunQueued(() => ExecuteAquariumClaim(recordReplication), false);
+        if (!_coordinator.IsOwner)
+        {
+            LastAquariumEvidence = null;
+            LastAquariumOutcome = ActionOutcome.Unknown;
+            return RunQueued(() => ExecuteAquariumClaim(recordReplication, ct), false, ct);
+        }
+        ct.ThrowIfCancellationRequested();
         _isAquariumClaimPending = false;
         LastAquariumOutcome = ActionOutcome.Unknown;
         LastAquariumEvidence = null;
         _aquariumCanRetryWithoutRecovery = false;
+        _aquariumCleanupPending = true;
+        _lastAquariumCleanup = null;
         var result = RunRewardWorkflow(true);
+        _aquariumCleanupPending = result.Outcome != ActionOutcome.ConfirmedSuccess && !result.RetryableWithoutRecovery;
         _recorder.RecordEvent("aquarium-outcome", result);
         LastAquariumOutcome = result.Outcome;
         LastAquariumEvidence = result.Evidence;
@@ -603,8 +624,14 @@ public class FishingEngine : IDisposable
             return RunQueued(() => ExecuteAutoOpenCrates(maxCrateTypes, onProgress, ct), false, ct);
         }
         LastCrateOutcome = ActionOutcome.Unknown;
-        // An absent dialog never proves an empty inventory. Each type requires its own reward evidence.
-        int limit = maxCrateTypes > 0 ? Math.Min(maxCrateTypes, 25) : 25;
+        if (!IsRunning && Config.EnableRecording)
+        {
+            _recorder.StopSession("Starting crate workflow recording");
+            _recorder.StartSession(_activeGeometry.Width, _activeGeometry.Height,
+                new { Mode = "Manual crate workflow" }, demonstration: true);
+        }
+        // The saved setting name is retained for compatibility; each pass requests the full selected stack.
+        int limit = maxCrateTypes > 0 ? Math.Min(maxCrateTypes, 999) : 999;
         for (int i = 0; i < limit; i++)
         {
             ct.ThrowIfCancellationRequested();
@@ -618,11 +645,15 @@ public class FishingEngine : IDisposable
                 _recorder.RecordEvent("crate-outcome", result);
                 return false;
             }
-            EnsureRodEquipped(_activeWindow, _activeGeometry.Width, _activeGeometry.Height);
             LastCrateOutcome = result.Outcome;
             _recorder.RecordEvent("crate-outcome", result);
-            if (result.Evidence.StartsWith("Empty inventory", StringComparison.Ordinal)) return true;
+            if (result.Evidence.StartsWith("Empty inventory", StringComparison.Ordinal))
+            {
+                EnsureRodEquipped(_activeWindow, _activeGeometry.Width, _activeGeometry.Height);
+                return true;
+            }
         }
+        EnsureRodEquipped(_activeWindow, _activeGeometry.Width, _activeGeometry.Height);
         if (maxCrateTypes == 0 || maxCrateTypes > limit)
         {
             LastCrateOutcome = ActionOutcome.Unknown;
@@ -636,8 +667,8 @@ public class FishingEngine : IDisposable
     private bool IsBagOpen(IntPtr window, int width, int height)
     {
         using var frame = _capture.CaptureClientRegion(window, 0, 0, width, height);
-        using var vision = new TemplateWorkflowVision(_workflowTemplateDirectory);
-        return frame != null && !frame.Empty() && vision.Find(frame, new WorkflowTarget("equipment-search", .0498, .298, .1)).Found;
+        using var vision = new CrateVision(_workflowTemplateDirectory);
+        return frame != null && !frame.Empty() && vision.Find(frame, "bag") != null;
     }
 
     private int _catchesSinceLastCrateOpen = 0;
@@ -791,19 +822,15 @@ public class FishingEngine : IDisposable
     private void ObserveGameplay(CancellationToken cancellation)
     {
         // Shares coordinator/capture ownership but never sends gameplay input.
-        if (!_recorder.IsRecording)
-            _recorder.StartSession(_activeGeometry.Width, _activeGeometry.Height, new { Mode = "Passive", Dpi = _activeDpi });
-        long marked = _clock.Timestamp;
-        _recorder.RecordEvent("demonstration-outcome", new { Outcome = "Unknown", Evidence = "Manual demonstration" });
+        _recorder.StartSession(_activeGeometry.Width, _activeGeometry.Height,
+            new { Mode = "Passive", Dpi = _activeDpi }, demonstration: true);
+        _recorder.RecordEvent("demonstration-start", new { Evidence = "Manual demonstration" });
         while (!cancellation.IsCancellationRequested)
         {
             ValidateGameplay();
             using var frame = _capture.CaptureClientRegion(_activeWindow, 0, 0, _activeGeometry.Width, _activeGeometry.Height);
-            if (_clock.ElapsedMilliseconds(marked) >= 4000)
-            {
-                _recorder.RecordEvent("demonstration-outcome", new { Outcome = "Unknown", Evidence = "Manual demonstration" });
-                marked = _clock.Timestamp;
-            }
+            if (!_recorder.IsRecording)
+                throw new GameplayInterruptedException(_recorder.LastError ?? "Demonstration recording stopped.");
             var telemetry = new TelemetryData { State = CurrentState, Action = "Passive observation — demonstrate gameplay; End stops recording", AnnotatedFrame = frame?.Clone() };
             PopulateTelemetryStats(telemetry);
             if (OnTelemetry != null) OnTelemetry(telemetry); else telemetry.Dispose();
@@ -1487,6 +1514,11 @@ public class FishingEngine : IDisposable
             try
             {
                 ValidateGameplay();
+                if (_aquariumCleanupPending)
+                {
+                    WaitForFishingRetry("Clearing interrupted aquarium panel before resuming fishing");
+                    continue;
+                }
                 if (CheckFishingView())
                 {
                     _input.ReleaseAll(); _isMouseDown = false;
@@ -2386,7 +2418,7 @@ public class FishingEngine : IDisposable
                             WaitForFishingRetry("Aquarium outcome unconfirmed; skipping automatic claims for this session");
                             continue;
                         }
-                        SessionLogger.Instance.Log("AQUARIUM", "No reward inputs sent; continuing fishing and deferring aquarium retry.");
+                        SessionLogger.Instance.Log("AQUARIUM", "Aquarium panel is clear; continuing fishing and deferring the unconfirmed claim.");
                     }
                     _skipAquariumThisSession = false;
                     Delay(400);

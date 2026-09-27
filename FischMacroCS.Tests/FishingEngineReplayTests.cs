@@ -332,6 +332,9 @@ public class FishingEngineReplayTests
     [InlineData("aquarium-stop")]
     [InlineData("crates-overlay")]
     [InlineData("aquarium-overlay")]
+    [InlineData("aquarium-claim-fails")]
+    [InlineData("aquarium-focus-after-open")]
+    [InlineData("aquarium-close-rejected")]
     [InlineData("compact-reel")]
     [InlineData("cyan-reel")]
     [InlineData("companion-bonus")]
@@ -436,14 +439,15 @@ public class FishingEngineReplayTests
         int castPresses = 0;
         int cyanReelPresses = 0;
         bool recoveredStall = false;
+        bool aquariumCleanupScenario = scenario is "aquarium-claim-fails" or "aquarium-focus-after-open" or "aquarium-close-rejected";
         bool workflowInputError = scenario is "crates-input-error" or "aquarium-input-error";
         bool workflowStop = scenario is "crates-stop" or "aquarium-stop";
         bool overlayScenario = scenario is "crates-overlay" or "aquarium-overlay";
         long? overlayReturnAt = null;
         int recoveryInputStart = -1;
         bool overlayReturned = false;
-        bool workflowScenario = overlayScenario || workflowInputError || workflowStop || scenario is "crates-unavailable" or "aquarium-unavailable" or "crates-unconfirmed" or "aquarium-unconfirmed";
-        bool unconfirmedWorkflow = overlayScenario || workflowInputError || workflowStop || scenario is "crates-unconfirmed" or "aquarium-unconfirmed";
+        bool workflowScenario = aquariumCleanupScenario || overlayScenario || workflowInputError || workflowStop || scenario is "crates-unavailable" or "aquarium-unavailable" or "crates-unconfirmed" or "aquarium-unconfirmed";
+        bool unconfirmedWorkflow = aquariumCleanupScenario || overlayScenario || workflowInputError || workflowStop || scenario is "crates-unconfirmed" or "aquarium-unconfirmed";
         bool aquariumScenario = scenario?.StartsWith("aquarium-", StringComparison.Ordinal) == true;
         bool claimRequested = false;
         int workflowAttempts = 0;
@@ -451,22 +455,24 @@ public class FishingEngineReplayTests
         string? emptyWorkflowDirectory = workflowScenario ? Path.Combine(Path.GetTempPath(), "fisch-empty-workflow-" + Guid.NewGuid().ToString("N")) : null;
         using var workflowButton = new Mat();
         using var secondWorkflowButton = new Mat();
+        using var closeWorkflowButton = new Mat();
         if (unconfirmedWorkflow)
         {
             Directory.CreateDirectory(emptyWorkflowDirectory!);
             string[] names = aquariumScenario
                 ? ["aquarium-navigation", "aquarium-claim", "aquarium-reward", "aquarium-close"]
-                : ["equipment-button", "equipment-search", "crate-item"];
+                : CrateVision.Names.Select(n => "crate-" + n).ToArray();
             for (int i = 0; i < names.Length; i++)
             {
                 using var template = new Mat(24, 32, MatType.CV_8UC3, Scalar.All(30));
                 Cv2.Rectangle(template, new Rect(3, 3, 24, 17), new Scalar(60 + i * 40, 200 - i * 30, 80 + i * 25), -1);
                 Cv2.PutText(template, i.ToString(), new Point(7, 18), HersheyFonts.HersheySimplex, .5, Scalar.White, 1);
                 Cv2.ImWrite(Path.Combine(emptyWorkflowDirectory!, names[i] + ".png"), template);
-                double referenceHeight = aquariumScenario ? 1353 : 1080;
+                double referenceHeight = aquariumScenario ? 1353 : 1369;
                 var scaledSize = new Size((int)Math.Round(32 * Desktop.Height / referenceHeight), (int)Math.Round(24 * Desktop.Height / referenceHeight));
                 if (i == 0) Cv2.Resize(template, workflowButton, scaledSize);
                 if (i == 1) Cv2.Resize(template, secondWorkflowButton, scaledSize);
+                if (i == 3) Cv2.Resize(template, closeWorkflowButton, scaledSize);
             }
         }
         bool retryScenario = scenario is "failed-casts" or "missing-bites" or "recovery-budget";
@@ -611,20 +617,39 @@ public class FishingEngineReplayTests
             if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario == "companion-bonus") Paste(caught); }
             // Foreground hotbar must stay visible after composing recorded crops, which can overlap its band.
             Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 68, 68), Scalar.White, 1);
+            if (aquariumCleanupScenario && state == MacroState.PostCatch && workflowAttempts == 1)
+            {
+                int closeAfter = scenario == "aquarium-focus-after-open" ? 2 : 3;
+                if (postCatchPresses >= closeAfter) return full;
+                void PasteControl(Mat image, double x, double y)
+                {
+                    int cx = full.Width / 2 + (int)(x * Desktop.Height), cy = (int)(y * Desktop.Height);
+                    using var region = new Mat(full, new Rect(cx - image.Width / 2, cy - image.Height / 2, image.Width, image.Height));
+                    image.CopyTo(region);
+                }
+                if (postCatchPresses == 0) PasteControl(workflowButton, .0769, .0251);
+                else
+                {
+                    full.SetTo(Scalar.All(20)); // Panel stays open until cleanup actually clicks its X.
+                    PasteControl(secondWorkflowButton, -.211, .539);
+                    PasteControl(closeWorkflowButton, .560, .121);
+                }
+                return full;
+            }
             if (unconfirmedWorkflow && state == MacroState.PostCatch && workflowAttempts == 1)
             {
                 bool openMenu = overlayScenario && postCatchPresses > 0;
                 if (openMenu && overlayReturnAt.HasValue && clock.Timestamp >= overlayReturnAt.Value)
                 { overlayReturned = true; return full; }
-                int buttonX = Desktop.Width / 2 + (int)((aquariumScenario ? .0769 : 0) * Desktop.Height);
-                int buttonY = (int)((aquariumScenario ? .0251 : .9) * Desktop.Height);
+                int buttonX = Desktop.Width / 2 + (int)((aquariumScenario ? .0769 : -.174) * Desktop.Height);
+                int buttonY = (int)((aquariumScenario ? .0251 : .681) * Desktop.Height);
                 var buttonImage = workflowButton;
                 if (openMenu)
                 {
                     full.SetTo(Scalar.All(20)); // Open menu hides the hotbar and reel, including during recovery.
-                    buttonX = Desktop.Width / 2 + (int)((aquariumScenario ? -.184 : .0498) * Desktop.Height);
-                    buttonY = (int)((aquariumScenario ? .5257 : .298) * Desktop.Height);
-                    buttonImage = secondWorkflowButton;
+                    buttonX = Desktop.Width / 2 + (int)((aquariumScenario ? -.184 : -.174) * Desktop.Height);
+                    buttonY = (int)((aquariumScenario ? .5257 : .681) * Desktop.Height);
+                    buttonImage = aquariumScenario ? secondWorkflowButton : workflowButton;
                 }
                 using var target = new Mat(full, new Rect(buttonX - buttonImage.Width / 2, buttonY - buttonImage.Height / 2,
                     buttonImage.Width, buttonImage.Height));
@@ -699,7 +724,14 @@ public class FishingEngineReplayTests
                         unavailableUntil = clock.Timestamp + 7000;
                 }
                 if (engine.CurrentState == MacroState.Luring) shakePresses.Add(new Point(x,y));
-                if (engine.CurrentState == MacroState.PostCatch) postCatchPresses++;
+                if (engine.CurrentState == MacroState.PostCatch)
+                {
+                    postCatchPresses++;
+                    if (scenario == "aquarium-focus-after-open" && postCatchPresses == 1)
+                    { desktop.Focused = false; desktop.DenyNextActivations = 2; }
+                    if (scenario == "aquarium-close-rejected" && postCatchPresses == 2)
+                    { input.RejectOperation = "down"; input.RejectRemaining = 1; }
+                }
                 if (workflowStop && engine.CurrentState == MacroState.PostCatch && stopIndex < 0) StopAtBoundary();
             };
             input.AfterKey = (key, flags) =>
@@ -931,9 +963,16 @@ public class FishingEngineReplayTests
             {
                 Assert.Equal(1, workflowAttempts); // Unavailable optional actions are skipped for the rest of this session.
                 Assert.Equal(ActionOutcome.Unknown, aquariumScenario ? engine.LastAquariumOutcome : engine.LastCrateOutcome);
-                Assert.Equal(overlayScenario ? 2 : unconfirmedWorkflow && !workflowInputError ? 1 : 0, postCatchPresses);
+                Assert.Equal(aquariumCleanupScenario ? (scenario == "aquarium-focus-after-open" ? 2 : 3) :
+                    overlayScenario && aquariumScenario ? 2 : unconfirmedWorkflow && !workflowInputError ? 1 : 0, postCatchPresses);
+                if (scenario == "aquarium-close-rejected") Assert.Equal(1, input.Rejections);
+                if (aquariumCleanupScenario)
+                {
+                    Assert.Equal(DateTime.MinValue, engine.Config.LastAquariumClaimUtc);
+                    Assert.Null(engine.PauseReason);
+                }
                 if (workflowInputError) Assert.Equal(1, input.Rejections);
-                if (scenario != "crates-overlay") Assert.Empty(input.KeyEdges);
+                if (aquariumScenario || !unconfirmedWorkflow || workflowInputError) Assert.Empty(input.KeyEdges);
                 else Assert.Equal(input.KeyEdges.Count(e => e.Flags == 0), input.KeyEdges.Count(e => e.Flags == Win32.KEYEVENTF_KEYUP));
                 if (overlayScenario)
                 {
@@ -941,7 +980,7 @@ public class FishingEngineReplayTests
                     Assert.True(clock.Timestamp >= overlayReturnAt.Value);
                 }
                 if (scenario == "crates-unavailable") Assert.Contains("missing", engine.LastCrateEvidence!);
-                if (scenario == "crates-unconfirmed") Assert.Contains("expected result not detected", engine.LastCrateEvidence!);
+                if (scenario == "crates-unconfirmed") Assert.Contains("search text was not confirmed", engine.LastCrateEvidence!);
             }
             if (retryScenario)
             {

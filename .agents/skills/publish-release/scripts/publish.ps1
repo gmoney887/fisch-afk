@@ -3,6 +3,8 @@ param (
     [ValidateSet("None", "Patch", "Minor", "Major")]
     [string]$Bump = "None",
     [string]$ReleaseNotes = "",
+    [string]$ReleaseNotesFile = "",
+    [switch]$SkipDesktopCheck,
     [switch]$SkipPush
 )
 
@@ -74,10 +76,13 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "      All vision, geometry, and safety tests passed!" -ForegroundColor Cyan
 
 # Verify the actual Windows compositor and dashboard click-target behavior.
-try {
+if ($SkipDesktopCheck) {
+    Write-Host "      Desktop capture/overlay check skipped by request; no game controls will be touched."
+} else { try {
     & (Join-Path $repoRoot 'scripts/verify-capture-overlay.ps1') -Dotnet $dotnet
 } catch {
     Write-Warning "Windows capture/overlay check skipped (desktop may be locked or non-interactive): $_"
+}
 }
 
 # 4. Publish Single-File Standalone Portable Executable
@@ -151,7 +156,9 @@ if (-not $SkipPush) {
             & gh release upload $tag "$zipFile#FischMacroCS-v$targetVer-win-x64.zip" --clobber
         } else {
             Write-Host "      Creating new release $tag..." -ForegroundColor Green
-            if ($ReleaseNotes) {
+            if ($ReleaseNotesFile) {
+                & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" --notes-file $ReleaseNotesFile
+            } elseif ($ReleaseNotes) {
                 & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" --notes $ReleaseNotes
             } else {
                 & gh release create $tag $zipFile --title "Fat Dad's Fisch AFK Pro $tag" --generate-notes
