@@ -8,6 +8,33 @@ namespace FischMacroCS.Tests;
 
 public class FishingEngineReplayTests
 {
+    [Fact]
+    public void ManualCrateFailureCreatesOneRecordingWithSettingsAndOutcome()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "fisch-crate-recording-" + Guid.NewGuid().ToString("N"));
+        string recordings = Path.Combine(root, "recordings");
+        var clock = new Clock();
+        var input = new Input(clock);
+        using var frames = new Frames(() => new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.Black), clock);
+        try
+        {
+            using (var engine = new FishingEngine(new Settings { EnableRecording = true },
+                frames, frames, clock: clock, desktop: new Desktop(), hardware: input,
+                workflowTemplateDirectory: Path.Combine(root, "missing-templates"), recordingDirectory: recordings))
+            {
+                Assert.False(engine.ExecuteAutoOpenCrates(1));
+                Assert.Contains("missing", engine.LastCrateEvidence!);
+            }
+            string session = Assert.Single(Directory.GetDirectories(recordings, "session_*"));
+            using var manifest = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "manifest.json")));
+            Assert.True(manifest.RootElement.GetProperty("Demonstration").GetBoolean());
+            Assert.True(manifest.RootElement.GetProperty("Metadata").TryGetProperty("Settings", out _));
+            Assert.True(File.Exists(Path.Combine(session, "completed.json")));
+            Assert.Contains("crate-outcome", File.ReadAllText(Path.Combine(session, "events.jsonl")));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -127,6 +154,8 @@ public class FishingEngineReplayTests
         Assert.Equal(!loseFocus, success);
         Assert.False(input.Held);
         Assert.Equal(loseFocus ? 1 : alreadyEmpty ? 2 : 3, clicks);
+        Assert.All(input.MouseTargets, p => Assert.Equal((-1, -1), p));
+        Assert.Equal(clicks * 2, input.RelativeMoves.Count);
         Assert.Equal(loseFocus, settings.LastAquariumCheckUtc == DateTime.MinValue);
         Assert.Equal(loseFocus || alreadyEmpty, settings.LastAquariumClaimUtc == DateTime.MinValue);
         if (!loseFocus) Assert.Equal(ActionOutcome.ConfirmedSuccess, engine.LastAquariumOutcome);
@@ -216,6 +245,7 @@ public class FishingEngineReplayTests
         public Action? AfterRelative;
         public Action<byte, uint>? AfterKey;
         public Action<int, int>? AfterDown;
+        public List<(int X, int Y)> MouseTargets = new();
         private void Reject(string operation)
         {
             if (RejectOperation != operation || RejectRemaining <= 0) return;
@@ -223,7 +253,7 @@ public class FishingEngineReplayTests
             throw new GameplayInterruptedException("Injected hardware rejection: " + operation);
         }
         public void SendHardwareMouseDown(int sx = -1, int sy = -1, int cx = -1, int cy = -1, IntPtr window = default)
-        { Reject("down"); Held = true; Events.Add("down"); AfterDown?.Invoke(cx, cy); }
+        { Reject("down"); Held = true; Events.Add("down"); MouseTargets.Add((cx, cy)); AfterDown?.Invoke(cx >= 0 ? cx : sx, cy >= 0 ? cy : sy); }
         public void SendHardwareMouseUp(int sx = -1, int sy = -1, int cx = -1, int cy = -1, IntPtr window = default)
         { Reject("up"); Held = false; Events.Add("up"); }
         public void SendHardwareMouseMove(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default)
@@ -290,6 +320,7 @@ public class FishingEngineReplayTests
 
     [Theory]
     [InlineData("resize")]
+    [InlineData("lost-fish")]
     [InlineData("dpi")]
     [InlineData("queued-restart")]
     [InlineData("queued-cast")]
@@ -375,7 +406,7 @@ public class FishingEngineReplayTests
         bool queuedCycle = scenario is "queued-restart" or "queued-cast" or "queued-lure" or "queued-postcatch" or "queued-postcatch-late";
         var queueState = scenario switch { "queued-cast" => MacroState.Casting, "queued-lure" or "queued-timeout" => MacroState.Luring,
             "queued-postcatch" => MacroState.PostCatch, _ => MacroState.Reeling };
-        if (scenario == "companion-bonus") catchVisible = false;
+        if (scenario is "companion-bonus" or "lost-fish") catchVisible = false;
         var desktop = new Desktop(); var clock = new Clock(); var input = new Input(clock);
         bool deathScenario = scenario is "death-wait" or "death-stop";
         bool updateScenario = deathScenario || scenario is "server-update" or "server-update-stop";
@@ -415,11 +446,11 @@ public class FishingEngineReplayTests
         using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
             scenario == "cyan-reel" ? "reel_cyan_left.png" : scenario == "compact-reel" ? "reel_live_false_exit.png" : "reel_active_recovery_21.png"));
         using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
-            scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
+            scenario == "lost-fish" ? "reel_streak_ended.png" : scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
         if (scenario == "cyan-reel")
             Cv2.Resize(reel, reel, new Size((int)Math.Round(reel.Width * Desktop.Height / 1369.0),
                 (int)Math.Round(reel.Height * Desktop.Height / 1369.0)));
-        if (scenario == "maximized-catch")
+        if (scenario is "maximized-catch" or "lost-fish")
             Cv2.Resize(caught, caught, new Size((int)Math.Round(caught.Width * Desktop.Height / 1369.0), (int)Math.Round(caught.Height * Desktop.Height / 1369.0)));
         using var shakeStream = typeof(FishingEngine).Assembly.GetManifestResourceStream("FischMacroCS.Assets.shake_template.png")!;
         using var shakeBytes = new MemoryStream(); shakeStream.CopyTo(shakeBytes);
@@ -476,6 +507,8 @@ public class FishingEngineReplayTests
             }
         }
         bool retryScenario = scenario is "failed-casts" or "missing-bites" or "recovery-budget";
+        bool rodSelected = true;
+        int rodToggleCount = 0;
         long? cooldownStarted = null;
         bool shakeScenario = scenario is "navigation-shake" or "visual-shake" or "visual-shake-stop" or "visual-missing" or "visual-occluded" or "disabled-shake" or "stop-shake";
         long lureStart = 0;
@@ -586,7 +619,7 @@ public class FishingEngineReplayTests
                 using var target = new Mat(full, new Rect((full.Width-source.Width)/2, top, source.Width, source.Height));
                 source.CopyTo(target);
             }
-            bool hideCast = scenario == "missed-meter-delayed-bite" || scenario == "failed-casts" && engine.WatchdogRecoveryCount == 0 ||
+            bool hideCast = scenario == "missed-meter-delayed-bite" || scenario == "failed-casts" && rodToggleCount < 2 ||
                 scenario == "recovery-budget" && cooldownStarted == null;
             if (state == MacroState.Casting && input.Held && !hideCast)
             {
@@ -613,10 +646,19 @@ public class FishingEngineReplayTests
                 sawReel = true;
                 if (reelStart == 0) reelStart = clock.Timestamp;
                 if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < 600) Paste(reel);
+                else if (scenario == "lost-fish") Paste(caught);
             }
-            if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario == "companion-bonus") Paste(caught); }
+            if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario is "companion-bonus" or "lost-fish") Paste(caught); }
             // Foreground hotbar must stay visible after composing recorded crops, which can overlap its band.
-            Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 68, 68), Scalar.White, 1);
+            if (!rodSelected)
+            {
+                // A deselected slot has no white outline. Render the visible dark
+                // container so real vision can distinguish unequipping from a hidden hotbar.
+                int hotbarBackdrop = (int)Math.Round(Desktop.Height * .25);
+                Cv2.Rectangle(full, new Rect(0, Desktop.Height - hotbarBackdrop, full.Width, hotbarBackdrop), Scalar.All(150), -1);
+                Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 620, 68), Scalar.All(20), -1);
+            }
+            Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 68, 68), rodSelected ? Scalar.White : Scalar.All(60), 1);
             if (aquariumCleanupScenario && state == MacroState.PostCatch && workflowAttempts == 1)
             {
                 int closeAfter = scenario == "aquarium-focus-after-open" ? 2 : 3;
@@ -736,6 +778,8 @@ public class FishingEngineReplayTests
             };
             input.AfterKey = (key, flags) =>
             {
+                if (key == (byte)'1' && flags == Win32.KEYEVENTF_KEYUP)
+                { rodSelected = !rodSelected; rodToggleCount++; }
                 if (scenario == "stop-shake" && key == 220 && flags == 0 && stopIndex < 0) StopAtBoundary();
             };
             input.AfterRelative = () =>
@@ -937,8 +981,14 @@ public class FishingEngineReplayTests
             Assert.True(sawLure && sawReel && sawPostCatch && nextCast, $"States: {string.Join(',', states)}; clock={clock.Timestamp}; action={lastAction}");
             if (scenario == "cyan-reel") Assert.True(cyanReelPresses > 0, "The worker must control the cyan bar, not merely wait for the replay catch.");
             Assert.Equal(catchVisible ? (workflowScenario ? 2 : run) : 0, engine.TotalCatches);
-            Assert.Equal(!catchVisible || stallScenario ? 1 : 0, engine.UnknownCatches);
-            Assert.Equal(0, engine.TotalFails);
+            Assert.Equal(scenario == "lost-fish" ? 0 : !catchVisible || stallScenario ? 1 : 0, engine.UnknownCatches);
+            Assert.Equal(scenario == "lost-fish" ? 1 : 0, engine.TotalFails);
+            if (scenario == "lost-fish")
+            {
+                Assert.Equal(0, engine.CurrentStreak);
+                Assert.Equal(0, engine.WinRate);
+                Assert.DoesNotContain("100", engine.WinRateDisplay);
+            }
             Assert.False(engine.IsRunning); Assert.False(input.Held);
             Assert.Empty(input.HeldKeys);
             if (rejectScenario)
@@ -984,6 +1034,8 @@ public class FishingEngineReplayTests
             }
             if (retryScenario)
             {
+                Assert.True(rodSelected);
+                Assert.True(rodToggleCount >= 2, "Recovery must actually unequip and re-equip, not only increment a retry counter.");
                 Assert.Equal(scenario == "recovery-budget" ? 3 : 1, engine.WatchdogRecoveryCount);
                 if (scenario == "recovery-budget")
                 { Assert.NotNull(cooldownStarted); Assert.True(clock.Timestamp - cooldownStarted.Value >= 5000); }

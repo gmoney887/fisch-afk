@@ -16,24 +16,99 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
 {
     public static readonly string[] Names = ["bag", "search", "item", "dialog", "one", "yes", "opened", "reward-word"];
     private readonly Dictionary<string, Mat> _templates = new();
+    private readonly Dictionary<(string Key, int W, int H), Mat> _prepared = new();
+    private readonly Dictionary<string, (int W, int H)> _lastSize = new();
+    private int _viewportHeight;
+    private Mat? _notificationFrame;
+    private Mat? _normalizationSource, _normalized;
+    private Point? _openedPoint, _cratePoint;
     public string[] MissingTemplates() => Names.Where(n => !System.IO.File.Exists(
         System.IO.Path.Combine(directory, "crate-" + n + ".png"))).ToArray();
 
     public Point? Find(Mat frame, string name)
     {
+        if (frame.Height <= 1369) return FindAtCaptureScale(frame, name);
+        if (!ReferenceEquals(frame, _normalizationSource))
+        {
+            _normalized?.Dispose();
+            _normalized = new Mat();
+            _normalizationSource = frame;
+            Cv2.Resize(frame, _normalized, new Size((int)Math.Round(frame.Width * 1369.0 / frame.Height), 1369));
+        }
+        var point = FindAtCaptureScale(_normalized!, name);
+        return point.HasValue ? new Point((int)Math.Round(point.Value.X * frame.Width / (double)_normalized!.Width),
+            (int)Math.Round(point.Value.Y * frame.Height / 1369.0)) : null;
+    }
+
+    private Point? FindAtCaptureScale(Mat frame, string name)
+    {
+        if (name is not ("opened" or "reward-word")) return FindUncached(frame, name);
+        if (!ReferenceEquals(_notificationFrame, frame))
+        {
+            _notificationFrame = frame;
+            _openedPoint = _cratePoint = null;
+            Rect Row(Point point, int left, int right)
+            {
+                int top = Math.Max(0, point.Y - (int)(frame.Height * .012));
+                return new Rect(left, top, Math.Max(1, right - left),
+                    Math.Min(frame.Height - top, Math.Max(1, (int)(frame.Height * .024))));
+            }
+            var crate = FindUncached(frame, "reward-word");
+            Point? opened = crate.HasValue ? FindUncached(frame, "opened", Row(crate.Value,
+                Math.Max(0, crate.Value.X - (int)(frame.Height * .65)), crate.Value.X)) : null;
+            if (!opened.HasValue && crate.HasValue)
+            {
+                // A suffix candidate can be another line of the reward list.
+                // Fall back to the prefix, then constrain the suffix to its row.
+                double edge = frame.Width / (2.0 * frame.Height);
+                opened = FindUncached(frame, "opened", Region(frame, edge - .65, .20, edge - .004, .82));
+                if (opened.HasValue) crate = FindUncached(frame, "reward-word",
+                    Row(opened.Value, opened.Value.X, frame.Width));
+            }
+            if (opened.HasValue && crate.HasValue && crate.Value.X > opened.Value.X &&
+                Math.Abs(crate.Value.Y - opened.Value.Y) < frame.Height * .012)
+            { _openedPoint = opened; _cratePoint = crate; }
+        }
+        return name == "opened" ? _openedPoint : _cratePoint;
+    }
+
+    private Point? FindUncached(Mat frame, string name, Rect? notificationRow = null)
+    {
+        Point? Match(Mat image, string target, string template, bool whiteText = false) =>
+            MatchTemplate(image, target, template, whiteText, notificationRow);
+        // Dense stacks shrink/overlap labels and vary their background. Match
+        // the white Crate lettering independently of the colored modifiers.
+        if (name is "item" or "search")
+        {
+            var dense = Match(frame, name, name + "-dense", whiteText: true)
+                ?? (name == "search" ? Match(frame, name, name + "-dense") : null);
+            if (dense.HasValue) return dense;
+        }
+        if (name == "item")
+        {
+            var text = Match(frame, name, name, whiteText: true);
+            if (text.HasValue) return text;
+        }
         if (name is "opened" or "reward-word")
         {
             var text = Match(frame, name, name + "-current", whiteText: true)
+                ?? Match(frame, name, name + "-compact", whiteText: true)
                 ?? (name == "opened" ? Match(frame, name, "opened-mutated", whiteText: true) : null)
                 ?? Match(frame, name, name, whiteText: true);
             if (text.HasValue) return text;
         }
         return (name is "bag" or "search" or "opened" or "reward-word" ? Match(frame, name, name + "-current") : null)
+           ?? (name is "opened" or "reward-word" ? Match(frame, name, name + "-compact") : null)
            ?? Match(frame, name, name);
     }
 
-    private Point? Match(Mat frame, string name, string templateName, bool whiteText = false)
+    private Point? MatchTemplate(Mat frame, string name, string templateName, bool whiteText = false, Rect? searchRegion = null)
     {
+        if (_viewportHeight != frame.Height)
+        {
+            foreach (var image in _prepared.Values) image.Dispose();
+            _prepared.Clear(); _lastSize.Clear(); _viewportHeight = frame.Height;
+        }
         string cacheKey = templateName + (whiteText ? ":white" : "");
         if (!_templates.TryGetValue(cacheKey, out var template))
         {
@@ -42,8 +117,12 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
             using var color = Cv2.ImRead(path);
             if (color.Empty()) return null;
             template = new Mat();
-            if (whiteText) Cv2.InRange(color, new Scalar(180, 180, 180), Scalar.All(255), template);
+            if (whiteText) color.CopyTo(template);
             else Cv2.CvtColor(color, template, ColorConversionCodes.BGR2GRAY);
+            // Colored labels may contain no white pixels. A constant template
+            // produces meaningless perfect correlation on a blank region.
+            Cv2.MeanStdDev(template, out _, out var deviation);
+            if (deviation.Val0 < 1) { template.Dispose(); return null; }
             _templates[cacheKey] = template;
         }
         // Horizontal values are relative to viewport center, in viewport heights.
@@ -59,33 +138,49 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
             _ => (frame.Width / (2.0 * frame.Height) - .260, .20,
                   frame.Width / (2.0 * frame.Height) - .004, .82)
         };
-        var rect = Region(frame, bounds.Item1, bounds.Item2, bounds.Item3, bounds.Item4);
+        var rect = searchRegion ?? Region(frame, bounds.Item1, bounds.Item2, bounds.Item3, bounds.Item4);
         using var roi = new Mat(frame, rect); using var gray = new Mat();
         if (whiteText) Cv2.InRange(roi, new Scalar(180, 180, 180), Scalar.All(255), gray);
         else Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
-        Cv2.GaussianBlur(gray, gray, new Size(3, 3), 0);
+        using var smoothed = Smooth(gray);
         double threshold = name is "one" or "search" ? .94 : .90;
-        foreach (double textScale in name is "bag" or "search" or "item" or "opened" or "reward-word" ? new[] { 1.0, .7, .8, .9 } : new[] { 1.0 })
+        IEnumerable<(int W, int H)> Sizes()
         {
-            int width = Math.Max(1, (int)Math.Round(template.Width * frame.Height / 1369.0 * textScale));
-            int height = Math.Max(1, (int)Math.Round(template.Height * frame.Height / 1369.0 * textScale));
-            // Rasterized text can round by a pixel at a different viewport scale.
+            if (_lastSize.TryGetValue(cacheKey, out var last)) yield return last;
+            foreach (double textScale in name is "bag" or "search" or "item" or "opened" or "reward-word" ? new[] { 1.0, .7, .8, .9 } : new[] { 1.0 })
+            {
+            double referenceHeight = templateName.EndsWith("-dense", StringComparison.Ordinal) ? 1353.0 : 1369.0;
+            int width = Math.Max(1, (int)Math.Round(template.Width * frame.Height / referenceHeight * textScale));
+            int height = Math.Max(1, (int)Math.Round(template.Height * frame.Height / referenceHeight * textScale));
             foreach (int dw in new[] { 0, -1, 1 })
             foreach (int dh in new[] { 0, -1, 1 })
+                yield return (Math.Max(1, width + dw), Math.Max(1, height + dh));
+            }
+        }
+        foreach (var size in Sizes().Distinct())
             {
-                using var scaled = new Mat();
-                Cv2.Resize(template, scaled, new Size(Math.Max(1, width + dw), Math.Max(1, height + dh)));
+                var dimensions = (cacheKey, size.W, size.H);
+                if (!_prepared.TryGetValue(dimensions, out var scaled))
+                {
+                    using var resized = new Mat();
+                    Cv2.Resize(template, resized, new Size(dimensions.Item2, dimensions.Item3));
+                    using var textMask = new Mat();
+                    if (whiteText) Cv2.InRange(resized, new Scalar(180, 180, 180), Scalar.All(255), textMask);
+                    else resized.CopyTo(textMask);
+                    Cv2.MeanStdDev(textMask, out _, out var maskDeviation);
+                    if (maskDeviation.Val0 < 1) continue;
+                    _prepared[dimensions] = scaled = Smooth(textMask);
+                }
                 if (gray.Width < scaled.Width || gray.Height < scaled.Height) continue;
-                Cv2.GaussianBlur(scaled, scaled, new Size(3, 3), 0);
                 using var scores = new Mat();
-                Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
+                Cv2.MatchTemplate(smoothed, scaled, scores, TemplateMatchModes.CCoeffNormed);
                 Cv2.MinMaxLoc(scores, out _, out double confidence, out _, out var point);
                 if (double.IsFinite(confidence) && confidence >= threshold)
                 {
+                    _lastSize[cacheKey] = size;
                     return new Point(rect.X + point.X + scaled.Width / 2, rect.Y + point.Y + scaled.Height / 2);
                 }
             }
-        }
         return null;
     }
 
@@ -152,7 +247,39 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
         });
     }
 
-    public void Dispose() { foreach (var template in _templates.Values) template.Dispose(); }
+    // Exact 3x3 [1 2 1] smoothing with reflect-101 borders. Avoid the native
+    // GaussianBlur path which access-violated during live inventory closure.
+    // Source and destination are separate and both owned for the entire loop.
+    private static unsafe Mat Smooth(Mat source)
+    {
+        var result = new Mat(source.Rows, source.Cols, MatType.CV_8UC1);
+        int w = source.Cols, h = source.Rows;
+        for (int y = 0; y < h; y++)
+        {
+            byte* above = (byte*)source.Ptr(y == 0 ? Math.Min(1, h - 1) : y - 1);
+            byte* row = (byte*)source.Ptr(y);
+            byte* below = (byte*)source.Ptr(y == h - 1 ? Math.Max(0, h - 2) : y + 1);
+            byte* dst = (byte*)result.Ptr(y);
+            for (int x = 0; x < w; x++)
+            {
+                int l = x == 0 ? Math.Min(1, w - 1) : x - 1;
+                int r = x == w - 1 ? Math.Max(0, w - 2) : x + 1;
+                dst[x] = (byte)((above[l] + 2 * above[x] + above[r] +
+                    2 * row[l] + 4 * row[x] + 2 * row[r] + below[l] + 2 * below[x] + below[r] + 8) / 16);
+            }
+        }
+        GC.KeepAlive(source);
+        return result;
+    }
+
+    public void Dispose()
+    {
+        _normalized?.Dispose();
+        _normalizationSource = _notificationFrame = null;
+        foreach (var template in _templates.Values) template.Dispose();
+        foreach (var template in _prepared.Values) template.Dispose();
+        _templates.Clear(); _prepared.Clear();
+    }
 }
 
 public static class CrateWorkflow
@@ -273,8 +400,33 @@ public static class CrateWorkflow
                 return Unknown("Crate confirmation changed before opening.");
             click(yes.Value);
         }
-        if (!Await(f => vision.Find(f, "dialog") == null && Reward(f), 8000))
-            return Unknown("A new crate reward notification was not confirmed.");
+        bool Opened(Mat f) => vision.Find(f, "dialog") == null && Reward(f);
+        if (!Await(Opened, 8000))
+        {
+            // A missed toast is uncertainty, not evidence that the crate failed.
+            // Retry input only when the same actionable dialog is still visible.
+            using (var frame = Frame())
+            {
+                if (vision.Find(frame, "dialog") != null)
+                {
+                    var yes = vision.Find(frame, "yes");
+                    if (yes == null || !vision.QuantityPresent(frame) || Reward(frame))
+                        return Unknown("Crate dialog changed during confirmation recovery.");
+                    progress?.Invoke("Confirmation dialog is still open; retrying its verified Yes button...");
+                    click(yes.Value);
+                }
+                else progress?.Invoke("Dialog closed; checking again for delayed reward evidence...");
+            }
+            if (!Await(Opened, 8000))
+            {
+                using var frame = Frame();
+                bool closed = vision.Find(frame, "dialog") == null;
+                return new(ActionOutcome.Unknown,
+                    closed ? "Dialog closed but reward remains unconfirmed; inventory must be reacquired."
+                        : "Crate dialog remained open after two verified confirmation attempts.",
+                    RetryableWithoutRecovery: closed);
+            }
+        }
         return new(ActionOutcome.ConfirmedSuccess, "Crate batch opened; new reward notification confirmed", RewardClaimed: true);
     }
 }

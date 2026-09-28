@@ -519,8 +519,8 @@
                             <!-- Stat 3: Win Rate -->
                             <Border Grid.Column="2" Background="#142337" BorderBrush="#253C56" BorderThickness="1" CornerRadius="8" Padding="4,8" Margin="0,0,4,0">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="WIN RATE" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
-                                    <TextBlock x:Name="TxtWinRate" Text="100%" FontSize="21" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="CATCH SUCCESS" FontSize="8" FontWeight="Black" Foreground="#91A8C4" HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="TxtWinRate" Text="—" FontSize="21" FontWeight="Bold" Foreground="#10B981" HorizontalAlignment="Center"/>
                                 </StackPanel>
                             </Border>
 

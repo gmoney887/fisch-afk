@@ -43,6 +43,34 @@ public partial class App : Application
         }
         catch { }
 
+        if (e.Args.Length > 0 && e.Args[0].Equals("--verify-crates", StringComparison.OrdinalIgnoreCase))
+        {
+            // Bounded live acceptance through the same guarded production workflow.
+            int batches = e.Args.Length > 1 && int.TryParse(e.Args[1], out var requested)
+                ? Math.Clamp(requested, 1, 25) : 1;
+            string report = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "crate-verification.json");
+            bool success = false;
+            using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(Math.Min(600, Math.Max(90, batches * 25))));
+            var timer = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                using var engine = new FishingEngine(Settings.Load());
+                success = engine.ExecuteAutoOpenCrates(batches, message =>
+                    SessionLogger.Instance.Log("CRATE-CHECK", message), timeout.Token);
+                File.WriteAllText(report, System.Text.Json.JsonSerializer.Serialize(new
+                { Success = success, engine.LastCrateOutcome, engine.LastCrateEvidence,
+                    Seconds = timer.Elapsed.TotalSeconds, Recording = engine.Recorder.CurrentSessionDirectory }));
+            }
+            catch (Exception ex)
+            {
+                File.WriteAllText(report, System.Text.Json.JsonSerializer.Serialize(new
+                { Success = false, Error = ex.ToString(), Seconds = timer.Elapsed.TotalSeconds }));
+            }
+            SessionLogger.Instance.Dispose();
+            Environment.Exit(success ? 0 : 1);
+            return;
+        }
+
         if (e.Args.Length > 0 && e.Args[0].Equals("--record-cast", StringComparison.OrdinalIgnoreCase))
         {
             try

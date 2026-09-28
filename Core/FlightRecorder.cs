@@ -56,6 +56,9 @@ public sealed class FlightRecorder : IDisposable
             var manifest = new { SchemaVersion = 3, SessionId = Path.GetFileName(directory),
                 PcId = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Environment.MachineName)))[..16],
                 AppVersion = typeof(FlightRecorder).Assembly.GetName().Version?.ToString(),
+                BuildVersion = ((System.Reflection.AssemblyInformationalVersionAttribute?)Attribute.GetCustomAttribute(
+                    typeof(FlightRecorder).Assembly, typeof(System.Reflection.AssemblyInformationalVersionAttribute)))?.InformationalVersion,
+                ExecutablePath = Environment.ProcessPath,
                 DetectorVersion = "2", StartedUtc = DateTime.UtcNow, MonotonicStart = started,
                 TimestampFrequency = Stopwatch.Frequency, Width = frameWidth, Height = frameHeight,
                 Demonstration = demonstration,

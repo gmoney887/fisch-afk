@@ -107,6 +107,10 @@ public class FishingEngine : IDisposable
     private string _lastKnownRodStatus = "ROD: STANDBY";
     private bool _catchBannerSeen = false;
     private int _catchBannerFrames;
+    private readonly FreshFailureEvidence _failureEvidence = new();
+    private long _lastFailureCheckTicks;
+    private bool _catchFailureSeen;
+    private ReelHoldRecovery? _holdRecovery;
     private int _readyHotbarFrames;
 
     // Feature 6: Autonomous Self-Healing Watchdog
@@ -158,7 +162,7 @@ public class FishingEngine : IDisposable
             throw new GameplayInterruptedException("Window geometry changed; reacquiring the viewport is required.");
     }
 
-    private void BeginGameplay()
+    private void BeginGameplay(bool demonstration = false)
     {
         _deathContextRecorded = false;
         _coordinator.ThrowIfCancelled();
@@ -172,7 +176,7 @@ public class FishingEngine : IDisposable
         if (Config.EnableRecording) _recorder.StartSession(_activeGeometry.Width, _activeGeometry.Height,
             new { Settings = Config, TotalCatches, TotalFails, UnknownCatches, SessionUptimeSeconds, Dpi = _activeDpi,
                 Adaptation = Config.EnableAdaptiveRodDynamics ? BoundedRodEstimator.Load(AppDataPaths.FilePath("rod-profile.json"),
-                    Config.RodProfile, _activeGeometry.Width, _activeGeometry.Height) : null });
+                    Config.RodProfile, _activeGeometry.Width, _activeGeometry.Height) : null }, demonstration: demonstration);
     }
 
     private void WaitForFishingRetry(string reason, int minimumDelayMs = 1000)
@@ -222,7 +226,7 @@ public class FishingEngine : IDisposable
         ValidateGameplay();
     }
 
-    private T RunManual<T>(Func<T> action, T interrupted, CancellationToken cancellation = default)
+    private T RunManual<T>(Func<T> action, T interrupted, CancellationToken cancellation = default, bool demonstration = false)
     {
         if (IsRunning) return action();
         using var source = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -233,7 +237,7 @@ public class FishingEngine : IDisposable
         }
         _operationCancellation = source.Token;
         PauseReason = null;
-        try { BeginGameplay(); return action(); }
+        try { BeginGameplay(demonstration); return action(); }
         catch (OperationCanceledException) { return interrupted; }
         catch (GameplayInterruptedException ex) { PauseReason = ex.Message; return interrupted; }
         catch (Exception ex) { PauseReason = "Workflow interrupted: " + ex.Message; SessionLogger.Instance.LogError("Manual workflow", ex); return interrupted; }
@@ -245,9 +249,9 @@ public class FishingEngine : IDisposable
         }
     }
 
-    private T RunQueued<T>(Func<T> action, T interrupted, CancellationToken cancellation = default)
+    private T RunQueued<T>(Func<T> action, T interrupted, CancellationToken cancellation = default, bool demonstration = false)
     {
-        try { return _coordinator.Enqueue(() => RunManual(action, interrupted, cancellation)).GetAwaiter().GetResult(); }
+        try { return _coordinator.Enqueue(() => RunManual(action, interrupted, cancellation, demonstration)).GetAwaiter().GetResult(); }
         catch (OperationCanceledException) { return interrupted; }
         catch (ObjectDisposedException) { return interrupted; }
         catch (InvalidOperationException ex) { PauseReason = ex.Message; return interrupted; }
@@ -262,7 +266,9 @@ public class FishingEngine : IDisposable
 
     public double SessionUptimeSeconds => _sessionStopwatch.Elapsed.TotalSeconds;
     public double CatchesPerHour => (SessionUptimeSeconds > 5) ? (TotalCatches * 3600.0 / SessionUptimeSeconds) : 0.0;
-    public double WinRate => (TotalCatches + TotalFails > 0) ? (TotalCatches * 100.0 / (TotalCatches + TotalFails)) : 100.0;
+    public double WinRate => CatchStatistics.SuccessRate(TotalCatches, TotalFails, UnknownCatches);
+    public string WinRateDisplay => CatchStatistics.Display(TotalCatches, TotalFails, UnknownCatches);
+    public string OutcomeSummary => $"{TotalCatches} caught, {TotalFails} lost, {UnknownCatches} unconfirmed. Success rate includes all completed attempts.";
 
     public void ResetStats()
     {
@@ -542,7 +548,7 @@ public class FishingEngine : IDisposable
         _isAquariumClaimPending = true;
     }
 
-    private WorkflowResult RunRewardWorkflow(bool aquarium, Action<string>? progress = null)
+    private WorkflowResult RunRewardWorkflow(bool aquarium, Action<string>? progress = null, ICrateVision? sharedCrateVision = null)
     {
         ValidateGameplay();
         int w = _activeGeometry.Width, h = _activeGeometry.Height;
@@ -552,16 +558,15 @@ public class FishingEngine : IDisposable
             var screen = new Win32.POINT { X = point.X, Y = point.Y };
             if (!_desktop.ClientToScreen(_activeWindow, ref screen)) throw new GameplayInterruptedException("Coordinate conversion failed.");
             // Allow Roblox's GUI pointer handling to settle before the hardware click.
-            if (!aquarium)
-            {
-                _input.SendHardwareMouseMove(screen.X, screen.Y, window: _activeWindow);
-                _input.SendRelativeMove(2, 1);
-                Delay(25);
-                _input.SendRelativeMove(-2, -1);
-                Delay(100);
-            }
-            _input.SendHardwareClick(screen.X, screen.Y, aquarium ? point.X : -1,
-                aquarium ? point.Y : -1, _activeWindow);
+            _input.SendHardwareMouseMove(screen.X, screen.Y, window: _activeWindow);
+            _input.SendRelativeMove(2, 1);
+            Delay(25);
+            _input.SendRelativeMove(-2, -1);
+            Delay(100);
+            // Use one hardware click path for both loot workflows. Supplying
+            // client coordinates also posts button messages, duplicating input
+            // on clients that process both paths (including toggle buttons).
+            _input.SendHardwareClick(screen.X, screen.Y, window: _activeWindow);
         }
         Mat? CaptureWorkflow()
         {
@@ -575,10 +580,10 @@ public class FishingEngine : IDisposable
                 CaptureWorkflow, Delay, Click, _operationCancellation,
                 message => { SessionLogger.Instance.Log("AQUARIUM", message); progress?.Invoke(message); });
         }
-        using var crateVision = new CrateVision(_workflowTemplateDirectory);
-        return CrateWorkflow.Run(crateVision, CaptureWorkflow, Delay, Click, _input.SendKeyPress,
+        using var crateVision = sharedCrateVision == null ? new CrateVision(_workflowTemplateDirectory) : null;
+        return CrateWorkflow.Run(sharedCrateVision ?? crateVision!, CaptureWorkflow, Delay, Click, _input.SendKeyPress,
             text => { _input.SelectAllAndClear(); _input.SendKeyString(text); }, _operationCancellation,
-            progress, _clock);
+            message => { SessionLogger.Instance.Log("CRATE-STEP", message); progress?.Invoke(message); }, _clock);
     }
 
     public bool ExecuteAquariumClaim(bool recordReplication = true, CancellationToken ct = default)
@@ -621,21 +626,21 @@ public class FishingEngine : IDisposable
         {
             LastCrateEvidence = null;
             LastCrateOutcome = ActionOutcome.Unknown;
-            return RunQueued(() => ExecuteAutoOpenCrates(maxCrateTypes, onProgress, ct), false, ct);
+            return RunQueued(() => ExecuteAutoOpenCrates(maxCrateTypes, onProgress, ct), false, ct, demonstration: true);
         }
         LastCrateOutcome = ActionOutcome.Unknown;
         if (!IsRunning && Config.EnableRecording)
         {
-            _recorder.StopSession("Starting crate workflow recording");
-            _recorder.StartSession(_activeGeometry.Width, _activeGeometry.Height,
-                new { Mode = "Manual crate workflow" }, demonstration: true);
+            _recorder.RecordEvent("crate-workflow-start", new { Mode = "Manual crate workflow" });
         }
         // The saved setting name is retained for compatibility; each pass requests the full selected stack.
         int limit = maxCrateTypes > 0 ? Math.Min(maxCrateTypes, 999) : 999;
+        using var crateVision = new CrateVision(_workflowTemplateDirectory);
+        int uncertainAttempts = 0;
         for (int i = 0; i < limit; i++)
         {
             ct.ThrowIfCancellationRequested();
-            var result = RunRewardWorkflow(false, onProgress);
+            var result = RunRewardWorkflow(false, onProgress, crateVision);
             LastCrateEvidence = result.Evidence;
             SessionLogger.Instance.Log("CRATES", result.Evidence);
             onProgress?.Invoke(result.Evidence);
@@ -643,8 +648,17 @@ public class FishingEngine : IDisposable
             {
                 LastCrateOutcome = result.Outcome;
                 _recorder.RecordEvent("crate-outcome", result);
+                if (result.RetryableWithoutRecovery && ++uncertainAttempts < 3)
+                {
+                    onProgress?.Invoke("Reward uncertain; reacquiring the filtered inventory before another attempt...");
+                    // Re-run selection from fresh inventory evidence. Never replay
+                    // the old confirmation coordinates after its dialog closed.
+                    i--;
+                    continue;
+                }
                 return false;
             }
+            uncertainAttempts = 0;
             LastCrateOutcome = result.Outcome;
             _recorder.RecordEvent("crate-outcome", result);
             if (result.Evidence.StartsWith("Empty inventory", StringComparison.Ordinal))
@@ -743,6 +757,8 @@ public class FishingEngine : IDisposable
         _viewSafety.Reset();
         _viewChecked = false;
         _catchBannerFrames = 0; _catchBannerSeen = false;
+        _failureEvidence.Reset(); _catchFailureSeen = false;
+        _lastFailureCheckTicks = 0;
         _skipAquariumThisSession = _skipCratesThisSession = false;
         _isRecovering = false;
         _lastProgressTicks = _clock.Timestamp;
@@ -960,19 +976,35 @@ public class FishingEngine : IDisposable
 
     private void EnsureRodEquipped(IntPtr robloxHwnd, int clientW, int clientH, bool force = false)
     {
-        if (IsRodEquipped(robloxHwnd, clientW, clientH))
+        bool equipped = IsRodEquipped(robloxHwnd, clientW, clientH);
+        if (equipped && !force)
         {
             SessionLogger.Instance.Log("ROD", "EnsureRodEquipped: Rod is ALREADY in hand. No action taken.");
             return;
         }
 
-        SessionLogger.Instance.Log("ROD", "EnsureRodEquipped: Rod is NOT in hand. Equipping rod now...");
+        SessionLogger.Instance.Log("ROD", equipped
+            ? "EnsureRodEquipped: Forced equipment reset requested."
+            : "EnsureRodEquipped: Rod is NOT in hand. Equipping rod now...");
 
         if (!_lastHotbarGeometryConfirmed)
             throw new GameplayInterruptedException("Hotbar is not visible; waiting to detect the reel or rod slot.");
 
         char rodKey = (!string.IsNullOrEmpty(Config.RodSlot) && char.IsDigit(Config.RodSlot[0])) ? Config.RodSlot[0] : '1';
         int slotNum = Math.Clamp(rodKey - '0', 1, 9);
+
+        if (equipped)
+        {
+            SessionLogger.Instance.Log("ROD", "Forced reset: unequipping rod before re-equipping.");
+            RodResetGuard.Unequip(
+                () => _input.SendKeyPress(rodKey),
+                () =>
+                {
+                    bool selected = IsRodEquipped(robloxHwnd, clientW, clientH);
+                    return (selected, _lastHotbarGeometryConfirmed);
+                }, Delay, _operationCancellation);
+            _recorder.RecordEvent("rod-reset", new { Stage = "Unequip confirmed", Slot = slotNum });
+        }
 
         // Ensure Roblox has focus before sending hotkey
         ValidateGameplay();
@@ -988,7 +1020,7 @@ public class FishingEngine : IDisposable
             return;
         }
 
-        // If keypress did not equip or force requested, click the slot directly
+        // If keypress did not equip, click the visually located slot directly.
         SessionLogger.Instance.Log("ROD", $"EnsureRodEquipped: Keypress did not equip. Clicking hotbar slot {slotNum} dynamically...");
         ClickHotbarSlot(robloxHwnd, clientW, clientH, slotNum);
         Delay(250);
@@ -1336,11 +1368,11 @@ public class FishingEngine : IDisposable
             SessionLogger.Instance.LogInput(down ? "MouseDown" : "MouseUp", sx, sy, cx, cy);
             if (down)
             {
-                _input.SendHardwareMouseDown(sx, sy, cx, cy, robloxHwnd);
+                _input.SendHardwareMouseDown(sx, sy, window: robloxHwnd);
             }
             else
             {
-                _input.SendHardwareMouseUp(sx, sy, cx, cy, robloxHwnd);
+                _input.SendHardwareMouseUp(sx, sy, window: robloxHwnd);
             }
         }
     }
@@ -1358,6 +1390,7 @@ public class FishingEngine : IDisposable
         if (newState != MacroState.PostCatch)
         {
             _catchBannerSeen = false;
+            _catchFailureSeen = false;
         }
 
         double elapsed = (_stateStartTime > 0) ? GetElapsedMs(_stateStartTime) : 0;
@@ -1365,6 +1398,7 @@ public class FishingEngine : IDisposable
 
         SetMouseDown(false);
         CurrentState = newState;
+        if (newState is MacroState.Casting or MacroState.Reeling) _holdRecovery?.Reset();
         if (newState is MacroState.Casting or MacroState.PostCatch) _vision.ResetReelTheme();
         if (newState == MacroState.PostCatch) { _readyHotbarFrames = 0; }
         else { _catchBannerFrames = 0; }
@@ -1970,6 +2004,27 @@ public class FishingEngine : IDisposable
                     shouldGenerateDebug && CurrentState == MacroState.Reeling)
                 : new DetectionResult();
             visionSw.Stop();
+            if (CurrentState is MacroState.Reeling or MacroState.PostCatch)
+            {
+                bool newFailure = false;
+                if (_lastFailureCheckTicks == 0 || GetElapsedMs(_lastFailureCheckTicks) >= 80)
+                {
+                    _lastFailureCheckTicks = _clock.Timestamp;
+                    newFailure = _failureEvidence.Observe(CatchFailureDetector.Detect(crop!, winH));
+                }
+                if (!_catchFailureSeen && newFailure)
+                {
+                    _catchFailureSeen = true;
+                    _recorder.RecordEvent("catch-failure-evidence", new { Evidence = "Catch streak ended banner confirmed on two frames" });
+                }
+                if (CurrentState == MacroState.Reeling && _catchFailureSeen)
+                {
+                    _catchOutcome = new CatchOutcomeTracker();
+                    _catchOutcome.Observe(false, true);
+                    Transition(MacroState.PostCatch, "Catch streak ended; verifying loss");
+                    continue;
+                }
+            }
             // ==============================================================
             // STATE 3: REELING (ACTIVE COMPUTER VISION PURSUIT)
             // ==============================================================
@@ -2241,6 +2296,17 @@ public class FishingEngine : IDisposable
                     SetMouseDown(false);
                 }
 
+                _holdRecovery ??= new ReelHoldRecovery(_clock);
+                if (_holdRecovery.Observe(detect.BarFound && detect.FishFound && detect.ReelProgressFound,
+                    _isMouseDown, detect.BarCenter, detect.FishX, detect.BarWidth))
+                {
+                    SetMouseDown(false);
+                    Delay(45);
+                    SetMouseDown(true);
+                    _recorder.RecordEvent("reel-input-retry", new { Reason = "Verified bar did not respond to sustained right hold", detect.BarCenter, detect.FishX });
+                    action = "Reasserting unresponsive right hold";
+                }
+
                 // Dynamically check for in-game catch notification banner (confirmed catch)
                 if (detect.HasLiveReel) { _catchBannerSeen = false; _catchBannerFrames = 0; }
                 else if (crop != null)
@@ -2332,7 +2398,7 @@ public class FishingEngine : IDisposable
             // ==============================================================
             else if (CurrentState == MacroState.PostCatch)
             {
-                if (detect.HasLiveReel && TryResumeVisibleReel())
+                if (!_catchFailureSeen && detect.HasLiveReel && TryResumeVisibleReel())
                 {
                     detect.AnnotatedFrame?.Dispose();
                     continue;
@@ -2341,11 +2407,11 @@ public class FishingEngine : IDisposable
                 {
                     _catchBannerFrames = _vision.DetectCatchNotification(crop!, winH) ? _catchBannerFrames + 1 : 0;
                     _catchBannerSeen |= _catchBannerFrames >= 2;
-                    _catchOutcome.Observe(_catchBannerSeen);
+                    _catchOutcome.Observe(_catchBannerSeen, _catchFailureSeen);
                     _readyHotbarFrames = IsRodEquipped(robloxHwnd, winW, winH) && _lastHotbarGeometryConfirmed
                         ? _readyHotbarFrames + 1 : 0;
                     var outcome = _catchOutcome.FinalizeOnce(
-                        FishingCyclePolicy.CanFinalize(_catchBannerSeen, _readyHotbarFrames, GetElapsedMs(_stateStartTime)));
+                        FishingCyclePolicy.CanFinalize(_catchBannerSeen || _catchFailureSeen, _readyHotbarFrames, GetElapsedMs(_stateStartTime)));
                     if (outcome == null) { Delay(20); continue; }
                     if (outcome == ActionOutcome.ConfirmedSuccess)
                     {
@@ -2479,7 +2545,7 @@ public class FishingEngine : IDisposable
                 var telem = new TelemetryData
                 {
                     State = MacroState.PostCatch,
-                    Action = _catchBannerSeen ? "Catch confirmed. Resting..." : "Catch outcome unknown. Resting...",
+                    Action = _catchFailureSeen ? "Fish lost. Resting..." : _catchBannerSeen ? "Catch confirmed. Resting..." : "Catch outcome unknown. Resting...",
                     AnnotatedFrame = postCatchFrame
                 };
                 PopulateTelemetryStats(telem);

@@ -72,6 +72,10 @@ frame 160 to its test viewport and verifies reeling presses and a subsequent cat
 this is simulated input verification, not a new live game run.
 # Crate workflow fixtures (2026-09-26)
 
+Loss/reel regressions (September 27, evening): `reel_streak_ended.png`, `reel_losing_control.png`, and `reel_losing_control_dim.png` are the captured reel-only strips from frames 840, 820, and 826 of session `session_20260928_002026_018_9b31c04ab81a47dbbdc1148819dfa842`. Their viewport is 3440x1369 and capture region is (968,1013,1504,273). They contain reel controls, bait text and a streak-ended message, with no player names or chat. `Assets/catch_loss_prefix.png` and `Assets/catch_loss_suffix.png` are crops (449,87,319,40) and (877,87,180,40) from the streak-ended strip. Scaled variants are synthetic recognition checks, not multi-device acceptance.
+
+`crate_reward_long_name.png` preserves only the reward region (2750,945,690,115) from frame 78 of local session `session_20260927_192851_103_2ae0389d2aac419c9ecd06082477b4ca` (3440x1369). The frame visibly says Opened Sparkling Big Electric Bait Crate despite an unconfirmed workflow outcome. Other pixels are black. Compact prefix/suffix templates crop (3070,994,58,24) and (3368,993,57,26). Synthetic aspect-ratio/scale variants are regression probes, not real-device acceptance evidence.
+
 `crate_ui_14.png`, `crate_ui_15.png`, and `crate_ui_16.png` retain UI regions from
 the matching frames of local passive demonstration
 `session_20260918_210223_377_bf9e92419b4e4db79dbab0632e2fbb1e` (3440 x 1369).
@@ -89,3 +93,11 @@ Current inventory fixtures preserve the UI band (1200,950,1020,419) on a 3440x13
 Current reward fixture crate_reward_current.png retains (3100,960,324,100) from frame 7 of artifacts/live-fix6 (3424x1353). Current reward templates crop Opened (3220,984,59,20) and Crate (3348,982,54,21). crate_selected_current.png retains (1200,950,1020,403) from frame 2 of artifacts/live-fix7. These regression fixtures come from live app runs on September 26; all other pixels are masked.
 
 crate_reward_mutated.png and crate_reward_silver.png are masked reward-only regions from local September 27 crate retries (artifacts/crate-speed-live/frame_00000006.jpg and artifacts/crate-speed-live3/frame_00000007.jpg). crate-opened-mutated.png is the Opened text crop at (3143,983)-(3201,1006) from the first frame. Player/chat content is excluded. These cover transparent reward text over changing game scenery.
+
+`aquarium_nav_missed_click.png` retains only the 460x70 top-center navigation strip from frame 1 of local session_20260927_043417_927_7a772cc4e6eb46d999fcdc6dfdd6c208 (3440x1369). Navigation was recognized and clicked once, but all six recorded frames remained in gameplay. The strip contains no player names or chat. The regression protects recognition while the engine test verifies that aquarium clicks no longer enable duplicate window-message input and wait for pointer settling.
+
+`crate_inventory_dense.png` retains only the inventory band (1260,910)-(2160,1369) from frame 103 of session_20260927_043459_187_30a7045798db40ccb4a50622b79c5c5f (3440x1369). The release reported no recognizable crate despite many visible stacks. The rest of the image is black. This reproduces the missed dense white labels without retaining player names or chat.
+
+Aquarium claim animation fixtures 2�8: cropped controls and balance from the user�s local session_20260927_044137_594_ff27fd8daa454fb4b4dd6632510edd41 recording. All other pixels masked; retain native 3440�1369 coordinates. Frames 2�3 contain unclaimed rewards; frames 4�8 show zero cash/XP over changing scenery and reward animations.
+
+crate_inventory_79_stacks.png retains only (1250,890,940,390) from frame_00000005.jpg of session_20260927_190341_077_203d3077cd734b618d545c47ecaa7218 (3424x1353). Everything outside the inventory panel is black; player/chat content is excluded. Assets/Workflows/crate-item-dense.png is the Bait Crate label crop (1410,1231,54,15); crate-search-dense.png is the exact crate filter including caret and right padding (1722,950,56,23). Both retain a 1353-pixel reference height. Source evidence is preserved locally under artifacts/crate-recognition-20260927. Tests include wrong-filter rejection and scaled 1353/1080/1009-height variants.

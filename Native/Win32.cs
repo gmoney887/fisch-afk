@@ -173,14 +173,16 @@ public static partial class Win32
         {
             AttachThreadInput(curThread, fgThread, true);
             BringWindowToTop(hWnd);
-            ShowWindow(hWnd, SW_SHOW);
+            // Post to the target's UI thread. ShowWindow's first-call startup
+            // override can hide Roblox when our diagnostic process starts hidden.
+            ShowWindowAsync(hWnd, SW_SHOW);
             SetForegroundWindow(hWnd);
             AttachThreadInput(curThread, fgThread, false);
         }
         else
         {
             BringWindowToTop(hWnd);
-            ShowWindow(hWnd, SW_SHOW);
+            ShowWindowAsync(hWnd, SW_SHOW);
             SetForegroundWindow(hWnd);
         }
 

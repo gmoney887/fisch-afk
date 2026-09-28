@@ -5,6 +5,49 @@ namespace FischMacroCS.Tests;
 
 public class AquariumWorkflowTests
 {
+    private static Mat AnimatedClaimFrame(int number) => Cv2.ImRead(System.IO.Path.Combine(
+        AppContext.BaseDirectory, "Fixtures", $"aquarium_claim_animation_{number}.png"));
+
+    [Theory]
+    [InlineData(2, false)]
+    [InlineData(3, false)]
+    [InlineData(4, true)]
+    [InlineData(5, true)]
+    [InlineData(6, true)]
+    [InlineData(7, true)]
+    [InlineData(8, true)]
+    public void LiveClaimBalanceIgnoresTranslucentSceneryAndAnimations(int number, bool empty)
+    {
+        using var vision = Vision();
+        using var frame = AnimatedClaimFrame(number);
+        var match = vision.Find(frame, AquariumWorkflow.EmptyBalance);
+        Assert.True(match.Found == empty, $"Frame {number}: {match.Confidence}");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void LiveClaimAnimationSequenceRequiresClearedBalanceAndClosure(bool claimFails)
+    {
+        using var vision = Vision();
+        var clock = new Clock();
+        bool claimed = false, closed = false;
+        int nextFrame = 4;
+        var clicks = new List<string>();
+        Mat Capture() => closed ? new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black)
+            : AnimatedClaimFrame(claimed && !claimFails ? Math.Min(nextFrame++, 8) : 3);
+        void Click(Point p)
+        {
+            if (p.Y < 250) { closed = true; clicks.Add("close"); }
+            else { claimed = true; clicks.Add("claim"); }
+        }
+        var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
+        Assert.Equal(new[] { "claim", "close" }, clicks);
+        Assert.Equal(claimFails ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
+        Assert.Equal(!claimFails, result.RewardClaimed);
+        Assert.Equal(claimFails, result.RetryableWithoutRecovery);
+    }
+
     [Fact]
     public void RewardAnimationCannotCountAsClosingAKnownOpenPanel()
     {
@@ -46,6 +89,7 @@ public class AquariumWorkflowTests
     [InlineData("aquarium_nav_blue_1369.png")]
     [InlineData("aquarium_nav_blue_00001702.png")]
     [InlineData("aquarium_nav_blue_00001706.png")]
+    [InlineData("aquarium_nav_missed_click.png")]
     public void BlueSceneryBehindTranslucentNavigationDoesNotHideItsLettering(string fixture)
     {
         using var strip = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));

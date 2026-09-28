@@ -6,6 +6,30 @@ namespace FischMacroCS.Tests;
 
 public class CrateWorkflowTests
 {
+    [Fact]
+    public void ReusedVisionSurvivesRepeatedInventoryClosureAndViewportChanges()
+    {
+        using var vision = Vision();
+        using var inventory = Frame(14);
+        using var reward = Frame(16);
+        for (int pass = 0; pass < 12; pass++)
+        {
+            int height = pass % 2 == 0 ? 1369 : 1009;
+            using var opened = new Mat();
+            using var closed = new Mat();
+            var size = new Size((int)Math.Round(inventory.Width * height / 1369.0), height);
+            Cv2.Resize(inventory, opened, size);
+            Cv2.Resize(reward, closed, size);
+            Assert.NotNull(vision.Find(opened, "bag"));
+            Assert.NotNull(vision.Find(opened, "item"));
+            Assert.Null(vision.Find(closed, "bag"));
+            Assert.NotNull(vision.Find(closed, "opened"));
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            Assert.NotNull(vision.Find(opened, "bag"));
+        }
+    }
+
     [Theory]
     [InlineData("crate_ui_15.png", true)]
     [InlineData("crate_quantity-two.png", true)]
@@ -44,6 +68,7 @@ public class CrateWorkflowTests
     [Theory]
     [InlineData("crate_reward_mutated.png")]
     [InlineData("crate_reward_silver.png")]
+    [InlineData("crate_reward_long_name.png")]
     public void MutatedBaitCrateRewardIsRecognized(string fixture)
     {
         using var frame = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
@@ -60,6 +85,30 @@ public class CrateWorkflowTests
         Assert.NotNull(vision.Find(frame, "reward-word"));
     }
     private static CrateVision Vision() => new(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Workflows"));
+    [Theory]
+    [InlineData(1280, 720)]
+    [InlineData(1920, 1080)]
+    [InlineData(2560, 1440)]
+    [InlineData(3440, 1440)]
+    [InlineData(3840, 2160)]
+    public void LongRewardStaysPairedAcrossViewportShapes(int width, int height)
+    {
+        using var source = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "crate_reward_long_name.png"));
+        using var scaled = new Mat();
+        Cv2.Resize(source, scaled, new Size((int)Math.Round(source.Width * height / (double)source.Height), height));
+        using var frame = new Mat(height, width, MatType.CV_8UC3, Scalar.Black);
+        int copyWidth = Math.Min(width, scaled.Width);
+        using var sourceRegion = new Mat(scaled, new Rect(scaled.Width - copyWidth, 0, copyWidth, height));
+        using var target = new Mat(frame, new Rect(width - copyWidth, 0, copyWidth, height));
+        sourceRegion.CopyTo(target);
+        using var vision = Vision();
+        var opened = vision.Find(frame, "opened");
+        var crate = vision.Find(frame, "reward-word");
+        Assert.NotNull(opened); Assert.NotNull(crate);
+        Assert.True(crate.Value.X > opened.Value.X);
+        Assert.InRange(Math.Abs(crate.Value.Y - opened.Value.Y), 0, height * .012);
+    }
+
     private static Mat Frame(int n) => Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", $"crate_ui_{n}.png"));
 
     [Theory]
@@ -101,7 +150,7 @@ public class CrateWorkflowTests
         {
             using var source = Frame(n); using var frame = new Mat();
             Cv2.Resize(source, frame, new Size((int)Math.Round(source.Width * height / 1369.0), height));
-            foreach (string name in names) Assert.True(vision.Find(frame, name).HasValue, $"{n}, {name}, {height}");
+            foreach (string name in names) Assert.True(vision.Find(frame, name).HasValue, $"{n}, {name}, {height}, crate={vision.Find(frame, "reward-word")}");
             Assert.False(vision.Empty(frame));
             if (n == 14)
             {
@@ -118,6 +167,8 @@ public class CrateWorkflowTests
     [Theory]
     [InlineData("crate_inventory_current.png")]
     [InlineData("crate_inventory_native.png")]
+    [InlineData("crate_inventory_dense.png")]
+    [InlineData("crate_inventory_79_stacks.png")]
     public void CurrentInventoryLayoutIsRecognized(string file)
     {
         using var frame = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", file));
@@ -127,6 +178,27 @@ public class CrateWorkflowTests
         Assert.NotNull(vision.Find(frame, "item"));
         Assert.False(vision.Empty(frame));
     }
+    [Theory]
+    [InlineData(1353)]
+    [InlineData(1080)]
+    [InlineData(1009)]
+    public void Dense79StackInventoryFindsACrateInsideTheGrid(int height)
+    {
+        using var source = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "crate_inventory_79_stacks.png"));
+        using var frame = new Mat();
+        double scale = height / 1353.0;
+        Cv2.Resize(source, frame, new Size((int)Math.Round(source.Width * scale), height));
+        using var vision = Vision();
+        Assert.NotNull(vision.Find(frame, "search"));
+        var item = vision.Find(frame, "item");
+        Assert.NotNull(item);
+        Assert.InRange(item.Value.X, (int)(1400 * scale), (int)(2020 * scale));
+        Assert.InRange(item.Value.Y, (int)(990 * scale), (int)(1265 * scale));
+        Assert.False(vision.Empty(frame));
+        Assert.Null(vision.Find(frame, "dialog"));
+        Assert.Null(vision.Find(frame, "opened"));
+    }
+
     private sealed class FakeVision : ICrateVision
     {
         public int Stage;
@@ -159,6 +231,8 @@ public class CrateWorkflowTests
     [InlineData("cancel")]
     [InlineData("bag-key-missed")]
     [InlineData("bag-unavailable")]
+    [InlineData("missed-yes")]
+    [InlineData("stuck-yes")]
     public void WorkflowRequiresSelectionQuantityAndNewReward(string scenario)
     {
         var vision = new FakeVision { Missing = scenario == "missing", EmptyInventory = scenario == "empty",
@@ -166,15 +240,28 @@ public class CrateWorkflowTests
         using var cancel = new CancellationTokenSource();
         var clock = new Clock();
         var actions = new List<string>();
+        int yesAttempts = 0;
         WorkflowResult Run() => CrateWorkflow.Run(vision, () => new Mat(100, 100, MatType.CV_8UC3, Scalar.Black),
             ms => { clock.Delay(ms, cancel.Token); if (scenario == "cancel") cancel.Cancel(); },
-            p => { actions.Add("click"); if (vision.Stage is 0 or 2 or 4 || (vision.Stage == 6 && p == new Point(60, 60))) vision.Stage++; },
+            p => {
+                actions.Add("click");
+                if (vision.Stage == 6 && p == new Point(60, 60))
+                {
+                    yesAttempts++;
+                    if (scenario == "stuck-yes" || scenario == "missed-yes" && yesAttempts == 1) return;
+                    vision.Stage++;
+                }
+                else if (vision.Stage is 0 or 2 or 4) vision.Stage++;
+            },
             k => { actions.Add("bag"); if (vision.Stage != 0 || scenario is not ("bag-key-missed" or "bag-unavailable")) vision.Stage = vision.Stage == 0 ? 1 : 4; },
             s => { actions.Add(s); vision.Stage = s == "crate" ? 2 : 6; }, cancel.Token, clock: clock);
         if (scenario == "cancel") { Assert.ThrowsAny<OperationCanceledException>(() => Run()); return; }
         var result = Run();
-        Assert.Equal(scenario is "success" or "empty" ? ActionOutcome.ConfirmedSuccess : ActionOutcome.Unknown, result.Outcome);
-        Assert.Equal(scenario is "success", result.RewardClaimed);
+        Assert.Equal(scenario is "success" or "empty" or "missed-yes" ? ActionOutcome.ConfirmedSuccess : ActionOutcome.Unknown, result.Outcome);
+        Assert.Equal(scenario is "success" or "missed-yes", result.RewardClaimed);
+        if (scenario is "missed-yes" or "stuck-yes") Assert.Equal(2, yesAttempts);
+        if (scenario == "reward") { Assert.True(result.RetryableWithoutRecovery); Assert.Equal(1, yesAttempts); }
+        if (scenario == "stuck-yes") Assert.False(result.RetryableWithoutRecovery);
         if (scenario == "bag-unavailable") Assert.DoesNotContain("click", actions);
         if (scenario == "missing") Assert.Empty(actions);
         if (scenario == "quantity") Assert.Equal(6, vision.Stage);

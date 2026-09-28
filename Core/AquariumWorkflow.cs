@@ -9,7 +9,7 @@ public static class AquariumWorkflow
         AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true, SearchNearbyScales: true);
     public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true, SearchNearbyScales: true);
     // The zero C$/XP balance is stable; scrolling reward toasts are not.
-    public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true, SearchNearbyScales: true);
+    public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true, SearchNearbyScales: true, RewardBalanceText: true);
     public static readonly WorkflowTarget Close = new("aquarium-close", .560, .121, .025, 1353, .92, Smooth: true, SearchNearbyScales: true);
     public static readonly string[] TemplateNames = [Navigation.Name, Claim.Name, EmptyBalance.Name, Close.Name];
 

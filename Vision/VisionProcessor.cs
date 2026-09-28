@@ -153,6 +153,11 @@ public class VisionProcessor
         using var mask = new Mat();
         Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
         Cv2.InRange(hsv, new Scalar(0, 0, 210), new Scalar(179, 40, 255), mask);
+        // A diagonal red game effect can split the white progress fill. Bridge
+        // only short horizontal gaps; retain the anchor/height/rectangle checks.
+        using var progressBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(3, (int)Math.Round(viewportHeight * .035)), 1));
+        Cv2.MorphologyEx(mask, mask, MorphTypes.Close, progressBridge);
         Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
         double wideLeft = crop.Width / 2.0 - viewportHeight * .274;
         double compactLeft = crop.Width / 2.0 - viewportHeight * .182;
@@ -179,7 +184,7 @@ public class VisionProcessor
         if (cyan)
             Cv2.InRange(hsv, new Scalar(90, 80, 130), new Scalar(110, 190, 255), mask);
         else
-            Cv2.InRange(hsv, new Scalar(5, 35, 45), new Scalar(35, 140, 160), mask);
+            Cv2.InRange(hsv, new Scalar(0, 35, 40), new Scalar(35, 160, 160), mask);
         int kernelSize = Math.Max(3, (int)Math.Round(viewportHeight * .0035));
         using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(kernelSize, kernelSize));
         Cv2.MorphologyEx(mask, mask, MorphTypes.Open, kernel);

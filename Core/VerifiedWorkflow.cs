@@ -1,10 +1,11 @@
+using FischMacroCS.Vision;
 using OpenCvSharp;
 
 namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
     int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
-    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false);
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
 public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false, bool RetryableWithoutRecovery = false);
@@ -63,7 +64,7 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             scaled = new Mat();
             Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * frame.Height / (double)target.ReferenceHeight * scale)),
                 Math.Max(1, (int)Math.Round(template.Height * frame.Height / (double)target.ReferenceHeight * scale))));
-            if (target.Smooth) Cv2.GaussianBlur(scaled, scaled, new Size(3, 3), 0);
+            if (target.Smooth) ImageSmoothing.Apply(scaled, scaled);
             _scaled[scaleKey] = scaled;
         }
         int radius = (int)Math.Ceiling(target.RadiusInHeights * frame.Height);
@@ -76,13 +77,23 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             return (false, default, 0);
         using var roi = new Mat(frame, search);
         using var smoothed = new Mat();
-        if (target.Smooth) Cv2.GaussianBlur(roi, smoothed, new Size(3, 3), 0);
+        if (target.Smooth) ImageSmoothing.Apply(roi, smoothed);
         using var score = new Mat();
         double confidence;
         Point location;
         Cv2.MatchTemplate(target.Smooth ? smoothed : roi, scaled, score, TemplateMatchModes.SqDiffNormed);
         Cv2.MinMaxLoc(score, out double minimum, out _, out location, out _);
         confidence = 1 - minimum;
+        if (target.RewardBalanceText)
+        {
+            // Aquarium scenery and reward animations show through the panel.
+            // Compare the gold cash and cyan XP glyphs, excluding that background.
+            using var sceneGlyphs = BalanceGlyphs(target.Smooth ? smoothed : roi);
+            using var referenceGlyphs = BalanceGlyphs(scaled);
+            if (Cv2.CountNonZero(referenceGlyphs) < 5) return (false, default, 0);
+            Cv2.MatchTemplate(sceneGlyphs, referenceGlyphs, score, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
+        }
         if (target.BlueText && confidence < target.MinimumConfidence)
         {
             using var gray = new Mat(); using var templateGray = new Mat();
@@ -92,8 +103,8 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             Cv2.InRange(hsv, new Scalar(85, 45, 95), new Scalar(125, 255, 255), gray);
             Cv2.InRange(templateHsv, new Scalar(85, 45, 95), new Scalar(125, 255, 255), templateGray);
             if (Cv2.CountNonZero(templateGray) < 5) return (false, default, 0);
-            Cv2.GaussianBlur(gray, gray, new Size(3, 3), 0);
-            Cv2.GaussianBlur(templateGray, templateGray, new Size(3, 3), 0);
+            ImageSmoothing.Apply(gray, gray);
+            ImageSmoothing.Apply(templateGray, templateGray);
             Cv2.MatchTemplate(gray, templateGray, score, TemplateMatchModes.CCoeffNormed);
             Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
         }
@@ -124,6 +135,19 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         }
         return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
+    }
+    private static Mat BalanceGlyphs(Mat image)
+    {
+        using var hsv = new Mat();
+        using var cash = new Mat();
+        using var xp = new Mat();
+        Cv2.CvtColor(image, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(12, 45, 150), new Scalar(35, 255, 255), cash);
+        Cv2.InRange(hsv, new Scalar(80, 45, 150), new Scalar(100, 255, 255), xp);
+        var glyphs = new Mat();
+        Cv2.BitwiseOr(cash, xp, glyphs);
+        ImageSmoothing.Apply(glyphs, glyphs);
+        return glyphs;
     }
     public void Dispose()
     {

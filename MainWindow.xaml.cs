@@ -182,7 +182,8 @@ public partial class MainWindow : Window
         // Session Analytics Initial State
         TxtTotalCatches.Text = _engine.TotalCatches.ToString();
         TxtCatchRate.Text = $"{_engine.CatchesPerHour:F1}/hr";
-        TxtWinRate.Text = $"{_engine.WinRate:F0}%";
+        TxtWinRate.Text = _engine.WinRateDisplay;
+        TxtWinRate.ToolTip = _engine.OutcomeSummary;
         TxtSessionUptime.Text = TimeSpan.FromSeconds(_engine.SessionUptimeSeconds).ToString(@"hh\:mm\:ss");
         TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
         TxtWatchdogBadge.Text = $"🛡️ Retries: {_engine.WatchdogRecoveryCount}";
@@ -511,7 +512,8 @@ public partial class MainWindow : Window
                 // Update Session Analytics
                 TxtTotalCatches.Text = _engine.TotalCatches.ToString();
                 TxtCatchRate.Text = $"{_engine.CatchesPerHour:F1}/hr";
-                TxtWinRate.Text = $"{_engine.WinRate:F0}%";
+                TxtWinRate.Text = _engine.WinRateDisplay;
+                TxtWinRate.ToolTip = _engine.OutcomeSummary;
                 TxtSessionUptime.Text = TimeSpan.FromSeconds(_engine.SessionUptimeSeconds).ToString(@"hh\:mm\:ss");
                 TxtStreakBadge.Text = $"🔥 Streak: {_engine.CurrentStreak}";
                 if (TxtWatchdogBadge != null)
@@ -898,7 +900,8 @@ public partial class MainWindow : Window
         _engine.ResetStats();
         TxtTotalCatches.Text = "0";
         TxtCatchRate.Text = "0.0/hr";
-        TxtWinRate.Text = "100%";
+        TxtWinRate.Text = "—";
+        TxtWinRate.ToolTip = _engine.OutcomeSummary;
         TxtSessionUptime.Text = "00:00:00";
         TxtStreakBadge.Text = "🔥 Streak: 0";
         if (TxtWatchdogBadge != null)
