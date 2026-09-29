@@ -5,7 +5,7 @@ namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
     int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
-    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false);
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false, bool RedGlyph = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
 public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false, bool RetryableWithoutRecovery = false);
@@ -84,6 +84,15 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         Cv2.MatchTemplate(target.Smooth ? smoothed : roi, scaled, score, TemplateMatchModes.SqDiffNormed);
         Cv2.MinMaxLoc(score, out double minimum, out _, out location, out _);
         confidence = 1 - minimum;
+        if (target.RedGlyph)
+        {
+            using var sceneRed = RedGlyphs(roi);
+            using var templateRed = RedGlyphs(scaled);
+            if (Cv2.CountNonZero(templateRed) < 5) return (false, default, 0);
+            Cv2.MatchTemplate(sceneRed, templateRed, score, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
+            if (!double.IsFinite(confidence)) return (false, default, 0);
+        }
         if (target.RewardBalanceText)
         {
             // Aquarium scenery and reward animations show through the panel.
@@ -135,6 +144,16 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         }
         return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
+    }
+    private static Mat RedGlyphs(Mat image)
+    {
+        using var hsv = new Mat(); using var low = new Mat(); using var high = new Mat();
+        Cv2.CvtColor(image, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(0, 140, 100), new Scalar(10, 255, 255), low);
+        Cv2.InRange(hsv, new Scalar(170, 140, 100), new Scalar(180, 255, 255), high);
+        var mask = new Mat(); Cv2.BitwiseOr(low, high, mask);
+        ImageSmoothing.Apply(mask, mask);
+        return mask;
     }
     private static Mat BalanceGlyphs(Mat image)
     {

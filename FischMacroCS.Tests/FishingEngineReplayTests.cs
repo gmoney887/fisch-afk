@@ -498,6 +498,11 @@ public class FishingEngineReplayTests
                 using var template = new Mat(24, 32, MatType.CV_8UC3, Scalar.All(30));
                 Cv2.Rectangle(template, new Rect(3, 3, 24, 17), new Scalar(60 + i * 40, 200 - i * 30, 80 + i * 25), -1);
                 Cv2.PutText(template, i.ToString(), new Point(7, 18), HersheyFonts.HersheySimplex, .5, Scalar.White, 1);
+                if (aquariumScenario && i == 3)
+                {
+                    template.SetTo(Scalar.All(30));
+                    Cv2.PutText(template, "X", new Point(7, 18), HersheyFonts.HersheySimplex, .5, new Scalar(0, 0, 255), 2);
+                }
                 Cv2.ImWrite(Path.Combine(emptyWorkflowDirectory!, names[i] + ".png"), template);
                 double referenceHeight = aquariumScenario ? 1353 : 1369;
                 var scaledSize = new Size((int)Math.Round(32 * Desktop.Height / referenceHeight), (int)Math.Round(24 * Desktop.Height / referenceHeight));
@@ -661,7 +666,7 @@ public class FishingEngineReplayTests
             Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 68, 68), rodSelected ? Scalar.White : Scalar.All(60), 1);
             if (aquariumCleanupScenario && state == MacroState.PostCatch && workflowAttempts == 1)
             {
-                int closeAfter = scenario == "aquarium-focus-after-open" ? 2 : 3;
+                int closeAfter = scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" ? 4 : 3;
                 if (postCatchPresses >= closeAfter) return full;
                 void PasteControl(Mat image, double x, double y)
                 {
@@ -1013,8 +1018,8 @@ public class FishingEngineReplayTests
             {
                 Assert.Equal(1, workflowAttempts); // Unavailable optional actions are skipped for the rest of this session.
                 Assert.Equal(ActionOutcome.Unknown, aquariumScenario ? engine.LastAquariumOutcome : engine.LastCrateOutcome);
-                Assert.Equal(aquariumCleanupScenario ? (scenario == "aquarium-focus-after-open" ? 2 : 3) :
-                    overlayScenario && aquariumScenario ? 2 : unconfirmedWorkflow && !workflowInputError ? 1 : 0, postCatchPresses);
+                Assert.Equal(aquariumCleanupScenario ? (scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" ? 4 : 3) :
+                    overlayScenario && aquariumScenario ? 3 : unconfirmedWorkflow && !workflowInputError ? 1 : 0, postCatchPresses);
                 if (scenario == "aquarium-close-rejected") Assert.Equal(1, input.Rejections);
                 if (aquariumCleanupScenario)
                 {

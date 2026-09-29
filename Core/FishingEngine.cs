@@ -341,7 +341,7 @@ public class FishingEngine : IDisposable
                 ValidateGameplay();
                 var screen = new Win32.POINT { X = point.X, Y = point.Y };
                 if (!_desktop.ClientToScreen(_activeWindow, ref screen)) throw new GameplayInterruptedException("Aquarium cleanup coordinate conversion failed.");
-                _input.SendHardwareClick(screen.X, screen.Y, point.X, point.Y, _activeWindow);
+                _input.SendHardwareClick(screen.X, screen.Y, window: _activeWindow);
             }, _operationCancellation);
             _recorder.RecordEvent("aquarium-cleanup", result);
             _aquariumCleanupPending = result.Outcome != ActionOutcome.ConfirmedSuccess;

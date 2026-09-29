@@ -42,7 +42,7 @@ public class AquariumWorkflowTests
             else { claimed = true; clicks.Add("claim"); }
         }
         var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
-        Assert.Equal(new[] { "claim", "close" }, clicks);
+        Assert.Equal(claimFails ? new[] { "claim", "claim", "close" } : new[] { "claim", "close" }, clicks);
         Assert.Equal(claimFails ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
         Assert.Equal(!claimFails, result.RewardClaimed);
         Assert.Equal(claimFails, result.RetryableWithoutRecovery);
@@ -233,7 +233,14 @@ public class AquariumWorkflowTests
             else { clicks.Add("claim"); if (!failedClaim) stage = 2; }
         }
         var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
-        Assert.Equal(alreadyEmpty ? new[] { "open", "close" } : new[] { "open", "claim", "close" }, clicks);
+        var expected = new List<string> { "open" };
+        if (!alreadyEmpty)
+        {
+            expected.Add("claim");
+            if (failedClaim) expected.Add("claim");
+        }
+        expected.AddRange(Enumerable.Repeat("close", failedClose ? 3 : 1));
+        Assert.Equal(expected, clicks);
         Assert.Equal(failedClaim || failedClose ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
         Assert.Equal(!alreadyEmpty && !failedClaim && !failedClose, result.RewardClaimed);
         Assert.Equal(failedClaim && !failedClose, result.RetryableWithoutRecovery);

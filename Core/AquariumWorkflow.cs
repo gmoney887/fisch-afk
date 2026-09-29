@@ -10,7 +10,7 @@ public static class AquariumWorkflow
     public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true, SearchNearbyScales: true);
     // The zero C$/XP balance is stable; scrolling reward toasts are not.
     public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true, SearchNearbyScales: true, RewardBalanceText: true);
-    public static readonly WorkflowTarget Close = new("aquarium-close", .560, .121, .025, 1353, .92, Smooth: true, SearchNearbyScales: true);
+    public static readonly WorkflowTarget Close = new("aquarium-close", .560, .121, .025, 1353, .92, SearchNearbyScales: true, RedGlyph: true);
     public static readonly string[] TemplateNames = [Navigation.Name, Claim.Name, EmptyBalance.Name, Close.Name];
 
     public static WorkflowResult Run(IClock clock, TemplateWorkflowVision vision, Func<Mat?> capture,
@@ -48,7 +48,7 @@ public static class AquariumWorkflow
         bool empty = Stable(frame => vision.Find(frame, Claim).Found && vision.Find(frame, EmptyBalance).Found);
         var claimed = empty
             ? new WorkflowResult(ActionOutcome.ConfirmedSuccess, "No unclaimed aquarium rewards")
-            : workflow.Run([new("Claim reward", Claim, EmptyBalance, click, 5000)], cancellation);
+            : workflow.Run([new("Claim reward", Claim, EmptyBalance, click, 5000, Attempts: 2)], cancellation);
 
         // Close even after an unconfirmed claim, but only through a freshly detected close button.
         // Cancellation/focus loss still propagates without issuing further input.
@@ -66,6 +66,8 @@ public static class AquariumWorkflow
         bool requireCloseAction = false)
     {
         bool clicked = false;
+        int clickAttempts = 0;
+        long lastClick = 0;
         int absent = 0, closeMatches = 0;
         long start = clock.Timestamp;
         do
@@ -81,11 +83,12 @@ public static class AquariumWorkflow
             if (absent >= 2 && (!requireCloseAction || clicked))
                 return new(ActionOutcome.ConfirmedSuccess, "Aquarium panel closure confirmed");
             closeMatches = close.Found ? closeMatches + 1 : 0;
-            if (closeMatches >= 2 && !clicked)
+            if (closeMatches >= 2 && clickAttempts < 3 && (!clicked || clock.ElapsedMilliseconds(lastClick) >= 1000))
             {
                 cancellation.ThrowIfCancellationRequested();
                 click(close.Center);
                 clicked = true;
+                clickAttempts++; lastClick = clock.Timestamp; closeMatches = 0;
                 evidence?.Invoke("Closing aquarium before resuming fishing");
             }
             delay(100);
