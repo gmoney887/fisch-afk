@@ -5,6 +5,15 @@ namespace FischMacroCS.Tests;
 public class FishingRetryWaitTests
 {
     [Fact]
+    public void RecoveryDeadlineCannotBeRenewedByFailedPolls()
+    {
+        var clock = new TestClock();
+        Assert.Throws<FishingSafetyException>(() => FishingRetryWait.Wait(clock, () => false,
+            () => { }, () => { }, default, maximumWaitMs: 300000));
+        Assert.Equal(300000, clock.Timestamp);
+    }
+
+    [Fact]
     public void UnavailableGameKeepsWaitingAndReleasesInputsBeforeChecking()
     {
         var clock = new TestClock();

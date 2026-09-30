@@ -55,7 +55,7 @@ public sealed class GameplayInput(Action validate, Action<int> delay, Action<str
     }
     public void SetCursorPos(int x, int y) => Send($"CursorMove:{x},{y}", () => _hardware.SetCursorPos(x, y));
     public void SendRelativeMove(int x, int y) => Send($"RelativeMove:{x},{y}", () => _hardware.SendRelativeMove(x, y));
-    public void mouse_event(int flags, int x, int y, int data, int extra) => Send("MouseEvent", () =>
+    public void mouse_event(int flags, int x, int y, int data, int extra) => Send($"MouseEvent:{flags}", () =>
     {
         if ((flags & (int)Win32.MOUSEEVENTF_RIGHTDOWN) != 0) _right = true;
         _hardware.mouse_event(flags, x, y, data, extra);

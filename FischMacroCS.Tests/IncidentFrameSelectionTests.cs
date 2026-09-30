@@ -26,7 +26,7 @@ public class IncidentFrameSelectionTests
                 recorder.StopSession();
             }
             using var marker = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "first-incident.json")));
-            Assert.Equal("position-suspected", marker.RootElement.GetProperty("Kind").GetString());
+            Assert.Equal("recovery-attempt", marker.RootElement.GetProperty("Kind").GetString());
             var selected = IncidentFrameSelection.Read(session);
             Assert.Single(selected);
             Assert.True(File.Exists(Path.Combine(session, selected[0])));

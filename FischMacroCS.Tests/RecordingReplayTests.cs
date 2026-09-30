@@ -9,6 +9,66 @@ namespace FischMacroCS.Tests;
 public class RecordingReplayTests : IDisposable
 {
     [Fact]
+    public void CriticalOverloadEndsRecordingWithAnExplicitFailure()
+    {
+        string session;
+        using var evidence = new BlockedEvidence();
+        using (var recorder = new FlightRecorder(_root))
+        {
+            recorder.StartSession(100, 80);
+            session = recorder.CurrentSessionDirectory!;
+            recorder.RecordEvent("blocked-writer", evidence);
+            try
+            {
+                Assert.True(evidence.Entered.Wait(TimeSpan.FromSeconds(5)));
+                for (int i = 0; i < 1025; i++) recorder.RecordEvent("recovery-attempt", new { i });
+                Assert.False(recorder.IsRecording);
+                Assert.Contains("Critical evidence queue exhausted", recorder.LastError);
+            }
+            finally { evidence.Release.Set(); }
+        }
+        using var completed = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "completed.json")));
+        Assert.Equal("Evidence overload: recovery-attempt", completed.RootElement.GetProperty("Outcome").GetString());
+        Assert.Equal(1, completed.RootElement.GetProperty("DroppedEntries").GetInt64());
+    }
+
+    [Fact]
+    public void CriticalRecoverySurvivesRoutineQueueSaturation()
+    {
+        string session;
+        using var evidence = new BlockedEvidence();
+        using (var recorder = new FlightRecorder(_root))
+        {
+            recorder.StartSession(100, 80);
+            session = recorder.CurrentSessionDirectory!;
+            recorder.RecordEvent("blocked-writer", evidence);
+            try
+            {
+                Assert.True(evidence.Entered.Wait(TimeSpan.FromSeconds(5)));
+                for (int i = 0; i < 4096; i++) recorder.RecordEvent("decision", new { i });
+                recorder.RecordEvent("recovery-attempt", new { Reason = "saturated" });
+            }
+            finally { evidence.Release.Set(); }
+        }
+        using var incident = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "first-incident.json")));
+        Assert.Equal("recovery-attempt", incident.RootElement.GetProperty("Kind").GetString());
+    }
+
+    [Fact]
+    public void CameraSuspicionDoesNotConsumePinnedTimeoutEvidence()
+    {
+        string session;
+        using (var recorder = new FlightRecorder(_root))
+        {
+            recorder.StartSession(100, 80);
+            session = recorder.CurrentSessionDirectory!;
+            recorder.RecordEvent("position-suspected", new { Outcome = "Unknown" });
+            recorder.RecordEvent("recovery-attempt", new { Reason = "Reel minigame stall" });
+        }
+        using var incident = JsonDocument.Parse(File.ReadAllText(Path.Combine(session, "first-incident.json")));
+        Assert.Equal("recovery-attempt", incident.RootElement.GetProperty("Kind").GetString());
+    }
+    [Fact]
     public void DemonstrationKeepsEarlyFramesOutsideTheRollingWindow()
     {
         string session;
@@ -74,7 +134,7 @@ public class RecordingReplayTests : IDisposable
             // Writer cannot consume until Release: this proves bounded, nonblocking production.
             await Task.Run(() =>
             {
-                for (int i = 0; i < 4096; i++) recorder.RecordEvent("pressure", new { Sequence = i });
+                for (int i = 0; i < 4096; i++) recorder.RecordEvent("decision", new { Sequence = i });
                 recorder.StopSession("Stopped under pressure", new { TotalCatches = 7, UnknownCatches = 2 });
             }).WaitAsync(TimeSpan.FromSeconds(3));
             Assert.False(recorder.IsRecording);

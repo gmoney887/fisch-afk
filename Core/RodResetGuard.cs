@@ -15,7 +15,7 @@ public static class RodResetGuard
             cancellation.ThrowIfCancellationRequested();
             var state = observe();
             if (!state.Visible)
-                throw new GameplayInterruptedException("Hotbar disappeared during rod reset; reacquire gameplay before retrying.");
+                { confirmed = 0; continue; }
             confirmed = state.Equipped ? 0 : confirmed + 1;
             if (confirmed >= 2) return;
         }

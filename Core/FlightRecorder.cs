@@ -48,7 +48,7 @@ public sealed class FlightRecorder : IDisposable
         lock (_gate)
         {
             _sessionDirectory = Path.Combine(_baseDir, $"session_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}");
-            var queue = new BlockingCollection<Entry>(24);
+            var queue = new BlockingCollection<Entry>(1024);
             _queue = queue; _nextId = _dropped = _lastFrame = _lastContext = 0;
             LastError = null;
             string directory = _sessionDirectory;
@@ -92,7 +92,15 @@ public sealed class FlightRecorder : IDisposable
         lock (_gate)
         {
             if (_queue == null) return;
-            if (!_queue.TryAdd(new Entry(_nextId, Stopwatch.GetTimestamp(), kind, data, DroppedBefore: _dropped))) _dropped++;
+            bool critical = kind is not "decision" and not "cast-observation" and not "input";
+            if (!critical && _queue.Count >= 24) { _dropped++; return; }
+            // Reserve capacity for incidents while preserving FIFO order with their frames.
+            if (!_queue.TryAdd(new Entry(_nextId, Stopwatch.GetTimestamp(), kind, data, DroppedBefore: _dropped)))
+            {
+                _dropped++;
+                LastError = "Critical evidence queue exhausted; recording is incomplete.";
+                StopSession("Evidence overload: " + kind);
+            }
         }
     }
     public void RecordTick(TelemetryData t, bool isMouseDown, Mat? rawFrame)
@@ -137,7 +145,9 @@ public sealed class FlightRecorder : IDisposable
             {
                 var data = JsonSerializer.SerializeToElement(entry.Data, Json);
                 bool movementIncident = entry.Kind is "position-suspected" or "recovery-attempt" or "death-detected";
-                bool firstIncident = movementIncident && !firstIncidentSeen;
+                // Normal catch animations can change the view thousands of times.
+                // Reserve pinned evidence for the first actual recovery/failure.
+                bool firstIncident = !firstIncidentSeen && (entry.Kind is "recovery-attempt" or "death-detected" or "pause-outcome");
                 if (firstIncident)
                 {
                     firstIncidentSeen = true; firstIncidentUntil = entry.Timestamp + 5 * Stopwatch.Frequency;
@@ -228,6 +238,10 @@ public sealed class FlightRecorder : IDisposable
         catch (Exception ex)
         {
             LastError = ex.Message;
+            lock (_gate)
+            {
+                if (ReferenceEquals(_queue, queue)) StopSession("Recorder failed: " + ex.Message);
+            }
             foreach (var entry in queue.GetConsumingEnumerable())
             {
                 if (entry.Frame != null) Interlocked.Add(ref _queuedBytes, -(entry.Frame.Total() * entry.Frame.ElemSize()));

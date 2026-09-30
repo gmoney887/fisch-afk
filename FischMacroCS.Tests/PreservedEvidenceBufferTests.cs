@@ -5,6 +5,21 @@ namespace FischMacroCS.Tests;
 public class PreservedEvidenceBufferTests
 {
     [Fact]
+    public void LargeFirstIncidentCannotStarveLatestFailureEvidence()
+    {
+        var buffer = new PreservedEvidenceBuffer(100, 10);
+        var removed = new List<string>();
+        for (int i = 0; i < 10; i++) buffer.Add("first-" + i, i, 10, true, true);
+        for (int i = 10; i < 15; i++)
+        {
+            buffer.Add("timeout-" + i, i, 10, true);
+            removed.AddRange(buffer.Trim());
+        }
+        Assert.Equal(5, removed.Count);
+        Assert.All(removed, name => Assert.StartsWith("first-", name));
+        Assert.Equal(100, buffer.Bytes);
+    }
+    [Fact]
     public void FirstMovementIncidentSurvivesLaterFailureFlood()
     {
         var buffer = new PreservedEvidenceBuffer(100, 5);

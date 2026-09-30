@@ -115,6 +115,14 @@ public class FishingEngine : IDisposable
 
     // Feature 6: Autonomous Self-Healing Watchdog
     private long _lastProgressTicks = 0;
+    private long _lastProductiveCatchTicks;
+
+    private void CheckProductiveDeadline()
+    {
+        if (_clock.ElapsedMilliseconds(_lastProductiveCatchTicks) < 10 * 60 * 1000) return;
+        _recorder.RecordEvent("recovery-outcome", new { Reason = "No confirmed catch for ten minutes" });
+        throw new FishingSafetyException("No confirmed catch for ten minutes despite recovery; attention is required.");
+    }
     private readonly object _recoveryLock = new();
     private bool _isRecovering = false;
     private readonly AutomationCoordinator _coordinator = new();
@@ -181,12 +189,16 @@ public class FishingEngine : IDisposable
 
     private void WaitForFishingRetry(string reason, int minimumDelayMs = 1000)
     {
+        _viewSafety.SuspendRecoveryAttempt();
+        long retryStarted = _clock.Timestamp;
+        long lastRecoveryEvidence = retryStarted;
         SessionLogger.Instance.Log("WATCHDOG", "Waiting to retry fishing: " + reason);
         _recorder.RecordEvent("fishing-retry", new { Reason = reason });
         _recoveryContextRecorded = false;
         FishingRetryWait.Wait(_clock, () =>
         {
             _coordinator.ThrowIfCancelled();
+            CheckProductiveDeadline();
             var window = _desktop.FindRobloxWindow();
             return _afkRecovery.Poll(
                 () => window != IntPtr.Zero && !_desktop.IsIconic(window) && _desktop.GetForegroundWindow() == window,
@@ -202,13 +214,23 @@ public class FishingEngine : IDisposable
             _coordinator.ThrowIfCancelled();
             if (IsStopQueued) { Stop("Queued stop during recovery"); _operationCancellation.ThrowIfCancellationRequested(); }
             _input.ReleaseAll(); // Retry any up edges the OS previously rejected.
+            if (_clock.ElapsedMilliseconds(lastRecoveryEvidence) >= 30000)
+            {
+                lastRecoveryEvidence = _clock.Timestamp;
+                _recoveryContextRecorded = false;
+                _recorder.RecordEvent("recovery-status", new { Status = _afkRecovery.Status,
+                    WaitingMs = _clock.ElapsedMilliseconds(retryStarted), Reason = reason });
+            }
             var telemetry = new TelemetryData { State = CurrentState, Action = _afkRecovery.Status + ": " + reason };
             PopulateTelemetryStats(telemetry);
             telemetry.WatchdogStatusText = "WATCHDOG: WAITING TO RETRY";
             if (OnTelemetry != null) OnTelemetry(telemetry); else telemetry.Dispose();
-        }, _operationCancellation, minimumDelayMs);
+        }, _operationCancellation, minimumDelayMs, maximumWaitMs: 5 * 60 * 1000);
         // A visible window alone is not progress. Only verified gameplay exits this wait.
         _lastProgressTicks = _clock.Timestamp;
+        if (_viewSafety.ResumeAfterRecovery(Config.CastHoldMs + Config.PostCastDelayMs +
+                (long)Config.LureTimeoutMs + Config.ReelTimeoutMs + Config.PostCatchDelayMs + 10000))
+            _recorder.RecordEvent("recovery-fishing-attempt", new { Evidence = "Gameplay reacquired; one bounded fishing cycle allowed without changing the saved view" });
         if (!_recoveryResumedReel)
             Transition(MacroState.Casting, "Fishing context reacquired; checking for an active reel before casting");
     }
@@ -306,6 +328,10 @@ public class FishingEngine : IDisposable
         if (!_recoveryContextRecorded)
         {
             _recorder.RecordEvent("recovery-context", new { Status = "Gameplay unavailable", Outcome = ActionOutcome.Unknown });
+            if (_recorder.IsRecording)
+            {
+                using var context = _shakeCapture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
+            }
             _recoveryContextRecorded = true;
         }
         // Retain central context while waiting, including update/disconnect screens.
@@ -325,10 +351,13 @@ public class FishingEngine : IDisposable
         return _lastHotbarGeometryConfirmed ? RecoveryView.Gameplay : RecoveryView.Loading;
     }
 
+    private int _aquariumCleanupAttempts;
     private bool TryCleanupAquarium()
     {
         if (_lastAquariumCleanup.HasValue && _clock.ElapsedMilliseconds(_lastAquariumCleanup.Value) < 5000) return false;
         _lastAquariumCleanup = _clock.Timestamp;
+        if (++_aquariumCleanupAttempts > 6)
+            throw new FishingSafetyException("Aquarium panel could not be verified closed after six cleanup attempts; fishing input remains blocked.");
         try
         {
             using var vision = new TemplateWorkflowVision(_workflowTemplateDirectory);
@@ -352,6 +381,7 @@ public class FishingEngine : IDisposable
             // Optional reward cleanup must not clear the user's persistent fishing request.
             SessionLogger.Instance.Log("AQUARIUM", "Cleanup will retry: " + ex.Message);
         }
+        if (!_aquariumCleanupPending) _aquariumCleanupAttempts = 0;
         return !_aquariumCleanupPending;
     }
 
@@ -512,14 +542,20 @@ public class FishingEngine : IDisposable
         if (_heartbeat.TrySend(Config.EnableAntiAfk, () =>
         {
             ValidateGameplay();
-            // F15 has no default movement/menu binding; unlike a right-drag it cannot turn the camera.
-            _input.keybd_event(0x7E, 0, 0, 0);
+            // An unmapped F15 key was delivered by Windows but did not prevent
+            // Roblox's idle kick. Use a real mouse-button pulse without dragging.
+            int cx = _activeGeometry.Width / 2, cy = _activeGeometry.Height / 2;
+            if (!_desktop.SanitizeGameCoordinate(_activeWindow, cx, cy, out _, out _, out int sx, out int sy))
+                throw new GameplayInterruptedException("Anti-idle target is obscured; retry after gameplay returns.");
+            _input.SendHardwareMouseMove(sx, sy, window: _activeWindow);
             Delay(50);
-        }, () => _input.keybd_event(0x7E, 0, Win32.KEYEVENTF_KEYUP, 0), _operationCancellation, Config.AntiAfkIntervalMinutes))
+            _input.mouse_event((int)Win32.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
+            Delay(50);
+        }, () => _input.mouse_event((int)Win32.MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0), _operationCancellation, Config.AntiAfkIntervalMinutes))
         {
             _antiAfkCount = _heartbeat.Completed;
-            SessionLogger.Instance.Log("ANTI-AFK", "SendInput heartbeat completed; game acceptance requires live validation.");
-            _recorder.RecordEvent("heartbeat", new { Completed = _antiAfkCount });
+            SessionLogger.Instance.Log("ANTI-AFK", "Stationary right-button heartbeat delivered; idle prevention requires live validation.");
+            _recorder.RecordEvent("heartbeat", new { Completed = _antiAfkCount, Method = "StationaryRightClick", GameAcceptance = "Unconfirmed" });
         }
     }
 
@@ -603,6 +639,10 @@ public class FishingEngine : IDisposable
         _lastAquariumCleanup = null;
         var result = RunRewardWorkflow(true);
         _aquariumCleanupPending = result.Outcome != ActionOutcome.ConfirmedSuccess && !result.RetryableWithoutRecovery;
+        if (!_aquariumCleanupPending && IsRunning && _viewSafety.ResumeAfterRecovery(
+            Config.CastHoldMs + Config.PostCastDelayMs + (long)Config.LureTimeoutMs +
+            Config.ReelTimeoutMs + Config.PostCatchDelayMs + 10000))
+            _recorder.RecordEvent("recovery-fishing-attempt", new { Evidence = "Aquarium closure verified; allow one bounded fishing cycle without treating rewards as a catch" });
         _recorder.RecordEvent("aquarium-outcome", result);
         LastAquariumOutcome = result.Outcome;
         LastAquariumEvidence = result.Evidence;
@@ -755,6 +795,8 @@ public class FishingEngine : IDisposable
         _recoveryBudget.ConfirmProgress();
         _fishingView.Reset();
         _viewSafety.Reset();
+        _lastProductiveCatchTicks = _clock.Timestamp;
+        _aquariumCleanupAttempts = 0;
         _viewChecked = false;
         _catchBannerFrames = 0; _catchBannerSeen = false;
         _failureEvidence.Reset(); _catchFailureSeen = false;
@@ -1504,7 +1546,7 @@ public class FishingEngine : IDisposable
 
     private bool CheckFishingView()
     {
-        bool HoldNewInputs() => _viewSafety.IsSuspected && !_viewSafety.HasLiveReel && !_viewSafety.HasRecentProgress &&
+        bool HoldNewInputs() => _viewSafety.IsSuspected && !_viewSafety.HasLiveReel && !_viewSafety.HasRecentProgress && !_viewSafety.HasRecoveryAttempt &&
             CurrentState is MacroState.Casting or MacroState.Luring;
         if (_viewChecked && GetElapsedMs(_lastViewCheck) < 1000) return HoldNewInputs();
         _viewChecked = true;
@@ -1547,6 +1589,7 @@ public class FishingEngine : IDisposable
         {
             try
             {
+                CheckProductiveDeadline();
                 ValidateGameplay();
                 if (_aquariumCleanupPending)
                 {
@@ -2423,6 +2466,7 @@ public class FishingEngine : IDisposable
                             (long)(Math.Max(0, Config.PostCatchDelayMs) + Math.Max(0, Config.CastHoldMs) +
                             Math.Max(0, Config.PostCastDelayMs) + Math.Max(0, Config.LureTimeoutMs) +
                             Math.Max(0, Config.ReelTimeoutMs)) * 2);
+                        _lastProductiveCatchTicks = _clock.Timestamp;
                         if (_viewSafety.ConfirmCatch(nextCycleBudgetMs))
                         {
                             _fishingView.Reset();

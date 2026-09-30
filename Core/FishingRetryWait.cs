@@ -4,7 +4,7 @@ namespace FischMacroCS.Core;
 public static class FishingRetryWait
 {
     public static void Wait(IClock clock, Func<bool> ready, Action releaseInputs,
-        Action reportWaiting, CancellationToken cancellation, int minimumDelayMs = 1000)
+        Action reportWaiting, CancellationToken cancellation, int minimumDelayMs = 1000, int maximumWaitMs = 0)
     {
         releaseInputs();
         long started = clock.Timestamp;
@@ -17,6 +17,8 @@ public static class FishingRetryWait
                 cancellation.ThrowIfCancellationRequested();
                 return;
             }
+            if (maximumWaitMs > 0 && clock.ElapsedMilliseconds(started) >= maximumWaitMs)
+                throw new FishingSafetyException("Gameplay recovery exceeded its deadline; fishing has not resumed.");
             if (polls++ % 5 == 0) reportWaiting();
             // Poll context with no gameplay input. Stop cancels the wait immediately.
             clock.Delay(200, cancellation);

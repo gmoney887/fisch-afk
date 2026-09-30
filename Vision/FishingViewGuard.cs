@@ -25,7 +25,7 @@ public sealed class FishingViewGuard : IDisposable
         Cv2.CvtColor(frame, gray, ColorConversionCodes.BGR2GRAY);
         double scale = Math.Min(1, 540.0 / frame.Height);
         Cv2.Resize(gray, small, new Size(), scale, scale, InterpolationFlags.Area);
-        Cv2.GaussianBlur(small, small, new Size(3, 3), 0);
+        ImageSmoothing.Apply(small, small);
         Cv2.Canny(small, edges, 45, 100);
         if (_landmarks.Count == 0)
         {

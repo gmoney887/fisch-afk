@@ -33,9 +33,9 @@ public static class DisconnectDetector
         Cv2.Resize(Button.Value, button, new Size(Math.Max(1, (int)Math.Round(94 * scale)), Math.Max(1, (int)Math.Round(24 * scale))));
         // The crop origin and whole-frame resize can differ by a subpixel.
         // Smooth both sides equally so antialiasing phase does not change identity.
-        Cv2.GaussianBlur(gray, gray, new Size(3, 3), .8);
-        Cv2.GaussianBlur(title, title, new Size(3, 3), .8);
-        Cv2.GaussianBlur(button, button, new Size(3, 3), .8);
+        ImageSmoothing.Apply(gray, gray);
+        ImageSmoothing.Apply(title, title);
+        ImageSmoothing.Apply(button, button);
         if (gray.Width < title.Width || gray.Height < title.Height) return false;
         using var scores = new Mat();
         Cv2.MatchTemplate(gray, title, scores, TemplateMatchModes.CCoeffNormed);

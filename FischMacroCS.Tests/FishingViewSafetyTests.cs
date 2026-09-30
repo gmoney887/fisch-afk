@@ -5,6 +5,41 @@ namespace FischMacroCS.Tests;
 
 public class FishingViewSafetyTests
 {
+    [Fact]
+    public void UnavailableTimeDoesNotSpendOrRenewRecoveryAllowance()
+    {
+        var clock = new Clock(); var safety = new FishingViewSafety(clock);
+        safety.ResumeAfterRecovery(70000);
+        clock.Timestamp += 10000;
+        safety.SuspendRecoveryAttempt();
+        clock.Timestamp += 240000;
+        Assert.False(safety.HasRecoveryAttempt);
+        Assert.False(safety.ResumeAfterRecovery(70000));
+        Assert.True(safety.HasRecoveryAttempt);
+        clock.Timestamp += 60000;
+        Assert.False(safety.HasRecoveryAttempt);
+        safety.SuspendRecoveryAttempt();
+        safety.ResumeAfterRecovery(70000);
+        Assert.False(safety.HasRecoveryAttempt);
+    }
+
+    [Fact]
+    public void LongRecoveryAllowsOneBoundedCycleWithoutInventingProgress()
+    {
+        var clock = new Clock(); var safety = new FishingViewSafety(clock);
+        safety.Observe(FishingViewStatus.Changed, false, 35000);
+        clock.Timestamp = 3 * 60 * 60 * 1000;
+        Assert.True(safety.ResumeAfterRecovery(70000));
+        Assert.False(safety.HasRecentProgress);
+        Assert.False(safety.Observe(FishingViewStatus.Changed, false, 35000));
+        clock.Timestamp += 69000;
+        Assert.False(safety.Observe(FishingViewStatus.Changed, false, 35000));
+        Assert.False(safety.ResumeAfterRecovery(70000));
+        clock.Timestamp += 1000;
+        Assert.True(safety.Observe(FishingViewStatus.Changed, false, 35000));
+        safety.ConfirmCatch();
+        Assert.True(safety.ResumeAfterRecovery(70000));
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

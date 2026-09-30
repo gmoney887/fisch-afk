@@ -1016,6 +1016,53 @@ public class VisionProcessor
         };
     }
 
+    private static RodDetectionResult? DetectUnselectedHotbarRow(Mat frame, int slotNum, int viewportHeight)
+    {
+        int bandHeight = Math.Min(frame.Height, Math.Max(32, (int)(viewportHeight * .13)));
+        int bandY = frame.Height - bandHeight;
+        using var band = new Mat(frame, new Rect(0, bandY, frame.Width, bandHeight));
+        using var gray = new Mat(); using var edges = new Mat();
+        Cv2.CvtColor(band, gray, band.Channels() == 4 ? ColorConversionCodes.BGRA2GRAY : ColorConversionCodes.BGR2GRAY);
+        Cv2.Canny(gray, edges, 35, 90);
+        Cv2.FindContours(edges, out Point[][] contours, out _, RetrievalModes.List, ContourApproximationModes.ApproxSimple);
+        var boxes = contours.Select(Cv2.BoundingRect).Where(b =>
+            b.Width >= Math.Max(20, viewportHeight * .025) && b.Width <= viewportHeight * .12 &&
+            Math.Abs(b.Width - b.Height) <= b.Width * .12 &&
+            bandHeight - b.Bottom <= Math.Max(8, viewportHeight * .025)).ToArray();
+        foreach (var seed in boxes)
+        {
+            double pitch = seed.Width + Math.Max(1, seed.Width * .015);
+            int left = (int)Math.Round(frame.Width / 2.0 - 4 * pitch - seed.Width / 2.0);
+            int matched = 0;
+            for (int i = 0; i < 9; i++)
+                if (boxes.Any(b => Math.Abs(b.X - (left + i * pitch)) <= 3 &&
+                    Math.Abs(b.Y - seed.Y) <= 2 && Math.Abs(b.Width - seed.Width) <= 2)) matched++;
+            // A single square or scenery is insufficient: require most of the
+            // centered, equally spaced nine-slot row in this fresh frame.
+            if (matched < 4) continue;
+            int bordered = 0;
+            for (int i = 0; i < 9; i++)
+            {
+                int x = (int)Math.Round(left + i * pitch), y = seed.Y;
+                int length = seed.Width;
+                if (x < 3 || y < 3 || x + length >= edges.Width || y + length > edges.Height) continue;
+                int Support(Rect area) { using var pixels = new Mat(edges, area & new Rect(0, 0, edges.Width, edges.Height)); return Cv2.CountNonZero(pixels); }
+                int sides = 0;
+                if (Support(new Rect(x - 2, y, 5, length)) >= length * .55) sides++;
+                if (Support(new Rect(x + length - 3, y, 5, length)) >= length * .55) sides++;
+                if (Support(new Rect(x, y - 2, length, 5)) >= length * .55) sides++;
+                if (Support(new Rect(x, y + length - 3, length, 5)) >= length * .55) sides++;
+                if (sides >= 3) bordered++;
+            }
+            if (bordered < 7) continue;
+            var slot = new Rect((int)Math.Round(left + (slotNum - 1) * pitch), bandY + seed.Y, seed.Width, seed.Height);
+            return new RodDetectionResult { HotbarFound = true, GeometryConfirmed = true,
+                IsEquipped = false, SlotBounds = slot, SlotCenter = new Point(slot.X + slot.Width / 2, slot.Y + slot.Height / 2),
+                HotbarBounds = new Rect(left, slot.Y, (int)Math.Round(8 * pitch) + seed.Width, seed.Height) };
+        }
+        return null;
+    }
+
     public RodDetectionResult DetectRodEquipped(Mat frame, int slotNum = 1, bool generateDebug = false, int fullViewportHeight = 0)
     {
         var result = new RodDetectionResult();
@@ -1244,6 +1291,12 @@ public class VisionProcessor
 
         bool isEquipped = isCyanEquipped || isWhiteBorderEquipped;
 
+        if (!visualValid && !isEquipped)
+        {
+            var row = DetectUnselectedHotbarRow(frame, slotNum, vpH);
+            if (row != null) return row;
+        }
+
         result.HotbarFound = true; // Legacy callers also use this for estimated layout bounds.
         result.GeometryConfirmed = visualValid || isEquipped;
         result.HotbarBounds = hotbarRect;
@@ -1397,6 +1450,15 @@ public class VisionProcessor
         // enlarged and maximized variants at their original viewport heights.
         foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0), (WindowedCatchPrefix.Value, 1009.0) })
         {
+            // Roblox quantizes glyph sizes: changing viewport height by 16 pixels
+            // can leave the text unchanged. Resampling that exact glyph destroys
+            // correlation, so also compare the reviewed native-size template.
+            if (template.Width <= gray.Width && template.Height <= gray.Height)
+            {
+                Cv2.MatchTemplate(gray, template, scores, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(scores, out _, out double nativeMatch);
+                if (double.IsFinite(nativeMatch) && nativeMatch >= .78) return true;
+            }
             double scale = height / referenceHeight;
             Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale)),
                 Math.Max(1, (int)Math.Round(template.Height * scale))));

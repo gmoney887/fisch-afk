@@ -28,8 +28,12 @@ public sealed class PreservedEvidenceBuffer(long byteLimit = 128L * 1024 * 1024,
             while (victim != null && victim.Value.Failure) victim = victim.Next;
             if (victim == null)
             {
+                long pinnedBytes = 0; int pinnedCount = 0;
+                foreach (var frame in _frames)
+                    if (frame.FirstIncident) { pinnedBytes += frame.Bytes; pinnedCount++; }
                 victim = _frames.First;
-                while (victim != null && victim.Value.FirstIncident) victim = victim.Next;
+                bool pinnedOverBudget = pinnedBytes > byteLimit / 2 || pinnedCount > Math.Max(1, countLimit / 2);
+                while (victim != null && (pinnedOverBudget ? !victim.Value.FirstIncident : victim.Value.FirstIncident)) victim = victim.Next;
             }
             // The byte/count cap always wins even if one incident alone fills the pool.
             victim ??= _frames.First;

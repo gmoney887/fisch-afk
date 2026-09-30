@@ -40,9 +40,9 @@ public static class ContinueScreenDetector
         using var logo = new Mat(); using var prompt = new Mat(); using var scores = new Mat();
         Cv2.Resize(Logo.Value, logo, new Size((int)Math.Round(408*scale), (int)Math.Round(242*scale)));
         Cv2.Resize(Prompt.Value, prompt, new Size((int)Math.Round(310*scale), (int)Math.Round(36*scale)));
-        Cv2.GaussianBlur(mask,mask,new Size(3,3),.8);
-        Cv2.GaussianBlur(logo,logo,new Size(3,3),.8);
-        Cv2.GaussianBlur(prompt,prompt,new Size(3,3),.8);
+        ImageSmoothing.Apply(mask, mask);
+        ImageSmoothing.Apply(logo, logo);
+        ImageSmoothing.Apply(prompt, prompt);
         if (mask.Width < logo.Width || mask.Height < logo.Height) return false;
         Cv2.MatchTemplate(mask,logo,scores,TemplateMatchModes.CCoeffNormed);
         Cv2.MinMaxLoc(scores,out _,out double score,out _,out Point at);

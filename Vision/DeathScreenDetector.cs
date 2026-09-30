@@ -29,9 +29,9 @@ public static class DeathScreenDetector
         Cv2.Resize(logoSource, logo, new Size(Math.Max(1, (int)Math.Round(290 * scale)), Math.Max(1, (int)Math.Round(150 * scale))));
         Cv2.Resize(titleSource, title, new Size(Math.Max(1, (int)Math.Round(410 * scale)), Math.Max(1, (int)Math.Round(95 * scale))));
         if (gray.Width < logo.Width || gray.Height < logo.Height) return false;
-        Cv2.GaussianBlur(gray, gray, new Size(3, 3), .8);
-        Cv2.GaussianBlur(logo, logo, new Size(3, 3), .8);
-        Cv2.GaussianBlur(title, title, new Size(3, 3), .8);
+        ImageSmoothing.Apply(gray, gray);
+        ImageSmoothing.Apply(logo, logo);
+        ImageSmoothing.Apply(title, title);
         using var scores = new Mat();
         Cv2.MatchTemplate(gray, logo, scores, TemplateMatchModes.CCoeffNormed);
         Cv2.MinMaxLoc(scores, out _, out double logoScore, out _, out Point at);

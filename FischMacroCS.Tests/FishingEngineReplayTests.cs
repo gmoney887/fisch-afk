@@ -241,6 +241,7 @@ public class FishingEngineReplayTests
         public int RejectRemaining, Rejections;
         public List<string> Events = new();
         public List<(byte Key, uint Flags, long At)> KeyEdges = new();
+        public List<(int Flags, long At)> MouseEdges = new();
         public List<(int X, int Y, bool Held, long At)> RelativeMoves = new();
         public Action? AfterRelative;
         public Action<byte, uint>? AfterKey;
@@ -265,7 +266,7 @@ public class FishingEngineReplayTests
         public void SendKeyPress(char key) => Events.Add("key:" + key);
         public void SendKeyString(string text, int delayMs = 40) => Events.Add("text:" + text);
         public void SelectAllAndClear() => Events.Add("clear");
-        public void mouse_event(int flags, int x, int y, int data, int extra) => Events.Add("mouse:" + flags);
+        public void mouse_event(int flags, int x, int y, int data, int extra) { Reject(flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN ? "right-down" : "right-up"); Events.Add("mouse:" + flags); MouseEdges.Add((flags, clock.Timestamp)); }
         public void keybd_event(byte key, byte scan, uint flags, int extra)
         {
             bool up = (flags & Win32.KEYEVENTF_KEYUP) != 0;
@@ -350,8 +351,8 @@ public class FishingEngineReplayTests
     [InlineData("reject-move")]
     [InlineData("reject-down")]
     [InlineData("reject-up")]
-    [InlineData("reject-key-down")]
-    [InlineData("reject-key-up")]
+    [InlineData("reject-right-down")]
+    [InlineData("reject-right-up")]
     [InlineData("reject-up-twice")]
     [InlineData("crates-unavailable")]
     [InlineData("aquarium-unavailable")]
@@ -366,6 +367,9 @@ public class FishingEngineReplayTests
     [InlineData("aquarium-claim-fails")]
     [InlineData("aquarium-focus-after-open")]
     [InlineData("aquarium-close-rejected")]
+    [InlineData("aquarium-stuck")]
+    [InlineData("aquarium-scene-change")]
+    [InlineData("aquarium-scene-unknown")]
     [InlineData("compact-reel")]
     [InlineData("cyan-reel")]
     [InlineData("companion-bonus")]
@@ -445,8 +449,9 @@ public class FishingEngineReplayTests
         }
         using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
             scenario == "cyan-reel" ? "reel_cyan_left.png" : scenario == "compact-reel" ? "reel_live_false_exit.png" : "reel_active_recovery_21.png"));
+        if (scenario == "aquarium-scene-unknown") catchVisible = false;
         using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
-            scenario == "lost-fish" ? "reel_streak_ended.png" : scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
+            scenario == "aquarium-scene-change" ? "catch_ultrawide_3424.png" : scenario == "lost-fish" ? "reel_streak_ended.png" : scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
         if (scenario == "cyan-reel")
             Cv2.Resize(reel, reel, new Size((int)Math.Round(reel.Width * Desktop.Height / 1369.0),
                 (int)Math.Round(reel.Height * Desktop.Height / 1369.0)));
@@ -458,6 +463,21 @@ public class FishingEngineReplayTests
         using var shake = new Mat();
         Cv2.Resize(shakeOriginal, shake, new Size((int)Math.Round(shakeOriginal.Width * Desktop.Height / 1369.0),
             (int)Math.Round(shakeOriginal.Height * Desktop.Height / 1369.0)));
+        if (scenario == "aquarium-scene-change")
+        {
+            using var center = new Mat(caught, new Rect((caught.Width-1488)/2,0,1488,caught.Height)).Clone();
+            center.CopyTo(caught);
+        }
+        bool aquariumSceneScenario = scenario is "aquarium-scene-change" or "aquarium-scene-unknown";
+        using var sceneBefore = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        using var sceneAfter = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC1);
+        if (aquariumSceneScenario)
+        {
+            var random = new RNG(321);
+            random.Fill(sceneBefore,DistributionType.Uniform,0,255);
+            random.Fill(sceneAfter,DistributionType.Uniform,0,255);
+        }
+        bool sceneChanged = false;
         Assert.False(reel.Empty()); Assert.False(caught.Empty());
         FishingEngine? engine = null;
         long reelStart = 0, unavailableUntil = 0;
@@ -470,7 +490,7 @@ public class FishingEngineReplayTests
         int castPresses = 0;
         int cyanReelPresses = 0;
         bool recoveredStall = false;
-        bool aquariumCleanupScenario = scenario is "aquarium-claim-fails" or "aquarium-focus-after-open" or "aquarium-close-rejected";
+        bool aquariumCleanupScenario = aquariumSceneScenario || scenario is "aquarium-stuck" or "aquarium-claim-fails" or "aquarium-focus-after-open" or "aquarium-close-rejected";
         bool workflowInputError = scenario is "crates-input-error" or "aquarium-input-error";
         bool workflowStop = scenario is "crates-stop" or "aquarium-stop";
         bool overlayScenario = scenario is "crates-overlay" or "aquarium-overlay";
@@ -526,7 +546,8 @@ public class FishingEngineReplayTests
         if (scenario == "missing-start") desktop.Window = IntPtr.Zero;
         int run = 1;
         long deadline = 20000;
-        if (retryScenario || overlayScenario) deadline = 40000;
+        if (retryScenario || overlayScenario || aquariumSceneScenario) deadline = 40000;
+        if (scenario == "aquarium-stuck") deadline = 120000;
         bool idleScenario = scenario is "idle-enabled" or "idle-disabled";
         if (updateScenario) unavailableUntil = 6000;
         if (reconnectScenario) { unavailableUntil = continueScenario ? 7000 : 26000; deadline = 46000; }
@@ -584,6 +605,14 @@ public class FishingEngineReplayTests
                 if (scenario == "queued-force" && !engine.TryQueueStopAfterCycle()) StopAtBoundary();
             }
             var full = new Mat(Desktop.Height, desktop.ClientWidth, MatType.CV_8UC3, new Scalar(35, 20, 15));
+            if (aquariumSceneScenario)
+            {
+                sceneChanged |= state == MacroState.PostCatch;
+                var area = new Rect(0,(int)(Desktop.Height*.44),Desktop.Width,(int)(Desktop.Height*.29));
+                using var source = new Mat(sceneChanged ? sceneAfter : sceneBefore,area);
+                using var target = new Mat(full,area);
+                Cv2.CvtColor(source,target,ColorConversionCodes.GRAY2BGR);
+            }
             if (interrupt && !interrupted && state == MacroState.Luring)
             { interrupted = true; desktop.Focused = false; desktop.DenyNextActivations = 2; unavailableUntil = clock.Timestamp + 4500; }
             if (stopDuring == state && stopIndex < 0) StopAtBoundary();
@@ -650,7 +679,7 @@ public class FishingEngineReplayTests
             {
                 sawReel = true;
                 if (reelStart == 0) reelStart = clock.Timestamp;
-                if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < 600) Paste(reel);
+                if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < (aquariumSceneScenario ? 5000 : 600)) Paste(reel);
                 else if (scenario == "lost-fish") Paste(caught);
             }
             if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario is "companion-bonus" or "lost-fish") Paste(caught); }
@@ -666,7 +695,7 @@ public class FishingEngineReplayTests
             Cv2.Rectangle(full, new Rect(left, Desktop.Height - 70, 68, 68), rodSelected ? Scalar.White : Scalar.All(60), 1);
             if (aquariumCleanupScenario && state == MacroState.PostCatch && workflowAttempts == 1)
             {
-                int closeAfter = scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" ? 4 : 3;
+                int closeAfter = scenario == "aquarium-stuck" ? int.MaxValue : aquariumSceneScenario ? 4 : scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" ? 4 : 3;
                 if (postCatchPresses >= closeAfter) return full;
                 void PasteControl(Mat image, double x, double y)
                 {
@@ -712,7 +741,7 @@ public class FishingEngineReplayTests
             if (scenario is "reconnect-stale" or "continue-stale" && reconnectCaptures == 2)
             { reconnectHidden = true; unavailableUntil = clock.Timestamp + 3000; }
         };
-        using (engine = new FishingEngine(new Settings { EnableRecording = recordingScenario && scenario != "recording-disabled", EnableAntiAfk = scenario is "idle-enabled" or "reject-key-down" or "reject-key-up",
+        using (engine = new FishingEngine(new Settings { EnableRecording = recordingScenario && scenario != "recording-disabled", EnableAntiAfk = scenario is "idle-enabled" or "reject-right-down" or "reject-right-up",
             EnableAutoClaimAquarium = workflowScenario && aquariumScenario, EnableAutoOpenCrates = workflowScenario && !aquariumScenario, CrateIntervalCatches = 1,
             ShakeMode = scenario is "navigation-shake" or "stop-shake" ? "Navigation" :
                 scenario is "visual-shake" or "visual-shake-stop" or "visual-missing" or "visual-occluded" ? "Visual" : "Disabled",
@@ -779,6 +808,8 @@ public class FishingEngineReplayTests
                     if (scenario == "aquarium-close-rejected" && postCatchPresses == 2)
                     { input.RejectOperation = "down"; input.RejectRemaining = 1; }
                 }
+                if (aquariumSceneScenario && workflowAttempts == 1 && engine.CurrentState == MacroState.Casting)
+                { nextCast = true; engine.Stop(); } // Require actual cast input, not merely entering Casting.
                 if (workflowStop && engine.CurrentState == MacroState.PostCatch && stopIndex < 0) StopAtBoundary();
             };
             input.AfterKey = (key, flags) =>
@@ -813,7 +844,7 @@ public class FishingEngineReplayTests
                     foreach (var action in input.Events.Skip(recoveryInputStart).Where(action => action is not "release" and not "up"))
                         inputViolations.Add("Open menu during recovery: " + action);
                 if (idleScenario && clock.Timestamp < unavailableUntil)
-                    foreach (var action in input.Events.Where(action => action != "release" && action is not "key:126:0" and not "key:126:2"))
+                    foreach (var action in input.Events.Where(action => action is not "release" and not "move" and not "mouse:8" and not "mouse:16"))
                         inputViolations.Add("Unavailable gameplay: " + action);
                 if (stopDuring == MacroState.Stopped && interrupted && desktop.Activations >= 2 && stopIndex < 0)
                     StopAtBoundary();
@@ -825,7 +856,7 @@ public class FishingEngineReplayTests
                     if (clock.Timestamp >= returnWindowAt)
                     { desktop.Window = (IntPtr)100; windowReturned = true; }
                 }
-                if (engine.CurrentState == MacroState.Casting && sawPostCatch)
+                if (!aquariumSceneScenario && engine.CurrentState == MacroState.Casting && sawPostCatch)
                 {
                     if (resetScenario && !statsReset)
                     {
@@ -834,7 +865,7 @@ public class FishingEngineReplayTests
                         afterReset = engine.TotalCatches + engine.UnknownCatches;
                         sawPostCatch = false; reelStart = lureStart = 0;
                     }
-                    else if (workflowScenario && engine.TotalCatches < 2)
+                    else if (workflowScenario && engine.TotalCatches < 2 && scenario != "aquarium-scene-unknown")
                     { sawPostCatch = false; reelStart = lureStart = 0; }
                     else { nextCast = true; engine.Stop(); }
                 }
@@ -862,7 +893,47 @@ public class FishingEngineReplayTests
                 Assert.DoesNotContain(input.KeyEdges, edge => edge.Key == 27 && edge.Flags == 0);
                 return;
             }
-            Assert.Null(engine.PauseReason);
+            if (aquariumSceneScenario)
+            {
+                Assert.Null(engine.PauseReason);
+                Assert.True(nextCast);
+                Assert.Equal(1, workflowAttempts);
+                Assert.Equal(catchVisible ? 1 : 0, engine.TotalCatches);
+                Assert.Equal(catchVisible ? 0 : 1, engine.UnknownCatches);
+                Assert.False(input.Held);
+                Assert.Empty(input.HeldKeys);
+                return;
+            }
+            if (scenario == "aquarium-stuck")
+            {
+                Assert.Contains("six cleanup attempts", engine.PauseReason);
+                Assert.False(engine.IsRunning);
+                Assert.False(input.Held);
+                Assert.Empty(input.HeldKeys);
+                Assert.Equal(1, engine.TotalCatches);
+                Assert.Equal(1, workflowAttempts);
+                Assert.False(nextCast);
+                return;
+            }
+            if (idleScenario) Assert.Contains("recovery exceeded its deadline", engine.PauseReason);
+            else Assert.Null(engine.PauseReason);
+            if (idleScenario)
+            {
+                Assert.InRange(clock.Timestamp, 300000, 320000);
+                var pulses = input.MouseEdges.Where(edge => edge.Flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN).ToArray();
+                if (scenario == "idle-disabled") Assert.Empty(pulses);
+                else
+                {
+                    Assert.InRange(pulses.Length, 2, 3);
+                    Assert.Equal(pulses.Length, input.MouseEdges.Count(edge => edge.Flags == (int)Win32.MOUSEEVENTF_RIGHTUP));
+                    for (int i = 1; i < pulses.Length; i++) Assert.InRange(pulses[i].At - pulses[i-1].At, 120000, 131000);
+                }
+                Assert.False(engine.IsRunning);
+                Assert.False(input.Held);
+                Assert.Empty(input.HeldKeys);
+                Assert.Equal(0, engine.TotalCatches);
+                return;
+            }
             if (reconnectScenario)
             {
                 Assert.True(reconnectCaptures >= 2);
@@ -1000,8 +1071,8 @@ public class FishingEngineReplayTests
             {
                 Assert.Equal(scenario == "reject-up-twice" ? 2 : 1, input.Rejections);
                 Assert.Equal(0, input.RejectRemaining);
-                if (scenario is "reject-key-down" or "reject-key-up")
-                    Assert.Contains(input.KeyEdges, edge => edge.Key == 126 && edge.Flags == 0);
+                if (scenario is "reject-right-down" or "reject-right-up")
+                    Assert.Contains(input.MouseEdges, edge => edge.Flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN);
             }
             Assert.Contains("down", input.Events); Assert.Contains("up", input.Events);
             if (interrupt) { Assert.True(interrupted); Assert.True(captureInterrupted); Assert.True(desktop.Activations >= 4); }
@@ -1018,7 +1089,7 @@ public class FishingEngineReplayTests
             {
                 Assert.Equal(1, workflowAttempts); // Unavailable optional actions are skipped for the rest of this session.
                 Assert.Equal(ActionOutcome.Unknown, aquariumScenario ? engine.LastAquariumOutcome : engine.LastCrateOutcome);
-                Assert.Equal(aquariumCleanupScenario ? (scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" ? 4 : 3) :
+                Assert.Equal(aquariumCleanupScenario ? (scenario == "aquarium-focus-after-open" ? 2 : scenario == "aquarium-claim-fails" || aquariumSceneScenario ? 4 : 3) :
                     overlayScenario && aquariumScenario ? 3 : unconfirmedWorkflow && !workflowInputError ? 1 : 0, postCatchPresses);
                 if (scenario == "aquarium-close-rejected") Assert.Equal(1, input.Rejections);
                 if (aquariumCleanupScenario)
@@ -1083,18 +1154,7 @@ public class FishingEngineReplayTests
                 }
                 else Assert.Empty(shakePresses);
             }
-            if (idleScenario)
-            {
-                Assert.True(clock.Timestamp >= 26 * 60 * 1000);
-                var pulses = input.KeyEdges.Where(edge => edge.Key == 126 && edge.Flags == 0).ToArray();
-                if (scenario == "idle-disabled") Assert.Empty(pulses);
-                else
-                {
-                    Assert.InRange(pulses.Length, 12, 14);
-                    Assert.Equal(pulses.Length, input.KeyEdges.Count(edge => edge.Key == 126 && edge.Flags == Win32.KEYEVENTF_KEYUP));
-                    for (int i = 1; i < pulses.Length; i++) Assert.InRange(pulses[i].At - pulses[i-1].At, 120000, 131000);
-                }
-            }
+
         }
     }
 }

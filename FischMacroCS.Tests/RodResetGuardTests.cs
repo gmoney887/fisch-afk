@@ -5,6 +5,16 @@ namespace FischMacroCS.Tests;
 public class RodResetGuardTests
 {
     [Fact]
+    public void TransientMissingFrameRequiresFreshConsecutiveConfirmation()
+    {
+        var frames = new Queue<(bool, bool)>([(false,true), (false,false), (false,true), (false,true)]);
+        int toggles = 0;
+        RodResetGuard.Unequip(() => toggles++, () => frames.Dequeue(), _ => { }, default);
+        Assert.Equal(1, toggles);
+        Assert.Empty(frames);
+    }
+
+    [Fact]
     public void WaitsForTwoConsecutiveDeselectedFramesWithoutBlindRetoggling()
     {
         var frames = new Queue<bool>([true, false, true, false, false]);
