@@ -6,6 +6,42 @@ namespace FischMacroCS.Tests;
 
 public class ShakeDetectionTests
 {
+    [Fact]
+    public void BusySceneryCannotCrowdOutButtonInAnotherPartOfViewport()
+    {
+        using var stream = typeof(VisionProcessor).Assembly.GetManifestResourceStream("FischMacroCS.Assets.shake_template.png")!;
+        using var bytes = new MemoryStream();
+        stream.CopyTo(bytes);
+        using var original = Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
+        using var template = new Mat();
+        Cv2.Resize(original, template, new Size((int)Math.Round(original.Width * 1009.0 / 1369),
+            (int)Math.Round(original.Height * 1009.0 / 1369)));
+        // Alternating bright pixels disappear in the coarse pass, but fail the
+        // full-resolution text match. Several distractors outrank the real button.
+        using var distractor = template.Clone();
+        for (int y = 0; y < distractor.Height; y++)
+        for (int x = 0; x < distractor.Width; x++)
+        {
+            var pixel = template.At<Vec3b>(y, x);
+            int noise = (x + y) % 2 == 0 ? 255 : 0;
+            distractor.Set(y, x, new Vec3b((byte)(pixel.Item0 * .25 + noise * .75),
+                (byte)(pixel.Item1 * .25 + noise * .75), (byte)(pixel.Item2 * .25 + noise * .75)));
+        }
+        using var frame = new Mat(1009, 1921, MatType.CV_8UC3, Scalar.All(30));
+        for (int i = 0; i < 4; i++)
+        {
+            using var destination = new Mat(frame, new Rect(40 + i * 130, 40, distractor.Width, distractor.Height));
+            distractor.CopyTo(destination);
+        }
+        using var button = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "shake_1009_button.png"));
+        int buttonX = frame.Width - button.Width, buttonY = frame.Height - button.Height;
+        using (var destination = new Mat(frame, new Rect(buttonX, buttonY, button.Width, button.Height))) button.CopyTo(destination);
+        var result = new VisionProcessor().DetectShakeIcon(frame, 31, 47, generateDebug: false);
+        Assert.True(result.Found);
+        Assert.InRange(result.Center.X, buttonX + 31 + 45, buttonX + 31 + 65);
+        Assert.InRange(result.Center.Y, buttonY + 47 + 45, buttonY + 47 + 65);
+    }
+
     [Theory]
     [InlineData(0, 0)]
     [InlineData(1, 0)]

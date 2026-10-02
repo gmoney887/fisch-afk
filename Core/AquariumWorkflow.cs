@@ -6,7 +6,7 @@ namespace FischMacroCS.Core;
 public static class AquariumWorkflow
 {
     public static readonly WorkflowTarget Navigation = new("aquarium-navigation", .077, .024, .10, 1353, .94, Smooth: true,
-        AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true, SearchNearbyScales: true);
+        AlternateTemplate: "aquarium-navigation-1009", AlternateReferenceHeight: 1009, BlueText: true, SearchNearbyScales: true, MatchNativeScale: true);
     public static readonly WorkflowTarget Claim = new("aquarium-claim", -.211, .539, .065, 1353, Smooth: true, SearchNearbyScales: true);
     // The zero C$/XP balance is stable; scrolling reward toasts are not.
     public static readonly WorkflowTarget EmptyBalance = new("aquarium-reward", -.194, .594, .065, 1353, .94, Smooth: true, SearchNearbyScales: true, RewardBalanceText: true);
@@ -69,6 +69,8 @@ public static class AquariumWorkflow
         int clickAttempts = 0;
         long lastClick = 0;
         int absent = 0, closeMatches = 0;
+        double bestCloseConfidence = 0;
+        bool claimSeen = false;
         long start = clock.Timestamp;
         do
         {
@@ -77,6 +79,8 @@ public static class AquariumWorkflow
             if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid aquarium cleanup capture.");
             var close = vision.Find(frame, Close);
             bool claim = vision.Find(frame, Claim).Found;
+            bestCloseConfidence = Math.Max(bestCloseConfidence, close.Confidence);
+            claimSeen |= claim;
             absent = !close.Found && !claim ? absent + 1 : 0;
             // Claim animations can temporarily obscure both controls. Once we
             // opened the panel, absence alone cannot prove that we closed it.
@@ -93,7 +97,7 @@ public static class AquariumWorkflow
             }
             delay(100);
         } while (clock.ElapsedMilliseconds(start) < (requireCloseAction ? 8000 : 3000));
-        return new(ActionOutcome.Unknown, "Aquarium panel closure was not fully confirmed");
+        return new(ActionOutcome.Unknown, $"Aquarium panel closure was not fully confirmed (best close confidence {bestCloseConfidence:F3}; close clicks {clickAttempts}; claim seen {claimSeen}).");
     }
 
 }

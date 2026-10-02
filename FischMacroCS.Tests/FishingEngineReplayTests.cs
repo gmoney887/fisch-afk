@@ -95,7 +95,7 @@ public class FishingEngineReplayTests
     }
 
     [Fact]
-    public async Task PersistentViewChangeStopsAndReleasesInputsWithoutWalking()
+    public async Task PersistentViewChangeWaitsWithReleasedInputsUntilExplicitStop()
     {
         var clock = new Clock();
         var input = new Input(clock);
@@ -123,7 +123,8 @@ public class FishingEngineReplayTests
         engine.Start();
         try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(20)); }
         finally { engine.Stop(); }
-        Assert.Contains("Fishing view changed", engine.PauseReason);
+        Assert.Null(engine.PauseReason);
+        Assert.True(clock.Timestamp >= 15000);
         Assert.False(input.Held);
         Assert.Empty(input.HeldKeys);
         Assert.Equal(0, engine.WatchdogRecoveryCount);
@@ -331,6 +332,7 @@ public class FishingEngineReplayTests
     [InlineData("queued-force")]
     [InlineData("queued-timeout")]
     [InlineData("reel-stall")]
+    [InlineData("missing-needle")]
     [InlineData("slow-reel")]
     [InlineData("missing-start")]
     [InlineData("replace-window")]
@@ -547,7 +549,7 @@ public class FishingEngineReplayTests
         int run = 1;
         long deadline = 20000;
         if (retryScenario || overlayScenario || aquariumSceneScenario) deadline = 40000;
-        if (scenario == "aquarium-stuck") deadline = 120000;
+        if (scenario is "aquarium-stuck" or "recovery-budget") deadline = 120000;
         bool idleScenario = scenario is "idle-enabled" or "idle-disabled";
         if (updateScenario) unavailableUntil = 6000;
         if (reconnectScenario) { unavailableUntil = continueScenario ? 7000 : 26000; deadline = 46000; }
@@ -594,7 +596,7 @@ public class FishingEngineReplayTests
                 else desktop.Dpi = 144;
             }
             if (windowChanged && !sawPostCatch && state == MacroState.Casting) prematureCasts++;
-            if (stallScenario && engine.WatchdogRecoveryCount > 0 && state == MacroState.Casting && !recoveredStall)
+            if ((stallScenario || scenario == "missing-needle") && engine.WatchdogRecoveryCount > 0 && state == MacroState.Casting && !recoveredStall)
             { recoveredStall = true; reelStart = 0; }
             clock.CaptureMs = scenario == "slow-reel" && state == MacroState.Reeling && !recoveredStall ? 120 : 5;
             if (retryScenario) clock.CaptureMs = 30;
@@ -679,7 +681,9 @@ public class FishingEngineReplayTests
             {
                 sawReel = true;
                 if (reelStart == 0) reelStart = clock.Timestamp;
-                if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < (aquariumSceneScenario ? 5000 : 600)) Paste(reel);
+                if (scenario == "missing-needle" && !recoveredStall)
+                    Cv2.Rectangle(full, new Rect(full.Width / 2 - 100, 1100, 200, 45), Scalar.White, -1);
+                else if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < (aquariumSceneScenario ? 5000 : 600)) Paste(reel);
                 else if (scenario == "lost-fish") Paste(caught);
             }
             if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario is "companion-bonus" or "lost-fish") Paste(caught); }
@@ -884,12 +888,14 @@ public class FishingEngineReplayTests
                     edge.Key is 0x57 or 0x41 or 0x53 or 0x44 or 0x20 or 0x25 or 0x26 or 0x27 or 0x28);
             if (scenario == "recovery-budget")
             {
-                Assert.Contains("Three recovery attempts", engine.PauseReason);
+                Assert.Null(engine.PauseReason);
+                Assert.NotNull(cooldownStarted);
+                Assert.True(clock.Timestamp - cooldownStarted.Value >= 60000);
+                Assert.True(nextCast && sawPostCatch);
+                Assert.Equal(1, engine.TotalCatches);
                 Assert.Equal(3, engine.WatchdogRecoveryCount);
-                Assert.False(engine.IsRunning);
                 Assert.False(input.Held);
                 Assert.Empty(input.HeldKeys);
-                Assert.Null(cooldownStarted); // No cooldown may reset an exhausted recovery budget.
                 Assert.DoesNotContain(input.KeyEdges, edge => edge.Key == 27 && edge.Flags == 0);
                 return;
             }
@@ -906,7 +912,8 @@ public class FishingEngineReplayTests
             }
             if (scenario == "aquarium-stuck")
             {
-                Assert.Contains("six cleanup attempts", engine.PauseReason);
+                Assert.Null(engine.PauseReason);
+                Assert.True(clock.Timestamp >= deadline); // Remained requested until the test explicitly stopped it.
                 Assert.False(engine.IsRunning);
                 Assert.False(input.Held);
                 Assert.Empty(input.HeldKeys);
@@ -915,23 +922,23 @@ public class FishingEngineReplayTests
                 Assert.False(nextCast);
                 return;
             }
-            if (idleScenario) Assert.Contains("recovery exceeded its deadline", engine.PauseReason);
-            else Assert.Null(engine.PauseReason);
+            Assert.Null(engine.PauseReason);
             if (idleScenario)
             {
-                Assert.InRange(clock.Timestamp, 300000, 320000);
+                Assert.True(clock.Timestamp >= unavailableUntil);
                 var pulses = input.MouseEdges.Where(edge => edge.Flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN).ToArray();
                 if (scenario == "idle-disabled") Assert.Empty(pulses);
                 else
                 {
-                    Assert.InRange(pulses.Length, 2, 3);
+                    Assert.InRange(pulses.Length, 12, 14);
                     Assert.Equal(pulses.Length, input.MouseEdges.Count(edge => edge.Flags == (int)Win32.MOUSEEVENTF_RIGHTUP));
                     for (int i = 1; i < pulses.Length; i++) Assert.InRange(pulses[i].At - pulses[i-1].At, 120000, 131000);
                 }
                 Assert.False(engine.IsRunning);
                 Assert.False(input.Held);
                 Assert.Empty(input.HeldKeys);
-                Assert.Equal(0, engine.TotalCatches);
+                Assert.Equal(1, engine.TotalCatches);
+                Assert.True(nextCast && sawReel);
                 return;
             }
             if (reconnectScenario)
@@ -1057,7 +1064,7 @@ public class FishingEngineReplayTests
             Assert.True(sawLure && sawReel && sawPostCatch && nextCast, $"States: {string.Join(',', states)}; clock={clock.Timestamp}; action={lastAction}");
             if (scenario == "cyan-reel") Assert.True(cyanReelPresses > 0, "The worker must control the cyan bar, not merely wait for the replay catch.");
             Assert.Equal(catchVisible ? (workflowScenario ? 2 : run) : 0, engine.TotalCatches);
-            Assert.Equal(scenario == "lost-fish" ? 0 : !catchVisible || stallScenario ? 1 : 0, engine.UnknownCatches);
+            Assert.Equal(scenario == "lost-fish" ? 0 : !catchVisible || stallScenario || scenario == "missing-needle" ? 1 : 0, engine.UnknownCatches);
             Assert.Equal(scenario == "lost-fish" ? 1 : 0, engine.TotalFails);
             if (scenario == "lost-fish")
             {
@@ -1085,6 +1092,13 @@ public class FishingEngineReplayTests
                 Assert.Contains("move", recoveredInput.Take(firstPress));
             }
             if (stallScenario) { Assert.True(recoveredStall); Assert.Equal(1, engine.WatchdogRecoveryCount); }
+            if (scenario == "missing-needle")
+            {
+                Assert.True(recoveredStall);
+                Assert.Equal(1, engine.WatchdogRecoveryCount);
+                Assert.True(rodToggleCount >= 2, "Missing needle recovery must reset the rod before resuming fishing.");
+                Assert.True(clock.Timestamp < 20000, "Recovery must not wait for the 35-second reel timeout.");
+            }
             if (workflowScenario)
             {
                 Assert.Equal(1, workflowAttempts); // Unavailable optional actions are skipped for the rest of this session.

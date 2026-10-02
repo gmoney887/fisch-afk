@@ -207,7 +207,7 @@ public partial class MainWindow : Window
 
             Title = $"Fat Dad's Fisch AFK Pro {rawVer}";
             if (TxtAppVersionBadge != null) TxtAppVersionBadge.Text = $"{rawVer} PRO";
-            if (TxtSplashVersion != null) TxtSplashVersion.Text = $"AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH • {rawVer}";
+            if (TxtSplashVersion != null) TxtSplashVersion.Text = $"ROBLOX FISCH • {rawVer}";
             if (TxtFooterVersion != null) TxtFooterVersion.Text = $"Fat Dad's Fisch AFK Pro {rawVer}";
         }
         catch { }
@@ -311,6 +311,8 @@ public partial class MainWindow : Window
                 }
             }
 
+            // Unattended mode does not need a dashboard covering game controls.
+            if (_settings.AfkPerformanceMode) WindowState = WindowState.Minimized;
             _engine.Start();
             UpdateUIState(true);
         }

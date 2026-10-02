@@ -1,0 +1,12 @@
+<Canvas xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Width="256" Height="256">
+    <Rectangle Width="256" Height="256" RadiusX="58" RadiusY="58">
+        <Rectangle.Fill><LinearGradientBrush StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#143E50" Offset="0"/><GradientStop Color="#081925" Offset="1"/></LinearGradientBrush></Rectangle.Fill>
+    </Rectangle>
+    <!-- A rising fish, cut from two flowing shapes, with a fishing-line hook. -->
+    <Path Data="M 44,146 L 43,96 L 83,118 C 114,68 175,65 214,111 C 182,165 126,176 83,142 Z" Fill="#58E3D0"/>
+    <Path Data="M 83,142 C 128,142 164,121 214,111 C 182,165 126,176 83,142 Z" Fill="#1CA6BD"/>
+    <Path Data="M 109,93 L 139,52 L 160,84 Z" Fill="#58E3D0"/>
+    <Ellipse Width="12" Height="12" Canvas.Left="177" Canvas.Top="103" Fill="#081925"/>
+    <Path Data="M 151,153 L 151,182 C 151,207 113,207 113,182 L 113,176 L 124,185" Stroke="#F5D38D" StrokeThickness="9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+    <Path Data="M 44,208 Q 65,196 86,208 M 177,208 L 213,208" Stroke="#398599" StrokeThickness="5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+</Canvas>

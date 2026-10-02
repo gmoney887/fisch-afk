@@ -5,7 +5,7 @@ namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
     int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
-    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false, bool RedGlyph = false);
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false, bool RedGlyph = false, bool MatchNativeScale = false);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
 public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false, bool RetryableWithoutRecovery = false);
@@ -22,16 +22,76 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
     private readonly Dictionary<string, Mat> _templates = new();
     private readonly Dictionary<(string Name, int ReferenceHeight, bool Smooth, double Scale), Mat> _scaled = new();
     private int _height;
-    public TemplateWorkflowVision(string directory) => _directory = directory;
+    private readonly bool _useBundledTemplates;
+    public TemplateWorkflowVision(string directory, bool useBundledTemplates = false)
+    {
+        _directory = directory;
+        _useBundledTemplates = useBundledTemplates;
+    }
+    private Mat? LoadTemplate(string name)
+    {
+        if (_templates.TryGetValue(name, out var cached)) return cached;
+        string path = System.IO.Path.Combine(_directory, name + ".png");
+        Mat? template = System.IO.File.Exists(path) ? Cv2.ImRead(path) : null;
+        if ((template == null || template.Empty()) && _useBundledTemplates)
+        {
+            template?.Dispose();
+            template = null;
+            using var stream = typeof(TemplateWorkflowVision).Assembly.GetManifestResourceStream(
+                "FischMacroCS.Assets.Workflows." + name + ".png");
+            if (stream != null)
+            {
+                using var bytes = new System.IO.MemoryStream();
+                stream.CopyTo(bytes);
+                template = Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
+            }
+        }
+        if (template == null) return null;
+        if (template.Empty()) { template.Dispose(); return null; }
+        _templates[name] = template;
+        return template;
+    }
     public string[] MissingTemplates(IEnumerable<string> names) => names.Distinct()
-        .Where(name => !System.IO.File.Exists(System.IO.Path.Combine(_directory, name + ".png")))
+        .Where(name => LoadTemplate(name) == null)
         .ToArray();
     public (bool Found, Point Center, double Confidence) Find(Mat frame, WorkflowTarget target)
     {
+        var observed = FindObservedGeometry(frame, target);
+        if (observed.Found || observed.Confidence < 0) return observed;
         var primary = FindAtScales(frame, target);
         if (primary.Found || target.AlternateTemplate == null || target.AlternateReferenceHeight <= 0) return primary;
         var alternate = FindAtScales(frame, target with { Name = target.AlternateTemplate, ReferenceHeight = target.AlternateReferenceHeight });
         return alternate.Confidence > primary.Confidence ? alternate : primary;
+    }
+    private (bool Found, Point Center, double Confidence) FindObservedGeometry(Mat frame, WorkflowTarget target)
+    {
+        ObservedGlyphMatcher.Ink? ink = target.BlueText ? ObservedGlyphMatcher.Ink.Blue : target.RedGlyph ? ObservedGlyphMatcher.Ink.Red :
+            target.RewardBalanceText ? ObservedGlyphMatcher.Ink.Balance : target.Name == "aquarium-claim" ? ObservedGlyphMatcher.Ink.Claim : null;
+        if (!ink.HasValue) return (false, default, 0);
+        int radius = (int)Math.Ceiling(target.RadiusInHeights * frame.Height);
+        int x = frame.Width / 2 + (int)(target.XFromCenterInHeights * frame.Height), y = (int)(target.YInHeights * frame.Height);
+        var search = new Rect(Math.Max(0, x-radius), Math.Max(0, y-radius), 1, 1);
+        search.Width = Math.Min(frame.Width,x+radius)-search.X; search.Height = Math.Min(frame.Height,y+radius)-search.Y;
+        if (search.Width <= 0 || search.Height <= 0) return (false,default,0);
+        using var roi = new Mat(frame, search);
+        foreach (var name in new[] { target.Name, target.AlternateTemplate }.OfType<string>())
+        {
+            var template = LoadTemplate(name);
+            if (template == null) continue;
+            var match = ObservedGlyphMatcher.Find(roi,template,ink.Value,target.MinimumConfidence);
+            if (match.Ambiguous) return (false,default,-1);
+            if (!match.Found) continue;
+            // Snap only within the independently recognized glyph's bounds, so nearby scenery cannot move the click.
+            using var glyph = new Mat(roi,match.Bounds);
+            using var mask = ObservedGlyphMatcher.Mask(glyph,ink.Value);
+            using var snapFrame = new Mat();
+            Cv2.CvtColor(mask,snapFrame,ColorConversionCodes.GRAY2BGR);
+            var snapped = new VisionProcessor().DynamicUISnapWithStatus(snapFrame,mask.Width/2,mask.Height/2,
+                VisionProcessor.UIColorType.WhiteText,Math.Max(mask.Width,mask.Height));
+            if (snapped.Found)
+                return (true,new Point(search.X+match.Bounds.X+snapped.Pt.X,search.Y+match.Bounds.Y+snapped.Pt.Y),match.Confidence);
+        }
+        return (false,default,0);
     }
     private (bool Found, Point Center, double Confidence) FindAtScales(Mat frame, WorkflowTarget target)
     {
@@ -43,15 +103,19 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             if (candidate.Confidence > best.Confidence) best = candidate;
             if (best.Found) break;
         }
+        if (!best.Found && target.MatchNativeScale)
+        {
+            // Some Roblox navigation labels retain their pixel size as the client
+            // height changes. Match the reviewed native glyphs as well.
+            var native = FindSingle(frame, target, target.ReferenceHeight / (double)frame.Height);
+            if (native.Confidence > best.Confidence) best = native;
+        }
         return best;
     }
     private (bool Found, Point Center, double Confidence) FindSingle(Mat frame, WorkflowTarget target, double scale)
     {
-        string path = System.IO.Path.Combine(_directory, target.Name + ".png");
-        if (!System.IO.File.Exists(path)) return (false, default, 0);
-        if (!_templates.TryGetValue(target.Name, out var template))
-            _templates[target.Name] = template = Cv2.ImRead(path);
-        if (template.Empty()) return (false, default, 0);
+        var template = LoadTemplate(target.Name);
+        if (template == null) return (false, default, 0);
         if (_height != frame.Height)
         {
             foreach (var cached in _scaled.Values) cached.Dispose();
@@ -92,6 +156,21 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
             Cv2.MatchTemplate(sceneRed, templateRed, score, TemplateMatchModes.CCoeffNormed);
             Cv2.MinMaxLoc(score, out _, out confidence, out _, out location);
             if (!double.IsFinite(confidence)) return (false, default, 0);
+            if (confidence < target.MinimumConfidence)
+            {
+                // World labels can show through the aquarium behind its bright red X.
+                // Isolate the bright glyph before comparing shape; keep the same
+                // confidence threshold and original mask for dim UI variants.
+                using var brightScene = RedGlyphs(roi, 220);
+                using var brightTemplate = RedGlyphs(scaled, 220);
+                if (Cv2.CountNonZero(brightTemplate) >= 5)
+                {
+                    Cv2.MatchTemplate(brightScene, brightTemplate, score, TemplateMatchModes.CCoeffNormed);
+                    Cv2.MinMaxLoc(score, out _, out double brightConfidence, out _, out Point brightLocation);
+                    if (double.IsFinite(brightConfidence) && brightConfidence > confidence)
+                    { confidence = brightConfidence; location = brightLocation; }
+                }
+            }
         }
         if (target.RewardBalanceText)
         {
@@ -145,12 +224,12 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         return (confidence >= target.MinimumConfidence, new Point(search.X + location.X + scaled.Width / 2,
             search.Y + location.Y + scaled.Height / 2), confidence);
     }
-    private static Mat RedGlyphs(Mat image)
+    private static Mat RedGlyphs(Mat image, int minimumValue = 100)
     {
         using var hsv = new Mat(); using var low = new Mat(); using var high = new Mat();
         Cv2.CvtColor(image, hsv, ColorConversionCodes.BGR2HSV);
-        Cv2.InRange(hsv, new Scalar(0, 140, 100), new Scalar(10, 255, 255), low);
-        Cv2.InRange(hsv, new Scalar(170, 140, 100), new Scalar(180, 255, 255), high);
+        Cv2.InRange(hsv, new Scalar(0, 140, minimumValue), new Scalar(10, 255, 255), low);
+        Cv2.InRange(hsv, new Scalar(170, 140, minimumValue), new Scalar(180, 255, 255), high);
         var mask = new Mat(); Cv2.BitwiseOr(low, high, mask);
         ImageSmoothing.Apply(mask, mask);
         return mask;
@@ -183,6 +262,7 @@ public sealed class VerifiedWorkflow(IClock clock, IWorkflowVision vision, Func<
     {
         long start = clock.Timestamp;
         int matches = 0;
+        Point? previous = null;
         do
         {
             cancellation.ThrowIfCancellationRequested();
@@ -190,7 +270,11 @@ public sealed class VerifiedWorkflow(IClock clock, IWorkflowVision vision, Func<
             if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid workflow capture.");
             var detected = vision.Find(frame, target);
             evidence?.Invoke($"{target.Name}: confidence={detected.Confidence:F3}; found={detected.Found}");
-            matches = detected.Found == expectedPresent ? matches + 1 : 0;
+            bool sameTarget = !expectedPresent || previous == null ||
+                Math.Abs(detected.Center.X-previous.Value.X) <= frame.Height*.015 &&
+                Math.Abs(detected.Center.Y-previous.Value.Y) <= frame.Height*.015;
+            matches = detected.Found == expectedPresent ? (sameTarget ? matches+1 : 1) : 0;
+            previous = detected.Found ? detected.Center : null;
             if (matches >= 2) return (true, detected.Center);
             delay(100);
         } while (clock.ElapsedMilliseconds(start) < timeoutMs);
@@ -221,6 +305,9 @@ public sealed class VerifiedWorkflow(IClock clock, IWorkflowVision vision, Func<
                     if (before == null || before.Empty()) throw new GameplayInterruptedException("Invalid prerequisite capture.");
                     var latest = vision.Find(before, step.Prerequisite);
                     if (!latest.Found) return new(ActionOutcome.Unknown, $"{step.Name}: prerequisite disappeared before action");
+                    if (Math.Abs(latest.Center.X-prerequisite.Center.X) > before.Height*.015 ||
+                        Math.Abs(latest.Center.Y-prerequisite.Center.Y) > before.Height*.015)
+                        return new(ActionOutcome.Unknown, $"{step.Name}: target moved before action; reacquisition required");
                     prerequisite = (true, latest.Center);
                     if (vision.Find(before, step.Expected).Found == step.ExpectedPresent)
                         return new(ActionOutcome.Unknown, $"{step.Name}: result already present before action");

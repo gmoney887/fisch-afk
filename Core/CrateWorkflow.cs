@@ -1,4 +1,5 @@
 using OpenCvSharp;
+using FischMacroCS.Vision;
 
 namespace FischMacroCS.Core;
 
@@ -140,7 +141,20 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
         };
         var rect = searchRegion ?? Region(frame, bounds.Item1, bounds.Item2, bounds.Item3, bounds.Item4);
         using var roi = new Mat(frame, rect); using var gray = new Mat();
-        if (whiteText) Cv2.InRange(roi, new Scalar(180, 180, 180), Scalar.All(255), gray);
+        if (whiteText)
+        {
+            // Exact filter identity distinguishes "crate" from "crates"; retain its stricter comparison.
+            var observed = name == "search" ? default : ObservedGlyphMatcher.Find(roi,template,ObservedGlyphMatcher.Ink.White,.96);
+            if (observed.Found)
+            {
+                using var glyph = new Mat(roi,observed.Bounds);
+                var snapped = new VisionProcessor().DynamicUISnapWithStatus(glyph,glyph.Width/2,glyph.Height/2,
+                    VisionProcessor.UIColorType.WhiteText,Math.Max(glyph.Width,glyph.Height));
+                if (snapped.Found) return new Point(rect.X+observed.Bounds.X+snapped.Pt.X,rect.Y+observed.Bounds.Y+snapped.Pt.Y);
+            }
+            using var ink = ObservedGlyphMatcher.Mask(roi,ObservedGlyphMatcher.Ink.White);
+            ink.CopyTo(gray);
+        }
         else Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
         using var smoothed = Smooth(gray);
         double threshold = name is "one" or "search" ? .94 : .90;
@@ -165,7 +179,7 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
                     using var resized = new Mat();
                     Cv2.Resize(template, resized, new Size(dimensions.Item2, dimensions.Item3));
                     using var textMask = new Mat();
-                    if (whiteText) Cv2.InRange(resized, new Scalar(180, 180, 180), Scalar.All(255), textMask);
+                    if (whiteText) { using var ink = ObservedGlyphMatcher.Mask(resized,ObservedGlyphMatcher.Ink.White); ink.CopyTo(textMask); }
                     else resized.CopyTo(textMask);
                     Cv2.MeanStdDev(textMask, out _, out var maskDeviation);
                     if (maskDeviation.Val0 < 1) continue;

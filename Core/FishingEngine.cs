@@ -111,17 +111,21 @@ public class FishingEngine : IDisposable
     private long _lastFailureCheckTicks;
     private bool _catchFailureSeen;
     private ReelHoldRecovery? _holdRecovery;
+    private readonly MissingNeedleRecovery _missingNeedleRecovery = new();
     private int _readyHotbarFrames;
 
     // Feature 6: Autonomous Self-Healing Watchdog
     private long _lastProgressTicks = 0;
     private long _lastProductiveCatchTicks;
+    private long? _lastUnproductiveReport;
 
     private void CheckProductiveDeadline()
     {
         if (_clock.ElapsedMilliseconds(_lastProductiveCatchTicks) < 10 * 60 * 1000) return;
-        _recorder.RecordEvent("recovery-outcome", new { Reason = "No confirmed catch for ten minutes" });
-        throw new FishingSafetyException("No confirmed catch for ten minutes despite recovery; attention is required.");
+        if (_lastUnproductiveReport.HasValue && _clock.ElapsedMilliseconds(_lastUnproductiveReport.Value) < 60000) return;
+        _lastUnproductiveReport = _clock.Timestamp;
+        _recorder.RecordEvent("recovery-outcome", new { Reason = "No confirmed catch for ten minutes; recovery remains active", Outcome = "Unknown" });
+        SessionLogger.Instance.Log("WATCHDOG", "No confirmed catch for ten minutes; continuing paced recovery.");
     }
     private readonly object _recoveryLock = new();
     private bool _isRecovering = false;
@@ -131,6 +135,7 @@ public class FishingEngine : IDisposable
     private readonly IClock _clock;
     private readonly GameDesktop _desktop;
     private readonly string _workflowTemplateDirectory;
+    private readonly bool _useBundledWorkflowTemplates;
     public Task Completion => _workerTask ?? Task.CompletedTask;
     private readonly IInputSink _input;
     private readonly RecoveryBudget _recoveryBudget;
@@ -187,7 +192,7 @@ public class FishingEngine : IDisposable
                     Config.RodProfile, _activeGeometry.Width, _activeGeometry.Height) : null }, demonstration: demonstration);
     }
 
-    private void WaitForFishingRetry(string reason, int minimumDelayMs = 1000)
+    private void WaitForFishingRetry(string reason, int minimumDelayMs = 1000, bool newRecoveryCycle = false)
     {
         _viewSafety.SuspendRecoveryAttempt();
         long retryStarted = _clock.Timestamp;
@@ -225,9 +230,10 @@ public class FishingEngine : IDisposable
             PopulateTelemetryStats(telemetry);
             telemetry.WatchdogStatusText = "WATCHDOG: WAITING TO RETRY";
             if (OnTelemetry != null) OnTelemetry(telemetry); else telemetry.Dispose();
-        }, _operationCancellation, minimumDelayMs, maximumWaitMs: 5 * 60 * 1000);
+        }, _operationCancellation, minimumDelayMs);
         // A visible window alone is not progress. Only verified gameplay exits this wait.
         _lastProgressTicks = _clock.Timestamp;
+        if (newRecoveryCycle) _viewSafety.BeginRetryCycle();
         if (_viewSafety.ResumeAfterRecovery(Config.CastHoldMs + Config.PostCastDelayMs +
                 (long)Config.LureTimeoutMs + Config.ReelTimeoutMs + Config.PostCatchDelayMs + 10000))
             _recorder.RecordEvent("recovery-fishing-attempt", new { Evidence = "Gameplay reacquired; one bounded fishing cycle allowed without changing the saved view" });
@@ -354,13 +360,13 @@ public class FishingEngine : IDisposable
     private int _aquariumCleanupAttempts;
     private bool TryCleanupAquarium()
     {
-        if (_lastAquariumCleanup.HasValue && _clock.ElapsedMilliseconds(_lastAquariumCleanup.Value) < 5000) return false;
+        int retryDelay = _aquariumCleanupAttempts >= 6 ? 60000 : 5000;
+        if (_lastAquariumCleanup.HasValue && _clock.ElapsedMilliseconds(_lastAquariumCleanup.Value) < retryDelay) return false;
         _lastAquariumCleanup = _clock.Timestamp;
-        if (++_aquariumCleanupAttempts > 6)
-            throw new FishingSafetyException("Aquarium panel could not be verified closed after six cleanup attempts; fishing input remains blocked.");
+        _aquariumCleanupAttempts = Math.Min(6, _aquariumCleanupAttempts + 1);
         try
         {
-            using var vision = new TemplateWorkflowVision(_workflowTemplateDirectory);
+            using var vision = new TemplateWorkflowVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates);
             var result = AquariumWorkflow.ClosePanel(_clock, vision, () =>
             {
                 ValidateGameplay();
@@ -609,12 +615,12 @@ public class FishingEngine : IDisposable
             ValidateGameplay();
             return _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
         }
-        using var workflowVision = new TemplateWorkflowVision(_workflowTemplateDirectory);
+        using var workflowVision = new TemplateWorkflowVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates);
         if (aquarium)
         {
             return AquariumWorkflow.Run(_clock, workflowVision,
                 CaptureWorkflow, Delay, Click, _operationCancellation,
-                message => { SessionLogger.Instance.Log("AQUARIUM", message); progress?.Invoke(message); });
+                message => { SessionLogger.Instance.Log("AQUARIUM", message); _recorder.RecordEvent("workflow-evidence", new { Workflow = "Aquarium", Evidence = message }); progress?.Invoke(message); });
         }
         using var crateVision = sharedCrateVision == null ? new CrateVision(_workflowTemplateDirectory) : null;
         return CrateWorkflow.Run(sharedCrateVision ?? crateVision!, CaptureWorkflow, Delay, Click, _input.SendKeyPress,
@@ -764,6 +770,7 @@ public class FishingEngine : IDisposable
     {
         _recorder = new FlightRecorder(recordingDirectory);
         _desktop = desktop ?? new GameDesktop();
+        _useBundledWorkflowTemplates = workflowTemplateDirectory == null;
         _workflowTemplateDirectory = workflowTemplateDirectory ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Workflows");
         _capture = new RecordingFrameSource(frameSource ?? new ScreenCapture(), _recorder, () => new Rect(0, 0, _activeGeometry.Width, _activeGeometry.Height), clock, ValidateGameplay);
         _shakeCapture = new RecordingFrameSource(contextSource ?? new ScreenCapture(), _recorder, () => new Rect(0, 0, _activeGeometry.Width, _activeGeometry.Height), clock, ValidateGameplay);
@@ -796,6 +803,7 @@ public class FishingEngine : IDisposable
         _fishingView.Reset();
         _viewSafety.Reset();
         _lastProductiveCatchTicks = _clock.Timestamp;
+        _lastUnproductiveReport = null;
         _aquariumCleanupAttempts = 0;
         _viewChecked = false;
         _catchBannerFrames = 0; _catchBannerSeen = false;
@@ -1135,7 +1143,10 @@ public class FishingEngine : IDisposable
         {
             if (!_recoveryBudget.TryBegin())
             {
-                throw new FishingSafetyException("Three recovery attempts produced no confirmed catch. Check the fishing position and restart when ready.");
+                _recorder.RecordEvent("recovery-cooldown", new { Reason = reason, Outcome = "Unknown" });
+                WaitForFishingRetry("Recovery cooling down; will retry after checking fresh gameplay", 60000, newRecoveryCycle: true);
+                _recoveryBudget.ResetAfterCooldown();
+                return;
             }
             _recorder.RecordEvent("recovery-attempt", new { Reason = reason, Attempt = _recoveryBudget.Attempts, Outcome = "Unknown" });
             lock (_statistics) WatchdogRecoveryCount++;
@@ -1441,6 +1452,7 @@ public class FishingEngine : IDisposable
         SetMouseDown(false);
         CurrentState = newState;
         if (newState is MacroState.Casting or MacroState.Reeling) _holdRecovery?.Reset();
+        _missingNeedleRecovery.Reset();
         if (newState is MacroState.Casting or MacroState.PostCatch) _vision.ResetReelTheme();
         if (newState == MacroState.PostCatch) { _readyHotbarFrames = 0; }
         else { _catchBannerFrames = 0; }
@@ -1573,7 +1585,8 @@ public class FishingEngine : IDisposable
         if (_viewSafety.Observe(status, liveReel, Config.ReelTimeoutMs))
         {
             _input.ReleaseAll(); _isMouseDown = false;
-            throw new FishingSafetyException("Fishing view changed persistently without confirmed fishing progress. Check the player position and camera before restarting.");
+            WaitForFishingRetry("Fishing view changed; cooling down before another verified fishing attempt", 60000, newRecoveryCycle: true);
+            return true;
         }
         return HoldNewInputs();
     }
@@ -1884,10 +1897,10 @@ public class FishingEngine : IDisposable
                     luringDetect = _vision.ProcessTrack(trackCrop, safeTrackX1, safeTrackY1, scaleFactor, Config.SelectedTheme, false);
                 }
 
-                if (luringDetect.BarFound || luringDetect.HasLiveReel)
+                if (luringDetect.HasLiveReel)
                 {
                     _luringConfirmCount++;
-                    if (_luringConfirmCount >= 1)
+                    if (_luringConfirmCount >= 2)
                     {
                         _lastProgressTicks = _clock.Timestamp;
                         EnsureCursorInGameView(robloxHwnd, clientRect);
@@ -2073,6 +2086,18 @@ public class FishingEngine : IDisposable
             // ==============================================================
             if (CurrentState == MacroState.Reeling)
             {
+                // A scenery false positive can survive every rod reset. Recover early,
+                // then require fish evidence on fresh frames before re-entering reeling.
+                if (_missingNeedleRecovery.Observe(detect.BarFound, detect.FishFound, GetElapsedMs(_stateStartTime)))
+                {
+                    SetMouseDown(false);
+                    _recorder.RecordEvent("missing-needle-recovery", new { Reason = "Bar visible without a fish needle for 3 seconds", detect.BarLeft, detect.BarRight, detect.ReelProgressFound });
+                    lock (_statistics) { UnknownCatches++; CurrentStreak = 0; }
+                    _lifetimeUnknown++;
+                    _recorder.RecordEvent("outcome", new { Outcome = "Unknown", Reason = "Fish needle missing during reel; retrying" });
+                    RecoverAndRestart("Fish needle missing for 3 seconds; resetting rod and recasting");
+                    continue;
+                }
                 // Deadlines must run even when every velocity sample is rejected as too slow.
                 if (GetElapsedMs(_stateStartTime) > Config.ReelTimeoutMs)
                 {

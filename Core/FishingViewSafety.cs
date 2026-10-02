@@ -35,6 +35,13 @@ public sealed class FishingViewSafety(IClock clock)
         ClearSuspicion();
         return true;
     }
+    // A completed cooldown permits an attempt without declaring progress or changing the reference scene.
+    public void BeginRetryCycle()
+    {
+        _recoveryAttemptAt = null;
+        _recoveryAttemptUsed = false;
+        _recoveryBudgetMs = 0;
+    }
     public bool IsSuspected => _suspectedAt.HasValue;
     public bool HasLiveReel { get; private set; }
     public bool HasRecentProgress => _lastConfirmedCatchAt.HasValue &&

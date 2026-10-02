@@ -107,3 +107,9 @@ crate_inventory_79_stacks.png retains only (1250,890,940,390) from frame_0000000
 - hotbar_stall_24276.png and hotbar_stall_24277.png: bottom 342-pixel strips immediately before/after rod unequip in session 20260929_175752. Reproduce loss of hotbar geometry when its selection outline disappears.
 
 - catch_ultrawide_3424.png and catch_ultrawide_3424_next.png: bottom 338 pixels of frames 72 and 74 from session_20260930_030756_983_e243a180f14148fbaf4b080f503144d1 (3424x1353 viewport). The player Pelagic Cod catch is visible but afkfix.2 reported Unknown. First image is cropped at y=1015; second is the original recorded hotbar capture. Player-name and chat regions are excluded. Reproduces unchanged glyph size between 1369- and 1353-pixel viewport heights.
+
+- aquarium_red_label_overlap.png: only close-button and claim/balance rectangles from frame 140293 of session_20260930_123055_602_6e297351b60f49c99b091edcde7c6313, native 3440x1369. All other pixels are black. Reproduces red world-label interference behind the aquarium close X. Player-name/chat regions excluded.
+
+reel_false_coral.png: unchanged gameplay track crop, frame 3230 from session_20260930_172914_139_97e4f1425344462daf2dbaa5d4035663, desktop origin (968,1013), 1504x273, viewport3440x1369. Retains coral and rod-description text; no player names or chat. Reproduces a bar-shaped scenery candidate with no fish needle.
+
+aquarium_navigation_1920.png: top navigation only from user-supplied son's-PC screenshot codex-clipboard-d924607e-fa84-4c31-bfd6-222a6aa990b4.png, confirmed release v1.0.21. Actual image width1919; fixture height1032. Everything outside rectangle(790,0,340,65) is masked black to remove player information. Tests retain native pixels and pad to1080 as a second capture-height case.

@@ -563,32 +563,41 @@ public class VisionProcessor
                         Cv2.Resize(fullTemplate, halfTemplate, new Size(Math.Max(1, width / 2), Math.Max(1, height / 2)));
                         using var coarse = new Mat();
                         Cv2.MatchTemplate(halfZone, halfTemplate, coarse, TemplateMatchModes.CCoeffNormed);
-                        // A bright accessory can beat the button in the coarse pass.
-                        // Verify several independent candidates before rejecting this scale.
-                        for (int candidate = 0; candidate < 3; candidate++)
+                        int coarseWidth = coarse.Width, coarseHeight = coarse.Height;
+                        // Check candidates in every part of the viewport. A global top-three
+                        // shortlist lets scenery in one area hide a button elsewhere.
+                        for (int tileY = 0; tileY < coarseHeight; tileY += 240)
+                        for (int tileX = 0; tileX < coarseWidth; tileX += 320)
                         {
-                            Cv2.MinMaxLoc(coarse, out _, out double score, out _, out Point location);
-                            if (!double.IsFinite(score) || score < .42) break;
-                            int pad = Math.Max(2, height);
-                            int x = Math.Max(0, location.X * 2 - pad), y = Math.Max(0, location.Y * 2 - pad);
-                            int right = Math.Min(cropW, location.X * 2 + width + pad);
-                            int bottom = Math.Min(cropH, location.Y * 2 + height + pad);
-                            using var roi = new Mat(scene, new Rect(x, y, right - x, bottom - y));
-                            using var refined = new Mat();
-                            Cv2.MatchTemplate(roi, fullTemplate, refined, TemplateMatchModes.CCoeffNormed);
-                            Cv2.MinMaxLoc(refined, out _, out double confidence, out _, out Point found);
-                            if (double.IsFinite(confidence) && confidence >= threshold && confidence > bestConfidence)
+                            using var tile = new Mat(coarse, new Rect(tileX, tileY,
+                                Math.Min(320, coarseWidth - tileX), Math.Min(240, coarseHeight - tileY)));
+                            for (int candidate = 0; candidate < 3; candidate++)
                             {
-                                bestConfidence = confidence;
-                                bestRect = new Rect(x + found.X, y + found.Y, width, height);
-                                bestCenter = new Point(absOffsetX + x + found.X + width / 2,
-                                    absOffsetY + y + found.Y + height / 2);
+                                Cv2.MinMaxLoc(tile, out _, out double score, out _, out Point location);
+                                if (!double.IsFinite(score) || score < .42) break;
+                                location.X += tileX;
+                                location.Y += tileY;
+                                int pad = Math.Max(2, height);
+                                int x = Math.Max(0, location.X * 2 - pad), y = Math.Max(0, location.Y * 2 - pad);
+                                int right = Math.Min(cropW, location.X * 2 + width + pad);
+                                int bottom = Math.Min(cropH, location.Y * 2 + height + pad);
+                                using var roi = new Mat(scene, new Rect(x, y, right - x, bottom - y));
+                                using var refined = new Mat();
+                                Cv2.MatchTemplate(roi, fullTemplate, refined, TemplateMatchModes.CCoeffNormed);
+                                Cv2.MinMaxLoc(refined, out _, out double confidence, out _, out Point found);
+                                if (double.IsFinite(confidence) && confidence >= threshold && confidence > bestConfidence)
+                                {
+                                    bestConfidence = confidence;
+                                    bestRect = new Rect(x + found.X, y + found.Y, width, height);
+                                    bestCenter = new Point(absOffsetX + x + found.X + width / 2,
+                                        absOffsetY + y + found.Y + height / 2);
+                                }
+                                var suppressed = new Rect(Math.Max(0, location.X - halfTemplate.Width / 2),
+                                    Math.Max(0, location.Y - halfTemplate.Height / 2), halfTemplate.Width, halfTemplate.Height);
+                                suppressed.Width = Math.Min(suppressed.Width, coarse.Width - suppressed.X);
+                                suppressed.Height = Math.Min(suppressed.Height, coarse.Height - suppressed.Y);
+                                using var excluded = new Mat(coarse, suppressed); excluded.SetTo(Scalar.All(-1));
                             }
-                            var suppressed = new Rect(Math.Max(0, location.X - halfTemplate.Width / 2),
-                                Math.Max(0, location.Y - halfTemplate.Height / 2), halfTemplate.Width, halfTemplate.Height);
-                            suppressed.Width = Math.Min(suppressed.Width, coarse.Width - suppressed.X);
-                            suppressed.Height = Math.Min(suppressed.Height, coarse.Height - suppressed.Y);
-                            using var excluded = new Mat(coarse, suppressed); excluded.SetTo(Scalar.All(-1));
                         }
                         if (bestConfidence >= .85) break;
                     }

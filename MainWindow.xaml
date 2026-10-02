@@ -364,34 +364,20 @@
                 <Border Grid.Row="0" BorderBrush="#25465C" BorderThickness="1" CornerRadius="12" Padding="12,12" Margin="0,0,0,8">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#16374A" Offset="0"/>
-                            <GradientStop Color="#111C30" Offset="1"/>
+                            <GradientStop Color="#123A47" Offset="0"/>
+                            <GradientStop Color="#0C1B2A" Offset="1"/>
                         </LinearGradientBrush>
                     </Border.Background>
                     <StackPanel>
                         <Grid Margin="0,0,0,6" ClipToBounds="True">
-                            <!-- A static low-poly fishing scene adds character without a render loop. -->
-                            <Viewbox Width="140" Height="104" HorizontalAlignment="Right" VerticalAlignment="Top" Opacity="0.75" IsHitTestVisible="False">
-                                <Canvas Width="220" Height="136">
-                                    <Ellipse Width="40" Height="40" Fill="#BAF5E9" Canvas.Left="157" Canvas.Top="8"/>
-                                    <Path Data="M 20,94 L 73,45 L 107,82 L 146,60 L 210,103 Z" Fill="#21465A"/>
-                                    <Path Data="M 73,45 L 84,81 L 107,82 Z M 146,60 L 157,92 L 210,103 Z" Fill="#356A71"/>
-                                    <Path Data="M 0,104 L 220,104 220,136 0,136 Z" Fill="#12394F"/>
-                                    <Path Data="M 12,116 L 70,116 M 127,123 L 204,123 M 160,110 L 191,110" Stroke="#4595A2" StrokeThickness="2"/>
-                                    <Path Data="M 47,92 L 125,92 125,100 47,100 Z M 55,100 L 55,126 M 114,100 L 114,125" Stroke="#74999A" Fill="#496F7B" StrokeThickness="3"/>
-                                    <Rectangle Width="13" Height="13" Fill="#BDEBCF" Canvas.Left="83" Canvas.Top="59"/>
-                                    <Path Data="M 82,74 L 96,74 101,92 79,92 Z" Fill="#50CDB7"/>
-                                    <Path Data="M 95,79 L 110,73 128,47 M 128,47 Q 155,51 170,101" Stroke="#D5F8E4" StrokeThickness="2"/>
-                                    <Rectangle Width="4" Height="5" Fill="#E6BD74" Canvas.Left="168" Canvas.Top="100"/>
-                                </Canvas>
-                            </Viewbox>
+                            <Image Source="Assets/angler.png" Width="108" Height="108" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,0,0,0" IsHitTestVisible="False" RenderOptions.BitmapScalingMode="HighQuality"/>
                             <StackPanel>
                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
-                                    <Image Source="Assets/angler.png" Width="22" Height="22" Margin="0,0,7,0" Cursor="Hand" MouseLeftButtonDown="Avatar_MouseLeftButtonDown" ToolTip="View mascot"/>
+                                    <Image Source="Assets/angler.png" Width="22" Height="22" Margin="0,0,7,0" Cursor="Hand" MouseLeftButtonDown="Avatar_MouseLeftButtonDown" ToolTip="About Fisch AFK Pro"/>
                                     <TextBlock Text="FAT DAD'S" Foreground="#8DB6CC" FontSize="10" FontWeight="Bold" VerticalAlignment="Center"/>
                                 </StackPanel>
                                 <TextBlock Text="FISCH AFK" FontSize="30" FontWeight="Black" Foreground="#F0FBFF"/>
-                                <TextBlock Text="Your next catch. On autopilot." FontSize="11" Foreground="#A8C8D9" Margin="0,1,0,10"/>
+                                <TextBlock Text="Cast. Catch. Repeat." FontSize="11" Foreground="#A8C8D9" Margin="0,1,0,10"/>
                                 <WrapPanel>
                                     <Border Background="#143D49" CornerRadius="4" Padding="6,3" Margin="0,0,6,0">
                                         <TextBlock x:Name="TxtHeaderHotkey" Text="[F6] START/STOP" FontSize="9" FontWeight="Bold" Foreground="#7AE9DB"/>
@@ -992,59 +978,30 @@
             </Grid>
         </ScrollViewer>
 
-        <!-- 5. FULL MASCOT SPLASH SCREEN OVERLAY -->
-        <Grid x:Name="OverlaySplash" Grid.RowSpan="5" Margin="-16" Background="#EE090C12"
+        <!-- Static, scalable identity; no animated background or rendering loop. -->
+        <Grid x:Name="OverlaySplash" Grid.RowSpan="5" Margin="-16" Background="#F5090E17"
               MouseLeftButtonDown="OverlaySplash_MouseLeftButtonDown" Cursor="Hand" Visibility="Visible">
-            <Border HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="480" Margin="12"
-                    Background="#0D111A" BorderBrush="#222C40" BorderThickness="1.5" CornerRadius="20" Padding="22">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="40" Color="#000000" Opacity="0.95" ShadowDepth="12"/>
-                </Border.Effect>
-                <StackPanel Orientation="Vertical">
-                    <!-- Full Mascot Artwork -->
-                    <Border CornerRadius="16" BorderBrush="#1F283A" BorderThickness="1.5" Background="#070A0F" ClipToBounds="True" Height="330" Margin="0,0,0,14">
-                        <Grid>
-                            <Image Source="splash_logo.png" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
-                            <Border VerticalAlignment="Bottom" Height="40">
-                                <Border.Background>
-                                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                                        <GradientStop Color="#000D111A" Offset="0.0"/>
-                                        <GradientStop Color="#E60D111A" Offset="1.0"/>
-                                    </LinearGradientBrush>
-                                </Border.Background>
-                            </Border>
-                        </Grid>
+            <Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="22">
+            <Border Width="340"
+                    Background="#0D202C" BorderBrush="#285061" BorderThickness="1" CornerRadius="24" Padding="24,28">
+                <StackPanel>
+                    <TextBlock Text="FAT DAD'S" FontSize="11" FontWeight="Bold" Foreground="#91B6C3" HorizontalAlignment="Center" Margin="0,0,0,22"/>
+                    <Image Source="splash_logo.png" Width="176" Height="176" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality" Margin="0,0,0,22"/>
+                    <TextBlock Text="FISCH AFK" FontSize="36" FontWeight="Black" Foreground="#F0FBFF" HorizontalAlignment="Center"/>
+                    <Border Background="#173E46" CornerRadius="4" Padding="9,4" HorizontalAlignment="Center" Margin="0,8,0,16">
+                        <TextBlock Text="PRO" FontSize="10" FontWeight="Bold" Foreground="#58E3D0"/>
                     </Border>
-
-                    <!-- Title & Subtitle -->
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,5">
-                        <TextBlock Text="FAT DAD'S" FontSize="25" FontWeight="Black" Foreground="#00E5FF" Margin="0,0,8,0">
-                            <TextBlock.Effect>
-                                <DropShadowEffect BlurRadius="12" Color="#00E5FF" Opacity="0.45" ShadowDepth="0"/>
-                            </TextBlock.Effect>
-                        </TextBlock>
-                        <TextBlock Text="FISCH AFK PRO" FontSize="25" FontWeight="Black" Foreground="#FFFFFF"/>
-                    </StackPanel>
-
-                    <TextBlock x:Name="TxtSplashVersion" Text="AUTONOMOUS KINETIC ANGLER • ROBLOX FISCH • v1.0.0" FontSize="11" FontWeight="Bold" Foreground="#38BDF8" HorizontalAlignment="Center" Margin="0,0,0,4"/>
-                    <TextBlock Text="Adaptive multi-rod kinetic model &amp; high-frequency vision" FontSize="11" Foreground="#91A8C4" HorizontalAlignment="Center" Margin="0,0,0,14"/>
-
-                    <!-- Status & Dismiss hint -->
-                    <Border Background="#121722" CornerRadius="10" Padding="14,8" BorderBrush="#1A2230" BorderThickness="1">
-                        <DockPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <Border Width="8" Height="8" CornerRadius="4" Background="#10B981" Margin="0,0,8,0">
-                                    <Border.Effect>
-                                        <DropShadowEffect BlurRadius="6" Color="#10B981" Opacity="0.8" ShadowDepth="0"/>
-                                    </Border.Effect>
-                                </Border>
-                                <TextBlock x:Name="TxtSplashStatus" Text="Calibrating Multi-Rod Kinetic Model..." FontSize="11" FontWeight="SemiBold" Foreground="#94A3B8"/>
-                            </StackPanel>
-                            <TextBlock Text="Click anywhere to continue ➔" FontSize="10" Foreground="#64748B" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                        </DockPanel>
+                    <TextBlock Text="Cast. Catch. Repeat." FontSize="16" Foreground="#D3E5EB" HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="TxtSplashVersion" Text="ROBLOX FISCH • v1.0.21" FontSize="10" Foreground="#91B6C3" TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,22"/>
+                    <Border BorderBrush="#285061" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+                        <StackPanel>
+                            <TextBlock x:Name="TxtSplashStatus" Text="Preparing your fishing dashboard" FontSize="11" Foreground="#91B6C3" TextWrapping="Wrap" TextAlignment="Center"/>
+                            <TextBlock Text="Click anywhere to dive in →" FontSize="11" Foreground="#58E3D0" HorizontalAlignment="Center" Margin="0,9,0,0"/>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
             </Border>
+            </Viewbox>
         </Grid>
     </Grid>
 </Window>
