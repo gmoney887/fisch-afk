@@ -5,7 +5,7 @@ namespace FischMacroCS.Vision;
 /// <summary>Recognize reviewed glyph identity at a size measured from the current frame.</summary>
 public static class ObservedGlyphMatcher
 {
-    public enum Ink { Blue, Red, Balance, Claim, White }
+    public enum Ink { Blue, Red, Balance, Claim, White, Shake }
     public readonly record struct Match(bool Found, Rect Bounds, double Confidence, bool Ambiguous = false);
 
     public static Mat Mask(Mat image, Ink ink)
@@ -19,6 +19,9 @@ public static class ObservedGlyphMatcher
         var mask = new Mat();
         switch (ink)
         {
+            case Ink.Shake:
+                // Thin anti-aliased Shake strokes are often gray over the translucent button.
+                Cv2.InRange(hsv,new Scalar(0,0,120),new Scalar(179,65,255),mask); break;
             case Ink.White:
                 Cv2.InRange(hsv,new Scalar(0,0,180),new Scalar(179,65,255),mask); break;
             case Ink.Blue:

@@ -5,7 +5,8 @@ namespace FischMacroCS.Core;
 
 public sealed record WorkflowTarget(string Name, double XFromCenterInHeights, double YInHeights, double RadiusInHeights,
     int ReferenceHeight = 1080, double MinimumConfidence = .96, bool Smooth = false,
-    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false, bool RedGlyph = false, bool MatchNativeScale = false);
+    string? AlternateTemplate = null, int AlternateReferenceHeight = 0, bool BlueText = false, bool SearchNearbyScales = false, bool RewardBalanceText = false, bool RedGlyph = false, bool MatchNativeScale = false,
+    double? ObservedSearchRadiusInHeights = null);
 public sealed record WorkflowStep(string Name, WorkflowTarget Prerequisite, WorkflowTarget Expected,
     Action<Point> Act, int TimeoutMs = 3000, int Attempts = 1, bool ExpectedPresent = true);
 public sealed record WorkflowResult(ActionOutcome Outcome, string Evidence, bool RewardClaimed = false, bool RetryableWithoutRecovery = false);
@@ -68,7 +69,7 @@ public sealed class TemplateWorkflowVision : IWorkflowVision, IDisposable
         ObservedGlyphMatcher.Ink? ink = target.BlueText ? ObservedGlyphMatcher.Ink.Blue : target.RedGlyph ? ObservedGlyphMatcher.Ink.Red :
             target.RewardBalanceText ? ObservedGlyphMatcher.Ink.Balance : target.Name == "aquarium-claim" ? ObservedGlyphMatcher.Ink.Claim : null;
         if (!ink.HasValue) return (false, default, 0);
-        int radius = (int)Math.Ceiling(target.RadiusInHeights * frame.Height);
+        int radius = (int)Math.Ceiling((target.ObservedSearchRadiusInHeights ?? target.RadiusInHeights) * frame.Height);
         int x = frame.Width / 2 + (int)(target.XFromCenterInHeights * frame.Height), y = (int)(target.YInHeights * frame.Height);
         var search = new Rect(Math.Max(0, x-radius), Math.Max(0, y-radius), 1, 1);
         search.Width = Math.Min(frame.Width,x+radius)-search.X; search.Height = Math.Min(frame.Height,y+radius)-search.Y;

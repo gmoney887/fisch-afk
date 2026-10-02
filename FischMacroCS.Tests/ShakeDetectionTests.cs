@@ -6,6 +6,30 @@ namespace FischMacroCS.Tests;
 
 public class ShakeDetectionTests
 {
+    [Theory]
+    [InlineData(.5)]
+    [InlineData(1.5)]
+    [InlineData(2.0)]
+    public void CenterLetteringIsDetectedAtIndependentUiScaleOverScenery(double scale)
+    {
+        using var stream = typeof(VisionProcessor).Assembly.GetManifestResourceStream("FischMacroCS.Assets.shake_template.png")!;
+        using var bytes = new MemoryStream(); stream.CopyTo(bytes);
+        using var original = Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
+        using var text = new Mat();
+        Cv2.Resize(original, text, new Size((int)(original.Width * scale), (int)(original.Height * scale)));
+        using var frame = new Mat(1009, 1920, MatType.CV_8UC3, new Scalar(100, 55, 30));
+        Cv2.Circle(frame, new Point(960, 504), 180, new Scalar(220, 100, 70), -1);
+        using var letters = ObservedGlyphMatcher.Mask(text, ObservedGlyphMatcher.Ink.Shake);
+        var bounds = new Rect(960 - text.Width / 2, 504 - text.Height / 2, text.Width, text.Height);
+        using (var roi = new Mat(frame, bounds)) text.CopyTo(roi, letters);
+        var result = new VisionProcessor().DetectShakeIcon(frame, 13, 29, generateDebug: false);
+        using var center = new Mat(frame, new Rect(640, 352, 640, 480));
+        var measured = ObservedGlyphMatcher.Find(center, original, ObservedGlyphMatcher.Ink.Shake, .94);
+        Assert.True(result.Found, $"UI scale {scale}; measured {measured}");
+        Assert.InRange(result.Center.X, 960 + 13 - 5, 960 + 13 + 5);
+        Assert.InRange(result.Center.Y, 504 + 29 - 5, 504 + 29 + 5);
+    }
+
     [Fact]
     public void BusySceneryCannotCrowdOutButtonInAnotherPartOfViewport()
     {

@@ -615,6 +615,24 @@ public class VisionProcessor
                     Cv2.InRange(templateHsv, new Scalar(0, 0, 160), new Scalar(180, 75, 255), templateLetters);
                     Search(letters, templateLetters, .72);
                 }
+                if (!bestRect.HasValue)
+                {
+                    // Recognize measured lettering at independent UI scales over scenery.
+                    // Overlap tiles so targets at their boundaries remain fully visible.
+                    int tileWidth = Math.Min(640, cropW), tileHeight = Math.Min(480, cropH);
+                    for (int y = 0; y < cropH; y += Math.Max(1, tileHeight - 128))
+                    for (int x = 0; x < cropW; x += Math.Max(1, tileWidth - 256))
+                    {
+                        int left = Math.Min(x, cropW - tileWidth), top = Math.Min(y, cropH - tileHeight);
+                        using var tile = new Mat(crop, new Rect(left, top, tileWidth, tileHeight));
+                        var match = ObservedGlyphMatcher.Find(tile, template, ObservedGlyphMatcher.Ink.Shake, .94);
+                        if (!match.Found || match.Ambiguous || match.Confidence <= bestConfidence) continue;
+                        bestConfidence = match.Confidence;
+                        bestRect = new Rect(left + match.Bounds.X, top + match.Bounds.Y, match.Bounds.Width, match.Bounds.Height);
+                        bestCenter = new Point(absOffsetX + bestRect.Value.X + bestRect.Value.Width / 2,
+                            absOffsetY + bestRect.Value.Y + bestRect.Value.Height / 2);
+                    }
+                }
             }
             if (bestRect.HasValue)
             {
