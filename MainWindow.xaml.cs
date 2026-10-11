@@ -47,7 +47,7 @@ public partial class MainWindow : Window
 
             _keyboardHook = new GlobalKeyboardHook();
             _keyboardHook.OnToggle += () => Dispatcher.BeginInvoke(ToggleMacro);
-            _keyboardHook.OnReEquip += () => { if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod(); };
+            _keyboardHook.OnReEquip += () => Dispatcher.BeginInvoke(new Action(() => { if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod(); }));
             _keyboardHook.OnStop += EmergencyStop;
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] GlobalKeyboardHook OK\n");
 
@@ -116,8 +116,11 @@ public partial class MainWindow : Window
     {
         if (msg == Win32.WM_HOTKEY)
         {
-            // The installed low-level hook already dispatched this key.
-            if (_keyboardHook.IsInstalled) { handled = true; return IntPtr.Zero; }
+            // A nonzero hook handle does not prove Windows is still delivering callbacks.
+            // Suppress only a duplicate of a press actually dispatched by the hook.
+            int key = (int)((lParam.ToInt64() >> 16) & 0xffff);
+            if (!_keyboardHook.TryDispatchFallback(key, unchecked((uint)Win32.GetMessageTime())))
+            { handled = true; return IntPtr.Zero; }
             int id = wParam.ToInt32();
             if (id == HOTKEY_ID_TOGGLE)
             {
@@ -251,6 +254,7 @@ public partial class MainWindow : Window
 
     private async void ToggleMacro()
     {
+        SessionLogger.Instance.Log("HOTKEY", $"Toggle received: running={_engine.IsRunning}, queued={_engine.IsStopQueued}");
         if (_closing || _isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
         if (_aquariumCts != null || _crateCts != null)
         {

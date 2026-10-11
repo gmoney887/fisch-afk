@@ -88,6 +88,8 @@ public class FishingEngine : IDisposable
         {
             if (!IsRunning || IsStopQueued) return false;
             IsStopQueued = true;
+            _recorder.RecordEvent("stop-queued", new { State = CurrentState.ToString() });
+            SessionLogger.Instance.Log("STOP", $"Stop queued during {CurrentState}; finishing the current cycle.");
             return true;
         }
     }

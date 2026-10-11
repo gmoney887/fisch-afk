@@ -95,6 +95,14 @@ public class VisionProcessor
         // solely for independent evidence that a dim/translucent reel is active.
         int trackHeight = Math.Clamp((int)(viewportHeight * .91) - absOffsetY, 1, crop.Height);
         using var track = new Mat(crop, new Rect(0, 0, crop.Width, trackHeight));
+        // Glorp uses a green outlined needle and progress meter, with a bar
+        // that switches between lime and translucent brown during the reel.
+        if (theme == MinigameTheme.Glorp || theme == MinigameTheme.AutoCalibrate)
+        {
+            var glorp = ProcessGlorp(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
+            if (theme == MinigameTheme.Glorp || glorp.HasLiveReel) return glorp;
+            glorp.Dispose();
+        }
         var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
             theme == MinigameTheme.AutoCalibrate ? _lockedTheme ?? MinigameTheme.Default : theme, generateDebug);
         result.ReelProgressFound = DetectReelProgress(crop, absOffsetY, viewportHeight);
@@ -143,7 +151,99 @@ public class VisionProcessor
         return result;
     }
 
-    private static bool DetectReelProgress(Mat crop, int offsetY, double viewportHeight)
+    private static DetectionResult ProcessGlorp(Mat crop, int offsetX, int offsetY, double height, bool debug)
+    {
+        var result = new DetectionResult { ResolvedTheme = MinigameTheme.Glorp };
+        result.ReelProgressFound = DetectReelProgress(crop, offsetY, height, glorp: true);
+        if (!result.ReelProgressFound) return result;
+        // The capsule is translucent and changes with scenery. Its lime fish
+        // glyph above the track remains opaque; isolate that glyph instead.
+        int top = Math.Max(0, (int)(height * .745) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(height * .821) - offsetY);
+        if (bottom <= top) return result;
+        using var iconStrip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
+        using var iconHsv = new Mat();
+        using var iconMask = new Mat();
+        Cv2.CvtColor(iconStrip, iconHsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(iconHsv, new Scalar(25, 50, 120), new Scalar(65, 255, 255), iconMask);
+        using var iconBridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+        Cv2.MorphologyEx(iconMask, iconMask, MorphTypes.Close, iconBridge);
+        Cv2.FindContours(iconMask, out Point[][] icons, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        Rect? needle = null;
+        foreach (var contour in icons)
+        {
+            var box = Cv2.BoundingRect(contour);
+            double solidity = Cv2.ContourArea(contour) / Math.Max(1, box.Width * box.Height);
+            if (box.Width < height * .04 || box.Width > height * .075
+                || box.Height < height * .04 || box.Height > height * .075
+                || solidity < .2 || solidity > .8 || box.Top <= 0 || box.Bottom >= iconStrip.Height) continue;
+            if (needle.HasValue) return result;
+            needle = box;
+        }
+        if (needle is not Rect fish) return result;
+        result.FishFound = true;
+        result.FishX = offsetX + fish.X + fish.Width / 2;
+        // Sample only the control bar's central horizontal band. This excludes
+        // its translucent shadow above the track and the decorative fish icon.
+        int bandTop = Math.Max(0, (int)(height * .832) - offsetY);
+        int bandBottom = Math.Min(crop.Height, (int)(height * .875) - offsetY);
+        if (bandBottom <= bandTop) return result;
+        using var band = new Mat(crop, new Rect(0, bandTop, crop.Width, bandBottom - bandTop));
+        using var bandHsv = new Mat();
+        using var brown = new Mat();
+        using var lime = new Mat();
+        Cv2.CvtColor(band, bandHsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(bandHsv, new Scalar(0, 60, 25), new Scalar(35, 255, 150), brown);
+        Cv2.InRange(bandHsv, new Scalar(25, 20, 150), new Scalar(65, 255, 255), lime);
+        using var arrow = new Mat();
+        Cv2.InRange(bandHsv, new Scalar(25, 30, 40), new Scalar(65, 255, 210), arrow);
+        Cv2.BitwiseOr(lime, arrow, lime);
+        // A verified Glorp reel can flash white across its colored control bar.
+        // Keep the glyph and meter prerequisites before accepting that highlight.
+        Cv2.InRange(bandHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), arrow);
+        Cv2.BitwiseOr(lime, arrow, lime);
+        Cv2.BitwiseOr(brown, lime, brown);
+        using var barInterior = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(2, (int)(height * .002)), Math.Max(3, (int)(height * .008))));
+        Cv2.MorphologyEx(brown, brown, MorphTypes.Open, barInterior);
+        using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(3, (int)Math.Round(height * .025)), 1));
+        Cv2.MorphologyEx(brown, brown, MorphTypes.Close, bridge);
+        Cv2.MorphologyEx(brown, brown, MorphTypes.Open, barInterior);
+        using var columns = new Mat();
+        using var solidColumns = new Mat();
+        Cv2.Reduce(brown, columns, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+        Cv2.InRange(columns, new Scalar(255 * .85), new Scalar(255), solidColumns);
+        using var arrowBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(3, (int)(height * .045)), 1));
+        Cv2.MorphologyEx(solidColumns, solidColumns, MorphTypes.Close, arrowBridge);
+        Cv2.FindContours(solidColumns, out Point[][] bars, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        Rect? control = null;
+        foreach (var contour in bars)
+        {
+            var box = Cv2.BoundingRect(contour);
+            if (box.Width < height * .06 || box.Width > height * .8 || box.Left <= 0 || box.Right >= crop.Width) continue;
+            if (control.HasValue) return result;
+            control = new Rect(box.X, 0, box.Width, bandBottom - bandTop);
+        }
+        if (control is Rect bar)
+        {
+            result.BarFound = true;
+            result.BarLeft = offsetX + bar.Left;
+            result.BarRight = offsetX + bar.Right;
+            result.BarWidth = bar.Width;
+            result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+            if (debug)
+            {
+                result.AnnotatedFrame = crop.Clone();
+                Cv2.Rectangle(result.AnnotatedFrame, new Rect(bar.X, bandTop, bar.Width, bar.Height), Scalar.LimeGreen, 2);
+                Cv2.Rectangle(result.AnnotatedFrame, new Rect(fish.X, top + fish.Y, fish.Width, fish.Height), Scalar.Red, 2);
+            }
+        }
+        return result;
+    }
+
+    private static bool DetectReelProgress(Mat crop, int offsetY, double viewportHeight, bool glorp = false, bool fillOnly = false)
     {
         int top = Math.Max(0, (int)(viewportHeight * .90) - offsetY);
         int bottom = Math.Min(crop.Height, (int)(viewportHeight * .94) - offsetY);
@@ -152,28 +252,49 @@ public class VisionProcessor
         using var hsv = new Mat();
         using var mask = new Mat();
         Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
-        Cv2.InRange(hsv, new Scalar(0, 0, 210), new Scalar(179, 40, 255), mask);
+        if (glorp)
+            Cv2.InRange(hsv, new Scalar(25, 40, 90), new Scalar(65, 255, 255), mask);
+        else
+            Cv2.InRange(hsv, new Scalar(0, 0, 210), new Scalar(179, 40, 255), mask);
+        if (fillOnly)
+        {
+            // Remove broken one-pixel meter outlines before validating the
+            // solid fill. Tilted UI can otherwise attach them to a short fill.
+            using var interior = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, interior);
+        }
         // A diagonal red game effect can split the white progress fill. Bridge
         // only short horizontal gaps; retain the anchor/height/rectangle checks.
         using var progressBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
             new Size(Math.Max(3, (int)Math.Round(viewportHeight * .035)), 1));
         Cv2.MorphologyEx(mask, mask, MorphTypes.Close, progressBridge);
+        if (glorp)
+        {
+            using var outlineBridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, 3));
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, outlineBridge);
+        }
         Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
         double wideLeft = crop.Width / 2.0 - viewportHeight * .274;
         double compactLeft = crop.Width / 2.0 - viewportHeight * .182;
         foreach (var contour in contours)
         {
             var box = Cv2.BoundingRect(contour);
+            double solidity = Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1));
+            if (glorp)
+            {
+                var rotated = Cv2.MinAreaRect(contour);
+                solidity = Math.Max(solidity, Cv2.ContourArea(contour) / Math.Max(1, rotated.Size.Width * rotated.Size.Height));
+            }
             // Recorded reels use both wide and compact progress layouts, anchored at viewport center.
             if (Math.Min(Math.Abs(box.Left - wideLeft), Math.Abs(box.Left - compactLeft)) <= viewportHeight * .012
-                && box.Width >= viewportHeight * .02 && box.Width <= viewportHeight * .56
+                && box.Width >= viewportHeight * .02 && box.Width <= viewportHeight * (glorp ? .565 : .56)
                 && box.Height >= viewportHeight * .006 && box.Height <= viewportHeight * .018
                 // Contour coordinates cover (w-1)*(h-1); using pixel-box area
                 // unfairly rejects the same thin rectangle at smaller resolutions.
-                && Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1)) >= .8)
+                && solidity >= .8)
                 return true;
         }
-        return false;
+        return glorp && !fillOnly && DetectReelProgress(crop, offsetY, viewportHeight, glorp: true, fillOnly: true);
     }
 
     private static Rect? DetectDimReelBar(Mat track, int offsetY, double viewportHeight, bool cyan = false)
@@ -1497,4 +1618,3 @@ public class VisionProcessor
         return false;
     }
 }
-

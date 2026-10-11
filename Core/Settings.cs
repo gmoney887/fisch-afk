@@ -10,7 +10,8 @@ public enum MinigameTheme
     Default,
     Feline,
     Trident,
-    Golden
+    Golden,
+    Glorp
 }
 
 public class Settings

@@ -7,6 +7,8 @@ namespace FischMacroCS.Native;
 
 public static partial class Win32
 {
+    [DllImport("user32.dll")]
+    public static extern int GetMessageTime();
     public const int SRCCOPY = 0x00CC0020;
     public const uint MOUSEEVENTF_MOVE = 0x0001;
     public const int MOUSEEVENTF_LEFTDOWN = 0x0002;

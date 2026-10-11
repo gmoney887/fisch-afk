@@ -11,6 +11,9 @@ public class GlobalKeyboardHook : IDisposable
     private const int WM_KEYUP = 0x0101;
     private const int WM_SYSKEYUP = 0x0105;
     private readonly Core.KeyEdgeTracker _edges = new();
+    private readonly Core.HotkeyDispatchGate _dispatch = new();
+
+    public bool TryDispatchFallback(int key, uint messageTime) => _dispatch.TryDispatch(key, messageTime, false);
 
     public delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
 
@@ -74,6 +77,12 @@ public class GlobalKeyboardHook : IDisposable
             bool down = wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN;
             bool injected = (Marshal.ReadInt32(lParam, 8) & 0x10) != 0;
             if (!_edges.Observe(vkCode, down, injected))
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
+
+            if (vkCode != ToggleVk && vkCode != ReEquipVk && vkCode != StopVk)
+                return CallNextHookEx(_hookId, nCode, wParam, lParam);
+            uint time = unchecked((uint)Marshal.ReadInt32(lParam, 12));
+            if (!_dispatch.TryDispatch(vkCode, time, true))
                 return CallNextHookEx(_hookId, nCode, wParam, lParam);
 
             if (vkCode == ToggleVk)

@@ -825,6 +825,7 @@
                                         <ComboBoxItem Content="Feline (Pink)"/>
                                         <ComboBoxItem Content="Trident (Green)"/>
                                         <ComboBoxItem Content="Golden"/>
+                                        <ComboBoxItem Content="Blade of Glorp"/>
                                     </ComboBox>
                                 </StackPanel>
 
