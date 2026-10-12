@@ -14,6 +14,7 @@ public class DetectionResult : IDisposable
 
     public bool FishFound { get; set; }
     public bool ReelProgressFound { get; set; }
+    public bool? CatchNotificationFound { get; set; }
     public bool HasLiveReel => FishFound && (BarFound || ReelProgressFound);
     public MinigameTheme ResolvedTheme { get; set; } = MinigameTheme.Default;
     public int FishX { get; set; }
@@ -148,6 +149,19 @@ public class VisionProcessor
             }
             else { _themeMatches = 0; _candidateTheme = null; }
         }
+        // Catch text and the displayed fish can satisfy both bar and needle
+        // geometry after Glorp's track vanishes. A confirmed player catch
+        // banner without a progress meter must end that false reel.
+        if (result.BarFound && !result.ReelProgressFound)
+        {
+            result.CatchNotificationFound = DetectCatchNotification(crop, (int)viewportHeight);
+            if (result.CatchNotificationFound == true)
+            {
+                result.BarFound = result.FishFound = false;
+                result.BarLeft = result.BarRight = result.BarWidth = result.FishX = 0;
+                result.BarCenter = 0;
+            }
+        }
         return result;
     }
 
@@ -193,11 +207,18 @@ public class VisionProcessor
         using var brown = new Mat();
         using var lime = new Mat();
         Cv2.CvtColor(band, bandHsv, ColorConversionCodes.BGR2HSV);
-        Cv2.InRange(bandHsv, new Scalar(0, 60, 25), new Scalar(35, 255, 150), brown);
+        // Glorp's brown/olive fill has a yellow component. Pure red scenery
+        // under a translucent track otherwise joins the bar across its full width.
+        Cv2.InRange(bandHsv, new Scalar(5, 60, 25), new Scalar(35, 255, 150), brown);
         Cv2.InRange(bandHsv, new Scalar(25, 20, 150), new Scalar(65, 255, 255), lime);
         using var arrow = new Mat();
         Cv2.InRange(bandHsv, new Scalar(25, 30, 40), new Scalar(65, 255, 210), arrow);
         Cv2.BitwiseOr(lime, arrow, lime);
+        using var greenEvidence = lime.Clone();
+        Cv2.BitwiseOr(brown, lime, brown);
+        using var colorOnly = brown.Clone();
+        using var olive = new Mat();
+        Cv2.InRange(bandHsv, new Scalar(18, 20, 25), new Scalar(65, 255, 255), olive);
         // A verified Glorp reel can flash white across its colored control bar.
         // Keep the glyph and meter prerequisites before accepting that highlight.
         Cv2.InRange(bandHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), arrow);
@@ -205,27 +226,41 @@ public class VisionProcessor
         Cv2.BitwiseOr(brown, lime, brown);
         using var barInterior = Cv2.GetStructuringElement(MorphShapes.Rect,
             new Size(Math.Max(2, (int)(height * .002)), Math.Max(3, (int)(height * .008))));
-        Cv2.MorphologyEx(brown, brown, MorphTypes.Open, barInterior);
         using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect,
             new Size(Math.Max(3, (int)Math.Round(height * .025)), 1));
-        Cv2.MorphologyEx(brown, brown, MorphTypes.Close, bridge);
-        Cv2.MorphologyEx(brown, brown, MorphTypes.Open, barInterior);
-        using var columns = new Mat();
-        using var solidColumns = new Mat();
-        Cv2.Reduce(brown, columns, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
-        Cv2.InRange(columns, new Scalar(255 * .85), new Scalar(255), solidColumns);
         using var arrowBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
             new Size(Math.Max(3, (int)(height * .045)), 1));
-        Cv2.MorphologyEx(solidColumns, solidColumns, MorphTypes.Close, arrowBridge);
-        Cv2.FindContours(solidColumns, out Point[][] bars, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-        Rect? control = null;
-        foreach (var contour in bars)
+        Rect? FindControl(Mat source, bool colored)
         {
-            var box = Cv2.BoundingRect(contour);
-            if (box.Width < height * .06 || box.Width > height * .8 || box.Left <= 0 || box.Right >= crop.Width) continue;
-            if (control.HasValue) return result;
-            control = new Rect(box.X, 0, box.Width, bandBottom - bandTop);
+            using var mask = source.Clone();
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, bridge);
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
+            using var columns = new Mat(); using var solidColumns = new Mat();
+            Cv2.Reduce(mask, columns, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+            Cv2.InRange(columns, new Scalar(255 * .85), new Scalar(255), solidColumns);
+            Cv2.MorphologyEx(solidColumns, solidColumns, MorphTypes.Close, arrowBridge);
+            Cv2.FindContours(solidColumns, out Point[][] bars, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            var controls = new List<(Rect Bar, double Green)>();
+            foreach (var contour in bars)
+            {
+                var box = Cv2.BoundingRect(contour);
+                if (box.Width < height * .06 || box.Width > height * .8 || box.Left <= 0 || box.Right >= crop.Width) continue;
+                var candidate = new Rect(box.X, 0, box.Width, bandBottom - bandTop);
+                using var color = new Mat(greenEvidence, candidate);
+                controls.Add((candidate, Cv2.CountNonZero(color) / (double)(candidate.Width * candidate.Height)));
+            }
+            if (controls.Count == 1 && (!colored || controls[0].Green >= .02)) return controls[0].Bar;
+            if (controls.Count > 1)
+            {
+                var ranked = controls.OrderByDescending(c => c.Green).ToArray();
+                if (ranked[0].Green >= .02 && ranked[0].Green - ranked[1].Green > .01) return ranked[0].Bar;
+            }
+            return null;
         }
+        // White avatar glow can extend or duplicate a genuine colored bar.
+        // Recover its colored boundaries first, reserving white for real flashes.
+        Rect? control = FindControl(olive, true) ?? FindControl(colorOnly, true) ?? FindControl(brown, false);
         if (control is Rect bar)
         {
             result.BarFound = true;
@@ -1589,6 +1624,24 @@ public class VisionProcessor
         int halfWidth = Math.Min(frame.Width / 2, (int)(height * .55));
         if (bottom <= top || halfWidth <= 0) return false;
         using var roi = new Mat(frame, new Rect(frame.Width / 2 - halfWidth, top, halfWidth * 2, bottom - top));
+        // A player catch prefix has several small white letter components.
+        // Reject an ordinary solid reel bar before running the larger template
+        // searches; some live reels legitimately have no visible progress meter.
+        using var textHsv = new Mat();
+        using var textMask = new Mat();
+        Cv2.CvtColor(roi, textHsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(textHsv, new Scalar(0, 0, 160), new Scalar(179, 85, 255), textMask);
+        Cv2.FindContours(textMask, out Point[][] letters, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        int letterCount = 0;
+        foreach (var letter in letters)
+        {
+            var box = Cv2.BoundingRect(letter);
+            if (box.Height >= height * .006 && box.Height <= height * .04 &&
+                box.Width >= height * .001 && box.Width <= height * .04 && box.Width < box.Height * 3)
+                letterCount++;
+            if (letterCount >= 3) break;
+        }
+        if (letterCount < 3) return false;
         using var gray = new Mat(); Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
         using var scaled = new Mat();
         // Match the actual player catch phrase; arbitrary bright contours

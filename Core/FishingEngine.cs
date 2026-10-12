@@ -209,7 +209,7 @@ public class FishingEngine : IDisposable
             var window = _desktop.FindRobloxWindow();
             return _afkRecovery.Poll(
                 () => window != IntPtr.Zero && !_desktop.IsIconic(window) && _desktop.GetForegroundWindow() == window,
-                () => { if (window != IntPtr.Zero) { _desktop.ShowWindowAsync(window, Win32.SW_RESTORE); _desktop.ForceSetForegroundWindow(window); } },
+                () => { if (window != IntPtr.Zero) { if (_desktop.IsIconic(window)) _desktop.ShowWindowAsync(window, Win32.SW_RESTORE); _desktop.ForceSetForegroundWindow(window); } },
                 () =>
                 {
                     if (!_desktop.GetClientRect(window, out var geometry) || geometry.Width < 300 || geometry.Height < 200) return RecoveryView.Unknown;
@@ -552,10 +552,9 @@ public class FishingEngine : IDisposable
             ValidateGameplay();
             // An unmapped F15 key was delivered by Windows but did not prevent
             // Roblox's idle kick. Use a real mouse-button pulse without dragging.
-            int cx = _activeGeometry.Width / 2, cy = _activeGeometry.Height / 2;
-            if (!_desktop.SanitizeGameCoordinate(_activeWindow, cx, cy, out _, out _, out int sx, out int sy))
-                throw new GameplayInterruptedException("Anti-idle target is obscured; retry after gameplay returns.");
-            _input.SendHardwareMouseMove(sx, sy, window: _activeWindow);
+            // The pinned dashboard may cover the viewport center. Reuse the
+            // uncovered fishing target so this pulse cannot activate our window.
+            EnsureCursorInGameView(_activeWindow, _activeGeometry);
             Delay(50);
             _input.mouse_event((int)Win32.MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0);
             Delay(50);
@@ -624,7 +623,7 @@ public class FishingEngine : IDisposable
                 CaptureWorkflow, Delay, Click, _operationCancellation,
                 message => { SessionLogger.Instance.Log("AQUARIUM", message); _recorder.RecordEvent("workflow-evidence", new { Workflow = "Aquarium", Evidence = message }); progress?.Invoke(message); });
         }
-        using var crateVision = sharedCrateVision == null ? new CrateVision(_workflowTemplateDirectory) : null;
+        using var crateVision = sharedCrateVision == null ? new CrateVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates) : null;
         return CrateWorkflow.Run(sharedCrateVision ?? crateVision!, CaptureWorkflow, Delay, Click, _input.SendKeyPress,
             text => { _input.SelectAllAndClear(); _input.SendKeyString(text); }, _operationCancellation,
             message => { SessionLogger.Instance.Log("CRATE-STEP", message); progress?.Invoke(message); }, _clock);
@@ -683,7 +682,7 @@ public class FishingEngine : IDisposable
         }
         // The saved setting name is retained for compatibility; each pass requests the full selected stack.
         int limit = maxCrateTypes > 0 ? Math.Min(maxCrateTypes, 999) : 999;
-        using var crateVision = new CrateVision(_workflowTemplateDirectory);
+        using var crateVision = new CrateVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates);
         int uncertainAttempts = 0;
         for (int i = 0; i < limit; i++)
         {
@@ -729,7 +728,7 @@ public class FishingEngine : IDisposable
     private bool IsBagOpen(IntPtr window, int width, int height)
     {
         using var frame = _capture.CaptureClientRegion(window, 0, 0, width, height);
-        using var vision = new CrateVision(_workflowTemplateDirectory);
+        using var vision = new CrateVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates);
         return frame != null && !frame.Empty() && vision.Find(frame, "bag") != null;
     }
 
@@ -1407,6 +1406,8 @@ public class FishingEngine : IDisposable
     {
         if (_isMouseDown != down)
         {
+            if (down && CurrentState is MacroState.Casting or MacroState.Reeling)
+                EnsureCursorInGameView(_activeWindow, _activeGeometry);
             _isMouseDown = down;
             IntPtr robloxHwnd = _desktop.FindRobloxWindow();
             int sx = -1, sy = -1, cx = -1, cy = -1;
@@ -1530,8 +1531,8 @@ public class FishingEngine : IDisposable
                 // Lower 48% (Y > 0.50 * height) contains character avatar, boat deck, tooltips, and hotbars.
                 // Upper 22% avoids topbar menu.
                 // Center corridor (|X - centerX| < avatarCorridor) contains avatar head, nameplate, clan tag and aura.
-                bool isInsideWater = (mousePt.X >= screenLeft + (int)(clientRect.Width * 0.15) &&
-                                       mousePt.X <= screenRight - (int)(clientRect.Width * 0.15) &&
+                bool isInsideWater = (mousePt.X >= screenLeft + (int)(clientRect.Height * 0.02) &&
+                                       mousePt.X <= screenRight - (int)(clientRect.Height * 0.02) &&
                                        Math.Abs(mousePt.X - centerX) >= avatarCorridor &&
                                        mousePt.Y >= screenTop + (int)(clientRect.Height * 0.22) &&
                                        mousePt.Y <= screenTop + (int)(clientRect.Height * 0.50));
@@ -1542,18 +1543,15 @@ public class FishingEngine : IDisposable
                     return;
                 }
 
-                // If cursor is outside safe water, target open water offset to the right of avatar
-                int safeX = centerX + (int)(clientRect.Height * 0.28);
-                int safeY = screenTop + (int)(clientRect.Height * 0.42);
-
-                IntPtr winAtTarget = _desktop.WindowFromPoint(new Win32.POINT { X = safeX, Y = safeY });
-                _desktop.GetWindowThreadProcessId(winAtTarget, out uint targetPid);
-                if (targetPid == macroPid)
+                var target = FishingPressTarget.Find(clientRect.Width, clientRect.Height, point =>
                 {
-                    safeX = centerX - (int)(clientRect.Height * 0.28);
-                }
-
-                _input.SendHardwareMouseMove(safeX, safeY, safeX - screenLeft, safeY - screenTop, hwnd);
+                    IntPtr hit = _desktop.WindowFromPoint(new Win32.POINT { X = screenLeft + point.X, Y = screenTop + point.Y });
+                    _desktop.GetWindowThreadProcessId(hit, out uint pid);
+                    return pid != macroPid;
+                });
+                if (!target.HasValue) throw new GameplayInterruptedException("Dashboard covers the available fishing press points.");
+                _input.SendHardwareMouseMove(screenLeft + target.Value.X, screenTop + target.Value.Y,
+                    target.Value.X, target.Value.Y, hwnd);
             }
         }
     }
@@ -2381,7 +2379,7 @@ public class FishingEngine : IDisposable
                 if (detect.HasLiveReel) { _catchBannerSeen = false; _catchBannerFrames = 0; }
                 else if (crop != null)
                 {
-                    _catchBannerFrames = _vision.DetectCatchNotification(crop, winH) ? _catchBannerFrames + 1 : 0;
+                    _catchBannerFrames = (detect.CatchNotificationFound ?? _vision.DetectCatchNotification(crop, winH)) ? _catchBannerFrames + 1 : 0;
                     _catchBannerSeen |= _catchBannerFrames >= 2;
                 }
 
@@ -2475,7 +2473,7 @@ public class FishingEngine : IDisposable
                 }
                 if (!_catchOutcome.IsFinalized)
                 {
-                    _catchBannerFrames = _vision.DetectCatchNotification(crop!, winH) ? _catchBannerFrames + 1 : 0;
+                    _catchBannerFrames = (detect.CatchNotificationFound ?? _vision.DetectCatchNotification(crop!, winH)) ? _catchBannerFrames + 1 : 0;
                     _catchBannerSeen |= _catchBannerFrames >= 2;
                     _catchOutcome.Observe(_catchBannerSeen, _catchFailureSeen);
                     _readyHotbarFrames = IsRodEquipped(robloxHwnd, winW, winH) && _lastHotbarGeometryConfirmed

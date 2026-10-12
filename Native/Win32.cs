@@ -398,7 +398,13 @@ public static partial class Win32
     }
     public static void SendKeyboardEvent(byte key, uint flags)
     {
-        RequireInputAccepted(1, SendKeyboardInput(1, new[] { KeyboardInput(key, flags) }, Marshal.SizeOf<KEYBOARDINPUT>()), "keyboard");
+        var input = KeyboardInput(key, flags);
+        uint time = unchecked((uint)Environment.TickCount);
+        input.data.keyboard.time = time;
+        // Record before injection, even if Windows has silently removed the
+        // hook. Registered hotkeys can otherwise treat our own End as physical.
+        if ((flags & KEYEVENTF_KEYUP) == 0) GlobalKeyboardHook.RecordInjectedKey(key, time);
+        RequireInputAccepted(1, SendKeyboardInput(1, new[] { input }, Marshal.SizeOf<KEYBOARDINPUT>()), "keyboard");
     }
 
     /// <summary>

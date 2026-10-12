@@ -4,6 +4,7 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using FischMacroCS.Capture;
 using FischMacroCS.Native;
+using FischMacroCS.Core;
 using OpenCvSharp;
 using System.Runtime.InteropServices;
 using Window = System.Windows.Window;
@@ -12,6 +13,8 @@ using Rect = OpenCvSharp.Rect;
 class Program
 {
     [DllImport("dwmapi.dll")] static extern int DwmFlush();
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")] static extern int ReadWindowStyle(IntPtr window, int index);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr window);
     [STAThread]
     static int Main()
     {
@@ -20,6 +23,7 @@ class Program
             WindowStyle = WindowStyle.None, ResizeMode = ResizeMode.NoResize, ShowActivated = false,
             ShowInTaskbar = false, Topmost = true, Background = color };
         var scene = Make(Brushes.Red); var overlay = Make(Brushes.Blue);
+        scene.Width = 360;
         IntPtr dashboard = IntPtr.Zero;
         void Pump() { Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ApplicationIdle); DwmFlush(); }
         try
@@ -51,6 +55,33 @@ class Program
             if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != target) throw new Exception("Dashboard did not yield click target.");
             CaptureExclusion.RestoreAfterPress(); Pump();
             if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Dashboard was not restored on top.");
+            // Another topmost window can move above a WPF window whose Topmost
+            // property remains true. Reapplying the pin must repair native order.
+            if (!CaptureExclusion.SetPinned(dashboard, true)) throw new Exception("Pin could not be applied.");
+            Win32.SetWindowPos(target, (IntPtr)(-1), 0, 0, 0, 0, 0x1 | 0x2 | Win32.SWP_NOACTIVATE); Pump();
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != target) throw new Exception("Topmost game did not cover dashboard for test.");
+            CaptureExclusion.SetPinned(dashboard, true); Pump();
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Repeated pin did not reclaim topmost order.");
+            CaptureExclusion.PrepareGamePress(target, pt.X, pt.Y);
+            CaptureExclusion.SetPinned(dashboard, true);
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != target) throw new Exception("Pin interrupted a yielded press.");
+            CaptureExclusion.SetPinned(dashboard, false);
+            CaptureExclusion.RestoreAfterPress(); Pump();
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != target) throw new Exception("Restore ignored changed pin preference.");
+            CaptureExclusion.SetPinned(dashboard, true); Pump();
+            if (Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard) throw new Exception("Repinning failed after release.");
+            Win32.GetClientRect(target, out var gameRect);
+            var press = FishingPressTarget.Find(gameRect.Width, gameRect.Height, point =>
+            {
+                var screen = new Win32.POINT { X = point.X, Y = point.Y }; Win32.ClientToScreen(target, ref screen);
+                return Win32.GetAncestor(Win32.WindowFromPoint(screen), Win32.GA_ROOT) == target;
+            }) ?? throw new Exception("No uncovered fishing hold point.");
+            var hold = new Win32.POINT { X = press.X, Y = press.Y }; Win32.ClientToScreen(target, ref hold);
+            CaptureExclusion.PrepareGamePress(target, hold.X, hold.Y);
+            if (!IsWindowVisible(dashboard) || (ReadWindowStyle(dashboard, -20) & 8) == 0 ||
+                Win32.GetAncestor(Win32.WindowFromPoint(pt), Win32.GA_ROOT) != dashboard)
+                throw new Exception("Dashboard disappeared during an uncovered fishing hold.");
+            CaptureExclusion.RestoreAfterPress();
             Console.WriteLine("PASS: real Windows capture sees underlying scene; dashboard stays visible, yields the click target, and restores on top. No input was injected.");
             return 0;
         }

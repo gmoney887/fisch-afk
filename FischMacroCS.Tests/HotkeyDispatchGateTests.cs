@@ -4,6 +4,29 @@ namespace FischMacroCS.Tests;
 
 public class HotkeyDispatchGateTests
 {
+    [Fact]
+    public void AutomatedEndCannotTriggerFallbackEvenWithoutHookDelivery()
+    {
+        var gate = new HotkeyDispatchGate();
+        gate.RecordInjected(0x23, 100);
+        Assert.False(gate.TryDispatch(0x23, 100, false));
+        Assert.True(gate.TryDispatch(0x23, 101, false));
+    }
+
+    [Fact]
+    public void DelayedInjectedNotificationsStayBlockedAfterOtherInjectedKeys()
+    {
+        var gate = new HotkeyDispatchGate();
+        gate.RecordInjected(0x23, 100);
+        gate.RecordInjected(0x23, 200);
+        gate.RecordInjected(0x75, 300);
+        Assert.False(gate.TryDispatch(0x23, 100, false));
+        Assert.False(gate.TryDispatch(0x23, 200, false));
+        Assert.False(gate.TryDispatch(0x75, 300, false));
+        Assert.True(gate.TryDispatch(0x75, 301, true));
+        Assert.False(gate.TryDispatch(0x75, 301, false));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

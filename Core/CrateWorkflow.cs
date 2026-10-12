@@ -13,7 +13,7 @@ public interface ICrateVision
 }
 
 /// <summary>Text and panel geometry from the September 18 manual crate demonstration.</summary>
-public sealed class CrateVision(string directory) : ICrateVision, IDisposable
+public sealed class CrateVision(string directory, bool useBundledTemplates = false) : ICrateVision, IDisposable
 {
     public static readonly string[] Names = ["bag", "search", "item", "dialog", "one", "yes", "opened", "reward-word"];
     private readonly Dictionary<string, Mat> _templates = new();
@@ -23,8 +23,22 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
     private Mat? _notificationFrame;
     private Mat? _normalizationSource, _normalized;
     private Point? _openedPoint, _cratePoint;
+    private static readonly HashSet<string> Bundled = typeof(CrateVision).Assembly.GetManifestResourceNames().ToHashSet(StringComparer.Ordinal);
+    private static string Resource(string name) => "FischMacroCS.Assets.Workflows.crate-" + name + ".png";
     public string[] MissingTemplates() => Names.Where(n => !System.IO.File.Exists(
-        System.IO.Path.Combine(directory, "crate-" + n + ".png"))).ToArray();
+        System.IO.Path.Combine(directory, "crate-" + n + ".png")) &&
+        !(useBundledTemplates && Bundled.Contains(Resource(n)))).ToArray();
+
+    private Mat? LoadColor(string name)
+    {
+        string path = System.IO.Path.Combine(directory, "crate-" + name + ".png");
+        if (System.IO.File.Exists(path)) return Cv2.ImRead(path);
+        if (!useBundledTemplates) return null;
+        using var stream = typeof(CrateVision).Assembly.GetManifestResourceStream(Resource(name));
+        if (stream == null) return null;
+        using var bytes = new System.IO.MemoryStream(); stream.CopyTo(bytes);
+        return Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
+    }
 
     public Point? Find(Mat frame, string name)
     {
@@ -113,10 +127,8 @@ public sealed class CrateVision(string directory) : ICrateVision, IDisposable
         string cacheKey = templateName + (whiteText ? ":white" : "");
         if (!_templates.TryGetValue(cacheKey, out var template))
         {
-            string path = System.IO.Path.Combine(directory, "crate-" + templateName + ".png");
-            if (!System.IO.File.Exists(path)) return null;
-            using var color = Cv2.ImRead(path);
-            if (color.Empty()) return null;
+            using var color = LoadColor(templateName);
+            if (color == null || color.Empty()) return null;
             template = new Mat();
             if (whiteText) color.CopyTo(template);
             else Cv2.CvtColor(color, template, ColorConversionCodes.BGR2GRAY);

@@ -6,6 +6,19 @@ namespace FischMacroCS.Tests;
 public class BundledWorkflowTemplateTests
 {
     [Fact]
+    public void CrateTemplatesWorkWhenZipLaunchProvidesOnlyTheExecutable()
+    {
+        string missing = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        using var bundled = new CrateVision(missing, useBundledTemplates: true);
+        Assert.Empty(bundled.MissingTemplates());
+        using var explicitDirectory = new CrateVision(missing);
+        Assert.Equal(CrateVision.Names, explicitDirectory.MissingTemplates());
+        using var frame = Cv2.ImRead(System.IO.Path.Combine(AppContext.BaseDirectory, "Fixtures", "crate_inventory_dense.png"));
+        Assert.NotNull(bundled.Find(frame, "bag"));
+        Assert.NotNull(bundled.Find(frame, "search"));
+        Assert.NotNull(bundled.Find(frame, "item"));
+    }
+    [Fact]
     public void AquariumTemplatesWorkWhenExecutableHasNoExternalAssets()
     {
         string missingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), Guid.NewGuid().ToString("N"));

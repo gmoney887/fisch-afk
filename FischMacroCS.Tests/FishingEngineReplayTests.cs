@@ -186,7 +186,8 @@ public class FishingEngineReplayTests
         public bool Minimized;
         public int Restores;
         public int BeginPeriods, EndPeriods;
-        public uint PointProcessId;
+        public uint PointProcessId { get; set; }
+        public Func<Win32.POINT, bool>? MacroCoversPoint;
         public bool Focused = true;
         public int Activations;
         public int DenyNextActivations;
@@ -202,8 +203,8 @@ public class FishingEngineReplayTests
         public override bool ClientToScreen(IntPtr window, ref Win32.POINT point) => true;
         public override bool ScreenToClient(IntPtr window, ref Win32.POINT point) => true;
         public override bool GetCursorPos(out Win32.POINT point) { point = Cursor; return true; }
-        public override IntPtr WindowFromPoint(Win32.POINT point) => Window;
-        public override void GetWindowThreadProcessId(IntPtr window, out uint process) => process = PointProcessId;
+        public override IntPtr WindowFromPoint(Win32.POINT point) => MacroCoversPoint?.Invoke(point) == true ? (IntPtr)0x7F00 : Window;
+        public override void GetWindowThreadProcessId(IntPtr window, out uint process) => process = window == (IntPtr)0x7F00 ? (uint)Environment.ProcessId : PointProcessId;
         public override bool SanitizeGameCoordinate(IntPtr window, int x, int y, out int cx, out int cy, out int sx, out int sy)
         { cx = sx = x; cy = sy = y; return true; }
         public override void timeBeginPeriod(uint period) => BeginPeriods++;
@@ -248,6 +249,8 @@ public class FishingEngineReplayTests
         public Action<byte, uint>? AfterKey;
         public Action<int, int>? AfterDown;
         public List<(int X, int Y)> MouseTargets = new();
+        public Action<int, int>? AfterMove;
+        public Action<int>? AfterMouseEvent;
         private void Reject(string operation)
         {
             if (RejectOperation != operation || RejectRemaining <= 0) return;
@@ -259,7 +262,7 @@ public class FishingEngineReplayTests
         public void SendHardwareMouseUp(int sx = -1, int sy = -1, int cx = -1, int cy = -1, IntPtr window = default)
         { Reject("up"); Held = false; Events.Add("up"); }
         public void SendHardwareMouseMove(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default)
-        { Reject("move"); Events.Add("move"); }
+        { Reject("move"); Events.Add("move"); AfterMove?.Invoke(sx, sy); }
         public void SendHardwareClick(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default) => Events.Add("click");
         public void SetCursorPos(int x, int y) => Events.Add("cursor");
         public void SendRelativeMove(int x, int y)
@@ -267,7 +270,7 @@ public class FishingEngineReplayTests
         public void SendKeyPress(char key) => Events.Add("key:" + key);
         public void SendKeyString(string text, int delayMs = 40) => Events.Add("text:" + text);
         public void SelectAllAndClear() => Events.Add("clear");
-        public void mouse_event(int flags, int x, int y, int data, int extra) { Reject(flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN ? "right-down" : "right-up"); Events.Add("mouse:" + flags); MouseEdges.Add((flags, clock.Timestamp)); }
+        public void mouse_event(int flags, int x, int y, int data, int extra) { Reject(flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN ? "right-down" : "right-up"); Events.Add("mouse:" + flags); MouseEdges.Add((flags, clock.Timestamp)); AfterMouseEvent?.Invoke(flags); }
         public void keybd_event(byte key, byte scan, uint flags, int extra)
         {
             bool up = (flags & Win32.KEYEVENTF_KEYUP) != 0;
@@ -338,6 +341,7 @@ public class FishingEngineReplayTests
     [InlineData("replace-window")]
     [InlineData("minimize")]
     [InlineData("idle-enabled")]
+    [InlineData("idle-pinned")]
     [InlineData("idle-disabled")]
     [InlineData("navigation-shake")]
     [InlineData("visual-shake")]
@@ -377,6 +381,8 @@ public class FishingEngineReplayTests
     [InlineData("companion-bonus")]
     [InlineData("maximized-catch")]
     [InlineData("stacked-catch")]
+    [InlineData("glorp-avatar-catch")]
+    [InlineData("glorp-raven-catch")]
     [InlineData("server-update")]
     [InlineData("server-update-stop")]
     [InlineData("death-wait")]
@@ -414,6 +420,17 @@ public class FishingEngineReplayTests
             "queued-postcatch" => MacroState.PostCatch, _ => MacroState.Reeling };
         if (scenario is "companion-bonus" or "lost-fish") catchVisible = false;
         var desktop = new Desktop(); var clock = new Clock(); var input = new Input(clock);
+        var heartbeatTargets = new List<Win32.POINT>();
+        if (scenario == "idle-pinned")
+        {
+            desktop.MacroCoversPoint = p => Math.Abs(p.X - Desktop.Width / 2) < Desktop.Height * .12;
+            input.AfterMove = (x, y) => desktop.Cursor = new Win32.POINT { X = x, Y = y };
+            input.AfterMouseEvent = flags =>
+            {
+                if (flags == (int)Win32.MOUSEEVENTF_RIGHTDOWN)
+                    heartbeatTargets.Add(desktop.Cursor);
+            };
+        }
         bool deathScenario = scenario is "death-wait" or "death-stop";
         bool updateScenario = deathScenario || scenario is "server-update" or "server-update-stop";
         bool continueScenario = scenario?.StartsWith("continue", StringComparison.Ordinal) == true;
@@ -453,7 +470,7 @@ public class FishingEngineReplayTests
             scenario == "cyan-reel" ? "reel_cyan_left.png" : scenario == "compact-reel" ? "reel_live_false_exit.png" : "reel_active_recovery_21.png"));
         if (scenario == "aquarium-scene-unknown") catchVisible = false;
         using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures",
-            scenario == "aquarium-scene-change" ? "catch_ultrawide_3424.png" : scenario == "lost-fish" ? "reel_streak_ended.png" : scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
+            scenario == "glorp-raven-catch" ? "glorp_catch_sea_raven.png" : scenario == "glorp-avatar-catch" ? "glorp_catch_avatar.png" : scenario == "aquarium-scene-change" ? "catch_ultrawide_3424.png" : scenario == "lost-fish" ? "reel_streak_ended.png" : scenario == "companion-bonus" ? "companion_bonus_only.png" : scenario == "stacked-catch" ? "catch_stacked_rewards.png" : scenario == "maximized-catch" ? "catch_maximized_second.png" : "reel_catch_live.png"));
         if (scenario == "cyan-reel")
             Cv2.Resize(reel, reel, new Size((int)Math.Round(reel.Width * Desktop.Height / 1369.0),
                 (int)Math.Round(reel.Height * Desktop.Height / 1369.0)));
@@ -540,7 +557,10 @@ public class FishingEngineReplayTests
         bool shakeScenario = scenario is "navigation-shake" or "visual-shake" or "visual-shake-stop" or "visual-missing" or "visual-occluded" or "disabled-shake" or "stop-shake";
         long lureStart = 0;
         var shakePresses = new List<Point>();
-        if (scenario == "visual-occluded") desktop.PointProcessId = (uint)Environment.ProcessId;
+        // Cover the shake button, not every possible casting point in the viewport.
+        if (scenario == "visual-occluded") desktop.MacroCoversPoint = p =>
+            Math.Abs(p.X - desktop.ClientWidth / 2) < Desktop.Height * .12 &&
+            p.Y >= Desktop.Height * .40 && p.Y <= Desktop.Height * .62;
         bool stallScenario = scenario is "reel-stall" or "slow-reel";
         bool windowInterrupted = false, windowReturned = false;
         long returnWindowAt = scenario == "missing-start" ? 2000 : long.MaxValue;
@@ -684,7 +704,7 @@ public class FishingEngineReplayTests
                 if (scenario == "missing-needle" && !recoveredStall)
                     Cv2.Rectangle(full, new Rect(full.Width / 2 - 100, 1100, 200, 45), Scalar.White, -1);
                 else if ((stallScenario && !recoveredStall) || clock.Timestamp - reelStart < (aquariumSceneScenario ? 5000 : 600)) Paste(reel);
-                else if (scenario == "lost-fish") Paste(caught);
+                else if (scenario is "lost-fish" or "glorp-avatar-catch" or "glorp-raven-catch") Paste(caught);
             }
             if (state == MacroState.PostCatch) { sawPostCatch = true; if (catchVisible || scenario is "companion-bonus" or "lost-fish") Paste(caught); }
             // Foreground hotbar must stay visible after composing recorded crops, which can overlap its band.
@@ -745,7 +765,7 @@ public class FishingEngineReplayTests
             if (scenario is "reconnect-stale" or "continue-stale" && reconnectCaptures == 2)
             { reconnectHidden = true; unavailableUntil = clock.Timestamp + 3000; }
         };
-        using (engine = new FishingEngine(new Settings { EnableRecording = recordingScenario && scenario != "recording-disabled", EnableAntiAfk = scenario is "idle-enabled" or "reject-right-down" or "reject-right-up",
+        using (engine = new FishingEngine(new Settings { EnableRecording = recordingScenario && scenario != "recording-disabled", EnableAntiAfk = scenario is "idle-enabled" or "idle-pinned" or "reject-right-down" or "reject-right-up",
             EnableAutoClaimAquarium = workflowScenario && aquariumScenario, EnableAutoOpenCrates = workflowScenario && !aquariumScenario, CrateIntervalCatches = 1,
             ShakeMode = scenario is "navigation-shake" or "stop-shake" ? "Navigation" :
                 scenario is "visual-shake" or "visual-shake-stop" or "visual-missing" or "visual-occluded" ? "Visual" : "Disabled",
@@ -1062,7 +1082,15 @@ public class FishingEngineReplayTests
                 return;
             }
             Assert.True(sawLure && sawReel && sawPostCatch && nextCast, $"States: {string.Join(',', states)}; clock={clock.Timestamp}; action={lastAction}");
+            if (scenario != "minimize") Assert.Equal(0, desktop.Restores);
             if (scenario == "cyan-reel") Assert.True(cyanReelPresses > 0, "The worker must control the cyan bar, not merely wait for the replay catch.");
+            if (scenario is "glorp-avatar-catch" or "glorp-raven-catch") Assert.Equal(0, engine.WatchdogRecoveryCount);
+            if (scenario == "idle-pinned")
+            {
+                Assert.NotEmpty(heartbeatTargets);
+                Assert.All(heartbeatTargets, point => Assert.False(desktop.MacroCoversPoint!(point),
+                    "Anti-idle must not right-click the pinned dashboard."));
+            }
             Assert.Equal(catchVisible ? (workflowScenario ? 2 : run) : 0, engine.TotalCatches);
             Assert.Equal(scenario == "lost-fish" ? 0 : !catchVisible || stallScenario || scenario == "missing-needle" ? 1 : 0, engine.UnknownCatches);
             Assert.Equal(scenario == "lost-fish" ? 1 : 0, engine.TotalFails);

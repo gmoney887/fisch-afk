@@ -8,6 +8,39 @@ namespace FischMacroCS.Tests;
 public class GlorpReelTests
 {
     [Theory]
+    [InlineData("glorp_lava_lime.png", 503, 989, 750)]
+    [InlineData("glorp_lava_brown.png", 337, 824, 922)]
+    [InlineData("glorp_lava_left.png", 57, 551, 669)]
+    [InlineData("glorp_lava_avatar_lime.png", 509, 995, 750)]
+    [InlineData("glorp_lava_avatar_brown.png", 269, 755, 806)]
+    public void GlorpBarIsNotMergedIntoTheRedLavaBackground(string name, int left, int right, int fish)
+    {
+        using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
+        using var result = new VisionProcessor().ProcessTrack(frame, 968, 1013, 1369.0 / 1080,
+            MinigameTheme.AutoCalibrate, false);
+        Assert.True(result.FishFound);
+        Assert.True(result.ReelProgressFound);
+        Assert.True(result.BarFound);
+        Assert.Equal(MinigameTheme.Glorp, result.ResolvedTheme);
+        Assert.InRange(result.BarLeft, 968 + left - 12, 968 + left + 12);
+        Assert.InRange(result.BarRight, 968 + right - 12, 968 + right + 12);
+        Assert.InRange(result.FishX, 968 + fish - 10, 968 + fish + 10);
+    }
+    [Theory]
+    [InlineData("glorp_catch_avatar.png")]
+    [InlineData("glorp_catch_avatar_shifted.png")]
+    [InlineData("glorp_catch_sea_raven.png")]
+    public void CompletedGlorpCatchDoesNotTrackTheAvatarAsAControlBar(string name)
+    {
+        using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));
+        var vision = new VisionProcessor();
+        Assert.True(vision.DetectCatchNotification(frame, 1369));
+        using var result = vision.ProcessTrack(frame, 968, 1013, 1369.0 / 1080,
+            MinigameTheme.AutoCalibrate, false);
+        Assert.False(result.HasLiveReel);
+        Assert.False(result.BarFound);
+    }
+    [Theory]
     [InlineData(87, 768)]
     [InlineData(95, 735)]
     [InlineData(101, 635)]

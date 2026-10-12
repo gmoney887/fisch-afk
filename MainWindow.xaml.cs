@@ -24,6 +24,8 @@ public partial class MainWindow : Window
 
     private IntPtr _hwnd = IntPtr.Zero;
     private HwndSource? _hwndSource = null;
+    private readonly System.Windows.Threading.DispatcherTimer _pinTimer = new()
+        { Interval = TimeSpan.FromMilliseconds(500) };
     private readonly TelemetryDispatchGate _telemetryGate = new(minimumIntervalMs: 100);
     private WriteableBitmap? _previewBitmap = null;
 
@@ -71,6 +73,13 @@ public partial class MainWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
         if (!Capture.CaptureExclusion.Register(_hwnd))
             SessionLogger.Instance.Log("DISPLAY", "Capture exclusion unavailable; overlapping windows will still pause capture.");
+        Capture.CaptureExclusion.SetPinned(_hwnd, _settings.KeepOnTop);
+        _pinTimer.Tick += (_, _) =>
+        {
+            if (!_closing && _settings.KeepOnTop && WindowState != WindowState.Minimized)
+                Capture.CaptureExclusion.SetPinned(_hwnd, true);
+        };
+        _pinTimer.Start();
         string logPath = AppDataPaths.FilePath("debug_startup.log");
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] OnSourceInitialized HWND=0x{_hwnd:X}\n"); } catch { }
 
@@ -721,6 +730,7 @@ public partial class MainWindow : Window
     {
         bool onTop = ChkAlwaysOnTop.IsChecked == true;
         this.Topmost = onTop;
+        Capture.CaptureExclusion.SetPinned(_hwnd, onTop);
         // XAML's default Checked event fires before saved settings are populated.
         if (_settings != null && _engine != null)
         {
@@ -1571,6 +1581,7 @@ public partial class MainWindow : Window
         try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Window_Closing called! StackTrace:\n{Environment.StackTrace}\n"); } catch { }
 
         _keyboardHook?.Dispose();
+        _pinTimer.Stop();
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_TOGGLE);
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_REEQUIP);
         Win32.UnregisterHotKey(_hwnd, HOTKEY_ID_END);
