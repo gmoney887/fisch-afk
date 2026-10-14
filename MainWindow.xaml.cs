@@ -324,8 +324,8 @@ public partial class MainWindow : Window
                 }
             }
 
-            // Unattended mode does not need a dashboard covering game controls.
-            if (_settings.AfkPerformanceMode) WindowState = WindowState.Minimized;
+            // An explicit pin preference takes precedence over AFK auto-minimize.
+            if (_settings.MinimizeOnFishingStart) WindowState = WindowState.Minimized;
             _engine.Start();
             UpdateUIState(true);
         }

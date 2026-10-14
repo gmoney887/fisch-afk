@@ -8,6 +8,120 @@ namespace FischMacroCS.Tests;
 
 public class FishingEngineReplayTests
 {
+    [Theory]
+    [InlineData("oath_red_45.png")]
+    [InlineData("nate_24.png")]
+    public async Task GeometryWorkerEntersReelingAndPullsTowardFish(string fixture)
+    {
+        var clock = new Clock(); var input = new Input(clock);
+        using var source = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+        using var reel = new Mat();
+        double ratio = Desktop.Height / 1369.0;
+        Cv2.Resize(source, reel, new Size((int)Math.Round(source.Width * ratio), (int)Math.Round(source.Height * ratio)));
+        using var frames = new Frames(() =>
+        {
+            var frame = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.All(20));
+            using var target = new Mat(frame, new Rect((frame.Width - reel.Width) / 2, (int)Math.Round(1013 * ratio), reel.Width, reel.Height));
+            reel.CopyTo(target);
+            return frame;
+        }, clock);
+        using var engine = new FishingEngine(new Settings { EnableRecording = false, EnableAutoClaimAquarium = false,
+            EnableAntiAfk = false, EnableWatchdogRecovery = false }, frames, frames, clock: clock, desktop: new Desktop(), hardware: input);
+        string? action = null; bool held = false;
+        engine.OnTelemetry += t =>
+        {
+            if (t.State == MacroState.Reeling && t.BarRight > 0)
+            { action = t.Action; held = input.Held; engine.Stop(); }
+            t.Dispose();
+        };
+        clock.Tick = () => { if (clock.Timestamp > 10000) engine.Stop(); };
+        engine.Start();
+        try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(20)); }
+        finally { engine.Stop(); }
+        Assert.NotNull(action);
+        Assert.Contains("RIGHT", action);
+        Assert.True(held);
+        Assert.False(input.Held);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void AquariumYieldsToReelBeforeAndDuringWorkflow(int arrival)
+    {
+        var clock = new Clock();
+        var input = new Input(clock);
+        var desktop = new Desktop { ClientWidth = 3424 };
+        var settings = new Settings { EnableRecording = false };
+        bool live = arrival == 0;
+        int clicks = 0;
+        using var background = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_1.png"));
+        using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "reel_active_recovery_21.png"));
+        using var frames = new Frames(() =>
+        {
+            var frame = background.Clone();
+            if (live)
+            {
+                using var target = new Mat(frame, new Rect((frame.Width - reel.Width) / 2, 1015, reel.Width, reel.Height));
+                reel.CopyTo(target);
+            }
+            return frame;
+        }, clock);
+        input.AfterRelative = () => { if (arrival == 1) live = true; };
+        input.AfterDown = (_, _) => { clicks++; if (arrival == 2) live = true; };
+        using var engine = new FishingEngine(settings, frames, frames, clock: clock, desktop: desktop, hardware: input);
+        Assert.False(engine.ExecuteAquariumClaim());
+        Assert.Contains("Live reel", engine.LastAquariumEvidence!);
+        Assert.Equal(arrival == 2 ? 1 : 0, clicks);
+        Assert.Equal(DateTime.MinValue, settings.LastAquariumCheckUtc);
+        Assert.False(input.Held);
+    }
+
+    [Fact]
+    public async Task AquariumReelArrivalReturnsControlToFishingWorker()
+    {
+        var clock = new Clock();
+        var input = new Input(clock);
+        var desktop = new Desktop { ClientWidth = 3424 };
+        FishingEngine? engine = null;
+        bool secondReel = false, resumed = false;
+        int rewardClicks = 0;
+        using var background = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "aquarium_1.png"));
+        using var reel = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "reel_active_recovery_21.png"));
+        using var caught = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "reel_catch_live.png"));
+        using var frames = new Frames(() =>
+        {
+            var frame = background.Clone();
+            var strip = secondReel || clock.Timestamp < 4000 ? reel : caught;
+            using var target = new Mat(frame, new Rect((frame.Width - strip.Width) / 2, 1015, strip.Width, strip.Height));
+            strip.CopyTo(target);
+            int left = frame.Width / 2 - (69 * 8 + 68) / 2;
+            for (int i = 0; i < 9; i++)
+                Cv2.Rectangle(frame, new Rect(left + i * 69, Desktop.Height - 70, 68, 68), i == 0 ? Scalar.White : Scalar.All(60), 1);
+            return frame;
+        }, clock);
+        using var running = engine = new FishingEngine(new Settings { EnableRecording = false,
+            EnableAutoClaimAquarium = true, EnableAntiAfk = false, EnableWatchdogRecovery = false,
+            ShakeMode = "Disabled" }, frames, frames, clock: clock, desktop: desktop, hardware: input);
+        input.AfterRelative = () => { if (engine.CurrentState == MacroState.PostCatch) secondReel = true; };
+        input.AfterDown = (_, _) => { if (engine.CurrentState == MacroState.PostCatch) rewardClicks++; };
+        engine.OnTelemetry += t =>
+        {
+            if (secondReel && t.State == MacroState.Reeling) { resumed = true; engine.Stop(); }
+            t.Dispose();
+        };
+        clock.Tick = () => { if (clock.Timestamp > 18000) engine.Stop(); };
+        engine.Start();
+        try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(30)); }
+        finally { engine.Stop(); }
+        Assert.True(secondReel);
+        Assert.True(resumed);
+        Assert.Equal(0, rewardClicks);
+        Assert.Equal(1, engine.TotalCatches);
+        Assert.False(input.Held);
+    }
+
     [Fact]
     public void ManualCrateFailureCreatesOneRecordingWithSettingsAndOutcome()
     {

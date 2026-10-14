@@ -13,6 +13,11 @@ public class GlorpReelTests
     [InlineData("glorp_lava_left.png", 57, 551, 669)]
     [InlineData("glorp_lava_avatar_lime.png", 509, 995, 750)]
     [InlineData("glorp_lava_avatar_brown.png", 269, 755, 806)]
+    [InlineData("glorp_rock_brown.png", 510, 980, 1031)]
+    [InlineData("glorp_rock_left.png", 508, 994, 751)]
+    [InlineData("glorp_rock_right.png", 787, 1273, 1032)]
+    [InlineData("glorp_strike_narrow.png", 257, 474, 470)]
+    [InlineData("glorp_strike_tilt.png", 651, 864, 864)]
     public void GlorpBarIsNotMergedIntoTheRedLavaBackground(string name, int left, int right, int fish)
     {
         using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", name));

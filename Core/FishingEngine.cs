@@ -591,10 +591,21 @@ public class FishingEngine : IDisposable
         _isAquariumClaimPending = true;
     }
 
+    private sealed class RewardReelDetectedException : Exception { }
+
     private WorkflowResult RunRewardWorkflow(bool aquarium, Action<string>? progress = null, ICrateVision? sharedCrateVision = null)
     {
         ValidateGameplay();
         int w = _activeGeometry.Width, h = _activeGeometry.Height;
+        void GuardReel(Mat frame)
+        {
+            int half = Math.Min(w / 2, (int)(h * .55));
+            int left = w / 2 - half, top = (int)(h * .74), bottom = (int)(h * .94);
+            using var strip = new Mat(frame, new Rect(left, top, half * 2, bottom - top));
+            _viewReelVision.ResetReelTheme();
+            using var reel = _viewReelVision.ProcessTrack(strip, left, top, h / 1080.0, Config.SelectedTheme, false);
+            if (reel.HasLiveReel) throw new RewardReelDetectedException();
+        }
         void Click(Point point)
         {
             ValidateGameplay();
@@ -606,6 +617,13 @@ public class FishingEngine : IDisposable
             Delay(25);
             _input.SendRelativeMove(-2, -1);
             Delay(100);
+            // A new bite can arrive during GUI settling, including immediately
+            // after the previous catch. Never send a reward click into that reel.
+            if (aquarium)
+            {
+                using var fresh = CaptureWorkflow();
+                if (fresh == null || fresh.Empty()) throw new GameplayInterruptedException("Invalid pre-click aquarium capture.");
+            }
             // Use one hardware click path for both loot workflows. Supplying
             // client coordinates also posts button messages, duplicating input
             // on clients that process both paths (including toggle buttons).
@@ -614,7 +632,13 @@ public class FishingEngine : IDisposable
         Mat? CaptureWorkflow()
         {
             ValidateGameplay();
-            return _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
+            var frame = _capture.CaptureClientRegion(_activeWindow, 0, 0, w, h);
+            try
+            {
+                if (aquarium && frame != null && !frame.Empty()) GuardReel(frame);
+                return frame;
+            }
+            catch { frame?.Dispose(); throw; }
         }
         using var workflowVision = new TemplateWorkflowVision(_workflowTemplateDirectory, _useBundledWorkflowTemplates);
         if (aquarium)
@@ -638,13 +662,30 @@ public class FishingEngine : IDisposable
             return RunQueued(() => ExecuteAquariumClaim(recordReplication, ct), false, ct);
         }
         ct.ThrowIfCancellationRequested();
+        if (IsRunning && CurrentState is MacroState.Casting or MacroState.Luring or MacroState.Reeling)
+        {
+            _isAquariumClaimPending = true;
+            LastAquariumEvidence = "Aquarium deferred until the active fishing cycle finishes.";
+            return false;
+        }
         _isAquariumClaimPending = false;
         LastAquariumOutcome = ActionOutcome.Unknown;
         LastAquariumEvidence = null;
         _aquariumCanRetryWithoutRecovery = false;
         _aquariumCleanupPending = true;
         _lastAquariumCleanup = null;
-        var result = RunRewardWorkflow(true);
+        WorkflowResult result;
+        try { result = RunRewardWorkflow(true); }
+        catch (RewardReelDetectedException)
+        {
+            _aquariumCleanupPending = false;
+            _aquariumCanRetryWithoutRecovery = true;
+            _isAquariumClaimPending = true;
+            LastAquariumEvidence = "Live reel detected; aquarium deferred until fishing finishes.";
+            _recorder.RecordEvent("aquarium-deferred", new { Evidence = LastAquariumEvidence });
+            if (IsRunning) TryResumeVisibleReel();
+            return false;
+        }
         _aquariumCleanupPending = result.Outcome != ActionOutcome.ConfirmedSuccess && !result.RetryableWithoutRecovery;
         if (!_aquariumCleanupPending && IsRunning && _viewSafety.ResumeAfterRecovery(
             Config.CastHoldMs + Config.PostCastDelayMs + (long)Config.LureTimeoutMs +
@@ -1456,7 +1497,11 @@ public class FishingEngine : IDisposable
         CurrentState = newState;
         if (newState is MacroState.Casting or MacroState.Reeling) _holdRecovery?.Reset();
         _missingNeedleRecovery.Reset();
-        if (newState is MacroState.Casting or MacroState.PostCatch) _vision.ResetReelTheme();
+        if (newState is MacroState.Casting or MacroState.PostCatch)
+        {
+            _vision.ResetReelTheme();
+            _viewReelVision.ResetReelTheme();
+        }
         if (newState == MacroState.PostCatch) { _readyHotbarFrames = 0; }
         else { _catchBannerFrames = 0; }
         _stateStartTime = _clock.Timestamp;
@@ -2529,6 +2574,14 @@ public class FishingEngine : IDisposable
                     continue;
                 }
 
+                // Keep observing during the catch animation rather than clicking
+                // a temporarily visible navigation label before the game is ready.
+                if (GetElapsedMs(_stateStartTime) < Config.PostCatchDelayMs)
+                {
+                    Delay(20);
+                    continue;
+                }
+
                 CheckAntiAfkHeartbeat();
                 CheckAquariumClaimHeartbeat();
 
@@ -2546,6 +2599,11 @@ public class FishingEngine : IDisposable
                     _skipAquariumThisSession = true;
                     if (!ExecuteAquariumClaim())
                     {
+                        if (CurrentState == MacroState.Reeling)
+                        {
+                            _skipAquariumThisSession = false;
+                            continue;
+                        }
                         _skipAquariumThisSession = !_aquariumCanRetryWithoutRecovery;
                         _isAquariumClaimPending = false;
                         if (!_aquariumCanRetryWithoutRecovery)

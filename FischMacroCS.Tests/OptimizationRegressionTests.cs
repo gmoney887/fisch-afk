@@ -9,6 +9,14 @@ namespace FischMacroCS.Tests;
 public class OptimizationRegressionTests
 {
     [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, false)]
+    [InlineData(false, false, false)]
+    public void FishingStartupHonorsPinBeforeAfkMinimize(bool afk, bool pin, bool minimized)
+        => Assert.Equal(minimized, new Settings { AfkPerformanceMode = afk, AlwaysOnTop = pin }.MinimizeOnFishingStart);
+
+    [Theory]
     [InlineData(true, 0x11u, true)]
     [InlineData(false, 0x11u, false)]
     [InlineData(true, 1u, false)]

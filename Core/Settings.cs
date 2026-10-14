@@ -23,6 +23,8 @@ public class Settings
     public bool JitterEnabled => EnableHumanizedJitter && !AfkPerformanceMode;
     [System.Text.Json.Serialization.JsonIgnore]
     public bool KeepOnTop => AlwaysOnTop;
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool MinimizeOnFishingStart => AfkPerformanceMode && !KeepOnTop;
     public string DiagnosticsRepository { get; set; } = "";
     public bool EnableAdaptiveRodDynamics { get; set; } = false;
     public string RodSlot { get; set; } = "1";

@@ -101,7 +101,10 @@ public class VisionProcessor
         if (theme == MinigameTheme.Glorp || theme == MinigameTheme.AutoCalibrate)
         {
             var glorp = ProcessGlorp(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
-            if (theme == MinigameTheme.Glorp || glorp.HasLiveReel) return glorp;
+            if (glorp.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Glorp;
+            // Brief Glorp effects must not switch tracking to unrelated scenery
+            // that happens to satisfy another rod's color thresholds.
+            if (theme == MinigameTheme.Glorp || glorp.HasLiveReel || _lockedTheme == MinigameTheme.Glorp) return glorp;
             glorp.Dispose();
         }
         var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
@@ -120,12 +123,23 @@ public class VisionProcessor
                 alternative.Dispose();
             }
         }
+        // Inline fish glyphs use a different silhouette from the default needle.
+        // Confirm all three independent shapes before accepting an unfamiliar palette.
+        if (!result.HasLiveReel && DetectInlineReelFish(crop, absOffsetY, viewportHeight) is Rect inlineFish
+            && DetectStructuralReelMeter(crop, absOffsetY, viewportHeight)
+            && DetectInlineReelBar(track, absOffsetY, viewportHeight) is Rect inlineBar)
+        {
+            result.FishFound = result.BarFound = result.ReelProgressFound = true;
+            result.FishX = absOffsetX + inlineFish.X + inlineFish.Width / 2;
+            result.BarLeft = absOffsetX + inlineBar.Left;
+            result.BarRight = absOffsetX + inlineBar.Right;
+            result.BarWidth = inlineBar.Width;
+            result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+        }
         if (!result.BarFound && result.HasLiveReel)
         {
-            var dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight);
-            // The recorded cyan rendering keeps the default fish needle and progress
-            // meter. Recover its bar separately so blue scenery cannot broaden the
-            // normal white-bar mask or lock automatic calibration to another theme.
+            var dimBar = DetectGeometricReelBar(track, absOffsetY, viewportHeight)
+                ?? DetectDimReelBar(track, absOffsetY, viewportHeight);
             if (!dimBar.HasValue && result.ReelProgressFound)
                 dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight, cyan: true);
             if (dimBar is Rect bar)
@@ -173,7 +187,7 @@ public class VisionProcessor
         // The capsule is translucent and changes with scenery. Its lime fish
         // glyph above the track remains opaque; isolate that glyph instead.
         int top = Math.Max(0, (int)(height * .745) - offsetY);
-        int bottom = Math.Min(crop.Height, (int)(height * .821) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(height * .83) - offsetY);
         if (bottom <= top) return result;
         using var iconStrip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
         using var iconHsv = new Mat();
@@ -199,68 +213,112 @@ public class VisionProcessor
         result.FishX = offsetX + fish.X + fish.Width / 2;
         // Sample only the control bar's central horizontal band. This excludes
         // its translucent shadow above the track and the decorative fish icon.
-        int bandTop = Math.Max(0, (int)(height * .832) - offsetY);
-        int bandBottom = Math.Min(crop.Height, (int)(height * .875) - offsetY);
-        if (bandBottom <= bandTop) return result;
-        using var band = new Mat(crop, new Rect(0, bandTop, crop.Width, bandBottom - bandTop));
-        using var bandHsv = new Mat();
-        using var brown = new Mat();
-        using var lime = new Mat();
-        Cv2.CvtColor(band, bandHsv, ColorConversionCodes.BGR2HSV);
-        // Glorp's brown/olive fill has a yellow component. Pure red scenery
-        // under a translucent track otherwise joins the bar across its full width.
-        Cv2.InRange(bandHsv, new Scalar(5, 60, 25), new Scalar(35, 255, 150), brown);
-        Cv2.InRange(bandHsv, new Scalar(25, 20, 150), new Scalar(65, 255, 255), lime);
-        using var arrow = new Mat();
-        Cv2.InRange(bandHsv, new Scalar(25, 30, 40), new Scalar(65, 255, 210), arrow);
-        Cv2.BitwiseOr(lime, arrow, lime);
-        using var greenEvidence = lime.Clone();
-        Cv2.BitwiseOr(brown, lime, brown);
-        using var colorOnly = brown.Clone();
-        using var olive = new Mat();
-        Cv2.InRange(bandHsv, new Scalar(18, 20, 25), new Scalar(65, 255, 255), olive);
-        // A verified Glorp reel can flash white across its colored control bar.
-        // Keep the glyph and meter prerequisites before accepting that highlight.
-        Cv2.InRange(bandHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), arrow);
-        Cv2.BitwiseOr(lime, arrow, lime);
-        Cv2.BitwiseOr(brown, lime, brown);
-        using var barInterior = Cv2.GetStructuringElement(MorphShapes.Rect,
-            new Size(Math.Max(2, (int)(height * .002)), Math.Max(3, (int)(height * .008))));
-        using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect,
-            new Size(Math.Max(3, (int)Math.Round(height * .025)), 1));
-        using var arrowBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
-            new Size(Math.Max(3, (int)(height * .045)), 1));
-        Rect? FindControl(Mat source, bool colored)
+        Rect? FindBar(double from, double to)
         {
-            using var mask = source.Clone();
-            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
-            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, bridge);
-            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
-            using var columns = new Mat(); using var solidColumns = new Mat();
-            Cv2.Reduce(mask, columns, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
-            Cv2.InRange(columns, new Scalar(255 * .85), new Scalar(255), solidColumns);
-            Cv2.MorphologyEx(solidColumns, solidColumns, MorphTypes.Close, arrowBridge);
-            Cv2.FindContours(solidColumns, out Point[][] bars, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-            var controls = new List<(Rect Bar, double Green)>();
-            foreach (var contour in bars)
+            int bandTop = Math.Max(0, (int)(height * from) - offsetY);
+            int bandBottom = Math.Min(crop.Height, (int)(height * to) - offsetY);
+            if (bandBottom <= bandTop) return null;
+            using var band = new Mat(crop, new Rect(0, bandTop, crop.Width, bandBottom - bandTop));
+            using var bandHsv = new Mat();
+            using var brown = new Mat();
+            using var lime = new Mat();
+            Cv2.CvtColor(band, bandHsv, ColorConversionCodes.BGR2HSV);
+            // Glorp's brown/olive fill has a yellow component. Pure red scenery
+            // under a translucent track otherwise joins the bar across its full width.
+            Cv2.InRange(bandHsv, new Scalar(5, 60, 25), new Scalar(35, 255, 150), brown);
+            Cv2.InRange(bandHsv, new Scalar(25, 20, 150), new Scalar(65, 255, 255), lime);
+            using var arrow = new Mat();
+            Cv2.InRange(bandHsv, new Scalar(25, 30, 40), new Scalar(65, 255, 210), arrow);
+            Cv2.BitwiseOr(lime, arrow, lime);
+            using var greenEvidence = lime.Clone();
+            Cv2.BitwiseOr(brown, lime, brown);
+            using var colorOnly = brown.Clone();
+            using var olive = new Mat();
+            Cv2.InRange(bandHsv, new Scalar(18, 20, 25), new Scalar(65, 255, 255), olive);
+            // A verified Glorp reel can flash white across its colored control bar.
+            // Keep the glyph and meter prerequisites before accepting that highlight.
+            Cv2.InRange(bandHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), arrow);
+            Cv2.BitwiseOr(lime, arrow, lime);
+            Cv2.BitwiseOr(brown, lime, brown);
+            using var barInterior = Cv2.GetStructuringElement(MorphShapes.Rect,
+                new Size(Math.Max(2, (int)(height * .002)), Math.Min(band.Height, Math.Max(3, (int)(height * .008)))));
+            using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+                new Size(Math.Max(3, (int)Math.Round(height * .025)), 1));
+            using var arrowBridge = Cv2.GetStructuringElement(MorphShapes.Rect,
+                new Size(Math.Max(3, (int)(height * (to - from < .01 ? .006 : .045))), 1));
+            Rect? FindControl(Mat source, bool colored)
+            {
+                using var mask = source.Clone();
+                Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
+                Cv2.MorphologyEx(mask, mask, MorphTypes.Close, bridge);
+                Cv2.MorphologyEx(mask, mask, MorphTypes.Open, barInterior);
+                using var columns = new Mat(); using var solidColumns = new Mat();
+                Cv2.Reduce(mask, columns, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+                Cv2.InRange(columns, new Scalar(255 * .85), new Scalar(255), solidColumns);
+                Cv2.MorphologyEx(solidColumns, solidColumns, MorphTypes.Close, arrowBridge);
+                Cv2.FindContours(solidColumns, out Point[][] bars, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+                var controls = new List<(Rect Bar, double Green)>();
+                foreach (var contour in bars)
+                {
+                    var box = Cv2.BoundingRect(contour);
+                    if (box.Width < height * .06 || box.Width > height * .8 || box.Left <= 0 || box.Right >= crop.Width) continue;
+                    var candidate = new Rect(box.X, 0, box.Width, bandBottom - bandTop);
+                    using var color = new Mat(greenEvidence, candidate);
+                    controls.Add((candidate, Cv2.CountNonZero(color) / (double)(candidate.Width * candidate.Height)));
+                }
+                if (controls.Count == 1 && (!colored || controls[0].Green >= .02)) return controls[0].Bar;
+                if (controls.Count > 1)
+                {
+                    var ranked = controls.OrderByDescending(c => c.Green).ToArray();
+                    if (ranked[0].Green >= .02 && ranked[0].Green - ranked[1].Green > .01) return ranked[0].Bar;
+                }
+                return null;
+            }
+            // White avatar glow can extend or duplicate a genuine colored bar.
+            // Recover its colored boundaries first, reserving white for real flashes.
+            return FindControl(olive, true) ?? FindControl(colorOnly, true) ?? FindControl(brown, false);
+        }
+        Rect? control = FindBar(.832, .875);
+        // The control extends below the track outline. Its lower edge excludes
+        // tinted scenery inside the track; intersect both observations so avatar
+        // glow outside that edge cannot widen an otherwise valid control either.
+        Rect? edge = FindBar(.875, .878);
+        if (edge is Rect lip)
+        {
+            if (control is Rect center)
+            {
+                int left = Math.Max(center.Left, lip.Left), right = Math.Min(center.Right, lip.Right);
+                if (right - left >= height * .06) control = new Rect(left, 0, right - left, center.Height);
+            }
+            else control = lip;
+        }
+        // Glorp's strike animation tilts and narrows the bright bar. Isolate its
+        // horizontal body so the vertical strike beam cannot distort its bounds.
+        int brightTop = Math.Max(0, (int)(height * .81) - offsetY);
+        int brightBottom = Math.Min(crop.Height, (int)(height * .90) - offsetY);
+        if (brightBottom > brightTop)
+        {
+            using var strip = new Mat(crop, new Rect(0, brightTop, crop.Width, brightBottom - brightTop));
+            using var hsv = new Mat(); using var mask = new Mat();
+            Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
+            Cv2.InRange(hsv, new Scalar(25, 20, 150), new Scalar(65, 255, 255), mask);
+            using var body = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(3, (int)(height * .08)), 3));
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, body);
+            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            var bodies = new List<Rect>();
+            foreach (var contour in contours)
             {
                 var box = Cv2.BoundingRect(contour);
-                if (box.Width < height * .06 || box.Width > height * .8 || box.Left <= 0 || box.Right >= crop.Width) continue;
-                var candidate = new Rect(box.X, 0, box.Width, bandBottom - bandTop);
-                using var color = new Mat(greenEvidence, candidate);
-                controls.Add((candidate, Cv2.CountNonZero(color) / (double)(candidate.Width * candidate.Height)));
+                var rotated = Cv2.MinAreaRect(contour);
+                double thickness = Math.Min(rotated.Size.Width, rotated.Size.Height);
+                double solidity = Cv2.ContourArea(contour) / Math.Max(1, rotated.Size.Width * rotated.Size.Height);
+                if (box.Width >= height * .10 && box.Width <= height * .8 && thickness >= height * .035
+                    && thickness <= height * .065 && solidity >= .9
+                    && Math.Abs(offsetY + brightTop + box.Y + box.Height / 2.0 - height * .855) <= height * .025)
+                    bodies.Add(box);
             }
-            if (controls.Count == 1 && (!colored || controls[0].Green >= .02)) return controls[0].Bar;
-            if (controls.Count > 1)
-            {
-                var ranked = controls.OrderByDescending(c => c.Green).ToArray();
-                if (ranked[0].Green >= .02 && ranked[0].Green - ranked[1].Green > .01) return ranked[0].Bar;
-            }
-            return null;
+            if (bodies.Count == 1) control = bodies[0];
         }
-        // White avatar glow can extend or duplicate a genuine colored bar.
-        // Recover its colored boundaries first, reserving white for real flashes.
-        Rect? control = FindControl(olive, true) ?? FindControl(colorOnly, true) ?? FindControl(brown, false);
         if (control is Rect bar)
         {
             result.BarFound = true;
@@ -271,7 +329,7 @@ public class VisionProcessor
             if (debug)
             {
                 result.AnnotatedFrame = crop.Clone();
-                Cv2.Rectangle(result.AnnotatedFrame, new Rect(bar.X, bandTop, bar.Width, bar.Height), Scalar.LimeGreen, 2);
+                Cv2.Rectangle(result.AnnotatedFrame, new Rect(bar.X, Math.Max(0, (int)(height * .832) - offsetY), bar.Width, bar.Height), Scalar.LimeGreen, 2);
                 Cv2.Rectangle(result.AnnotatedFrame, new Rect(fish.X, top + fish.Y, fish.Width, fish.Height), Scalar.Red, 2);
             }
         }
@@ -315,21 +373,169 @@ public class VisionProcessor
         {
             var box = Cv2.BoundingRect(contour);
             double solidity = Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1));
+            double meterThickness = box.Height;
             if (glorp)
             {
                 var rotated = Cv2.MinAreaRect(contour);
                 solidity = Math.Max(solidity, Cv2.ContourArea(contour) / Math.Max(1, rotated.Size.Width * rotated.Size.Height));
+                meterThickness = Math.Min(rotated.Size.Width, rotated.Size.Height) + 1;
             }
             // Recorded reels use both wide and compact progress layouts, anchored at viewport center.
             if (Math.Min(Math.Abs(box.Left - wideLeft), Math.Abs(box.Left - compactLeft)) <= viewportHeight * .012
                 && box.Width >= viewportHeight * .02 && box.Width <= viewportHeight * (glorp ? .565 : .56)
-                && box.Height >= viewportHeight * .006 && box.Height <= viewportHeight * .018
+                && meterThickness >= viewportHeight * .006 && meterThickness <= viewportHeight * .018
                 // Contour coordinates cover (w-1)*(h-1); using pixel-box area
                 // unfairly rejects the same thin rectangle at smaller resolutions.
                 && solidity >= .8)
                 return true;
         }
         return glorp && !fillOnly && DetectReelProgress(crop, offsetY, viewportHeight, glorp: true, fillOnly: true);
+    }
+
+    private static Rect? DetectInlineReelFish(Mat crop, int offsetY, double height)
+    {
+        int top = Math.Max(0, (int)(height * .79) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(height * .90) - offsetY);
+        if (bottom <= top) return null;
+        using var strip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
+        using var hsv = new Mat(); using var mask = new Mat();
+        Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
+        // Bright foreground silhouette, independent of hue.
+        Cv2.InRange(hsv, new Scalar(0, 60, 235), new Scalar(179, 255, 255), mask);
+        Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        Rect? candidate = null;
+        foreach (var contour in contours)
+        {
+            var box = Cv2.BoundingRect(contour);
+            double centerY = offsetY + top + box.Y + box.Height / 2.0;
+            double solidity = Cv2.ContourArea(contour) / Math.Max(1, box.Width * box.Height);
+            if (box.Width < height * .022 || box.Width > height * .04
+                || box.Height < height * .075 || box.Height > height * .09
+                || centerY < height * .835 || centerY > height * .85
+                || solidity < .55 || solidity > .8
+                || Math.Abs(box.X + box.Width / 2.0 - crop.Width / 2.0) > height * .5) continue;
+            if (candidate.HasValue) return null;
+            candidate = new Rect(box.X, top + box.Y, box.Width, box.Height);
+        }
+        return candidate;
+    }
+
+    private static bool DetectStructuralReelMeter(Mat crop, int offsetY, double height)
+    {
+        int top = Math.Max(0, (int)(height * .905) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(height * .938) - offsetY);
+        if (bottom <= top) return false;
+        using var strip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
+        using var normalized = new Mat();
+        Cv2.Resize(strip, normalized, new Size((int)Math.Round(strip.Width * 1080 / height),
+            (int)Math.Round(strip.Height * 1080 / height)), 0, 0, InterpolationFlags.Area);
+        height = 1080;
+        int halfWidth = Math.Min(normalized.Width / 2, (int)(height * .24));
+        if (halfWidth == 0) return false;
+        using var center = new Mat(normalized, new Rect(normalized.Width / 2 - halfWidth, 0, halfWidth * 2, normalized.Height));
+        using var hsv = new Mat(); using var value = new Mat(); using var edges = new Mat();
+        Cv2.CvtColor(center, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.ExtractChannel(hsv, value, 2);
+        Cv2.GaussianBlur(value, value, new Size(3, 3), .7);
+        Cv2.Canny(value, edges, 20, 50);
+        var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180, (int)(height * .12), height * .20, height * .04)
+            .Where(line => Math.Abs(line.P1.Y - line.P2.Y) <= height * .002).ToArray();
+        foreach (var a in lines)
+        foreach (var b in lines)
+        {
+            double separation = Math.Abs((a.P1.Y + a.P2.Y - b.P1.Y - b.P2.Y) / 2.0);
+            int left = Math.Max(Math.Min(a.P1.X, a.P2.X), Math.Min(b.P1.X, b.P2.X));
+            int right = Math.Min(Math.Max(a.P1.X, a.P2.X), Math.Max(b.P1.X, b.P2.X));
+            if (separation >= height * .009 && separation <= height * .018
+                && right - left >= height * .20)
+                return true;
+        }
+        return false;
+    }
+
+    private static Rect? DetectInlineReelBar(Mat track, int offsetY, double height)
+    {
+        int top = Math.Max(0, (int)(height * .81) - offsetY);
+        int bottom = Math.Min(track.Height, (int)(height * .90) - offsetY);
+        if (bottom <= top) return null;
+        using var strip = new Mat(track, new Rect(0, top, track.Width, bottom - top));
+        using var hsv = new Mat(); using var mask = new Mat();
+        Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
+        using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(3, (int)(height * .05)), Math.Max(3, (int)(height * .005))));
+        var candidates = new List<Rect>();
+        // Sweep brightness levels, keeping only solid control-sized rectangles.
+        // Opening removes narrow glyphs and effects connected to their edges.
+        for (int value = 64; value <= 224; value += 32)
+        {
+            Cv2.InRange(hsv, new Scalar(0, 0, value), new Scalar(179, 255, 255), mask);
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, kernel);
+            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            foreach (var contour in contours)
+            {
+                var box = Cv2.BoundingRect(contour);
+                if (box.Width < height * .10 || box.Width > height * .8
+                    || box.Height < height * .046 || box.Height > height * .062
+                    || box.Top == 0 || box.Bottom >= strip.Height
+                    || Math.Abs(offsetY + top + box.Y + box.Height / 2.0 - height * .853) > height * .008
+                    || Cv2.ContourArea(contour) / Math.Max(1, box.Width * box.Height) < .94) continue;
+                candidates.Add(new Rect(box.X, top + box.Y, box.Width, box.Height));
+            }
+        }
+        if (candidates.Count == 0) return null;
+        var best = candidates.OrderByDescending(box => box.Width).First();
+        return candidates.Any(box => Math.Abs(box.Left - best.Left) > height * .02
+            || Math.Abs(box.Right - best.Right) > height * .02) ? null : best;
+    }
+
+    private static Rect? DetectGeometricReelBar(Mat track, int offsetY, double height)
+    {
+        int top = Math.Max(0, (int)(height * .81) - offsetY);
+        int bottom = Math.Min(track.Height, (int)(height * .90) - offsetY);
+        if (bottom <= top) return null;
+        using var band = new Mat(track, new Rect(0, top, track.Width, bottom - top));
+        using var hsv = new Mat(); using var value = new Mat(); using var edges = new Mat();
+        Cv2.CvtColor(band, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.ExtractChannel(hsv, value, 2);
+        Cv2.GaussianBlur(value, value, new Size(5, 5), 1);
+        Cv2.Canny(value, edges, 20, 50);
+        var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180, Math.Max(15, (int)(height * .05)),
+            height * .10, height * .025)
+            .Select(line => line.P1.X <= line.P2.X ? line : new LineSegmentPoint(line.P2, line.P1))
+            .Where(line => Math.Abs(line.P2.Y - line.P1.Y) <= (line.P2.X - line.P1.X) * .08).ToArray();
+        var candidates = new List<Rect>();
+        for (int i = 0; i < lines.Length; i++)
+        for (int j = i + 1; j < lines.Length; j++)
+        {
+            var a = lines[i]; var b = lines[j];
+            double separation = Math.Abs((a.P1.Y + a.P2.Y - b.P1.Y - b.P2.Y) / 2.0);
+            // The moving control is taller than the stationary track. Require
+            // matching top/bottom extents, not merely any two horizontal edges.
+            if (separation < height * .046 || separation > height * .062
+                || Math.Abs(a.P1.X - b.P1.X) > height * .018
+                || Math.Abs(a.P2.X - b.P2.X) > height * .018) continue;
+            int left = (a.P1.X + b.P1.X) / 2, right = (a.P2.X + b.P2.X) / 2;
+            int y = Math.Min(Math.Min(a.P1.Y, a.P2.Y), Math.Min(b.P1.Y, b.P2.Y));
+            int trackMargin = Math.Max(0, track.Width / 2 - (int)(height * .51));
+            if (left < trackMargin || right > track.Width - trackMargin || right - left > height * .8) continue;
+            bool HasSide(int x)
+            {
+                int radius = Math.Max(2, (int)(height * .006));
+                int x1 = Math.Max(0, x - radius), x2 = Math.Min(edges.Width, x + radius + 1);
+                int y2 = Math.Min(edges.Height, y + (int)Math.Round(separation));
+                using var side = new Mat(edges, new Rect(x1, y, x2 - x1, y2 - y));
+                using var rows = new Mat();
+                Cv2.Reduce(side, rows, ReduceDimension.Column, ReduceTypes.Max, MatType.CV_8U);
+                return Cv2.CountNonZero(rows) >= side.Height * .65;
+            }
+            if (!HasSide(left) || !HasSide(right)) continue;
+            candidates.Add(new Rect(left, top + y, right - left + 1, (int)Math.Round(separation)));
+        }
+        if (candidates.Count == 0) return null;
+        var best = candidates.OrderByDescending(box => box.Width).First();
+        if (candidates.Any(box => Math.Abs(box.Left - best.Left) > height * .025
+            || Math.Abs(box.Right - best.Right) > height * .025)) return null;
+        return best;
     }
 
     private static Rect? DetectDimReelBar(Mat track, int offsetY, double viewportHeight, bool cyan = false)
