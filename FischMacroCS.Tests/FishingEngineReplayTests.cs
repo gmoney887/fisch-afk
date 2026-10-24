@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace FischMacroCS.Tests;
 
-public class FishingEngineReplayTests
+public partial class FishingEngineReplayTests
 {
     [Theory]
     [InlineData("oath_red_45.png")]
@@ -362,6 +362,7 @@ public class FishingEngineReplayTests
         public Action? AfterRelative;
         public Action<byte, uint>? AfterKey;
         public Action<int, int>? AfterDown;
+        public Action? AfterUp;
         public List<(int X, int Y)> MouseTargets = new();
         public Action<int, int>? AfterMove;
         public Action<int>? AfterMouseEvent;
@@ -374,7 +375,7 @@ public class FishingEngineReplayTests
         public void SendHardwareMouseDown(int sx = -1, int sy = -1, int cx = -1, int cy = -1, IntPtr window = default)
         { Reject("down"); Held = true; Events.Add("down"); MouseTargets.Add((cx, cy)); AfterDown?.Invoke(cx >= 0 ? cx : sx, cy >= 0 ? cy : sy); }
         public void SendHardwareMouseUp(int sx = -1, int sy = -1, int cx = -1, int cy = -1, IntPtr window = default)
-        { Reject("up"); Held = false; Events.Add("up"); }
+        { Reject("up"); Held = false; Events.Add("up"); AfterUp?.Invoke(); }
         public void SendHardwareMouseMove(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default)
         { Reject("move"); Events.Add("move"); AfterMove?.Invoke(sx, sy); }
         public void SendHardwareClick(int sx, int sy, int cx = -1, int cy = -1, IntPtr window = default) => Events.Add("click");
@@ -395,9 +396,16 @@ public class FishingEngineReplayTests
         public void ReleaseAll() { Held = false; Events.Add("release"); }
     }
 
-    private sealed class Frames(Func<Mat> render, Clock clock) : IFrameSource
+    private sealed class Frames(Func<Mat> render, Clock clock) : ICooperativeFrameSource
     {
         public Action<Rect>? BeforeCapture;
+        public Mat? CaptureClientRegion(IntPtr window,int x,int y,int width,int height,Action heartbeat)
+        {
+            BeforeCapture?.Invoke(new Rect(x,y,width,height));using var full=render();
+            int remaining=clock.CaptureMs;
+            while(remaining>0){int step=Math.Min(16,remaining);clock.Delay(step,CancellationToken.None);remaining-=step;heartbeat();}
+            using var roi=new Mat(full,new Rect(x,y,width,height));return roi.Clone();
+        }
         public Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height)
         { BeforeCapture?.Invoke(new Rect(x,y,width,height)); using var full = render(); clock.CaptureElapsed(); using var roi = new Mat(full, new Rect(x, y, width, height)); return roi.Clone(); }
         public void Dispose() { }

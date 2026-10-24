@@ -29,6 +29,12 @@ public class TelemetryData : IDisposable
     public int BarWidth { get; set; }
     public int FishX { get; set; }
     public double Error { get; set; }
+    public double? ObservedBarCenter { get; set; }
+    public int? ObservedFishX { get; set; }
+    public double? ControlFishX { get; set; }
+    public double? ControlBarCenter { get; set; }
+    public double? ControlBarVelocity { get; set; }
+    public double ObservationAgeMs { get; set; }
     public double BarVelocity { get; set; }
     public double FishVelocity { get; set; }
     public double RodPullAccel { get; set; }
@@ -789,12 +795,17 @@ public class FishingEngine : IDisposable
     private double _barVelocity = 0;
     private double _prevFishX = 0;
     private double _fishVelocity = 0;
-    private long _lastTickTime = 0;
+    private double _lastReelObservationMs;
+    private readonly ReelInputMotion _reelMotion = new();
+    private readonly ReelActuationPlan _centeringPlan = new();
+    private readonly Lazy<AutomationCoordinator> _frameWorker = new(() => new AutomationCoordinator());
+    private readonly Lazy<FrameWorkWaiter> _frameWaiter = new(() => new FrameWorkWaiter());
+    private double _centeringUntil, _nextCenteringPulse;
 
     private bool _pulseState = false;
     private long _lastPulseTime = 0;
     private int _pulseDuration = 25;
-    private double _dutyAccumulator = 0.0;
+    private readonly ReelPulseModulator _reelPulses = new();
     private double _estRodPullAccel = 550.0;
     private double _prevBarVelocity = 0;
     private BoundedRodEstimator? _rodEstimator;
@@ -1443,13 +1454,51 @@ public class FishingEngine : IDisposable
         return calibratedMs;
     }
 
+    private void PulseCentering()
+    {
+        ValidateGameplay();
+        if(CurrentState!=MacroState.Reeling || !_centeringPlan.Active)return;
+        double now=_clock.ElapsedMilliseconds(0);
+        if(now>_centeringUntil){_centeringPlan.Reset();SetMouseDown(false);return;}
+        if(now<_nextCenteringPulse)return;
+        _nextCenteringPulse+=(Math.Floor((now-_nextCenteringPulse)/16)+1)*16;
+        if(_centeringPlan.TryDuty(now,out double duty))SetMouseDown(_reelPulses.Choose(now,duty));
+    }
+
+    private (Mat Crop, DetectionResult Detection, long Ticks, double Ms) ObserveReelFrame(
+        Func<Action?,(Mat Crop, DetectionResult Detection, long Ticks, double Ms)> observe)
+    {
+        ValidateGameplay();
+        if(CurrentState!=MacroState.Reeling || _capture is ICooperativeFrameSource || _capture is RecordingFrameSource { SupportsHeartbeat:true })
+        {
+            var observed=observe(CurrentState==MacroState.Reeling?PulseCentering:null);
+            try{ValidateGameplay();return observed;}
+            catch{observed.Crop.Dispose();observed.Detection.Dispose();throw;}
+        }
+        var pending=_frameWorker.Value.Enqueue(()=>observe(null));
+        using var completed=((IAsyncResult)pending).AsyncWaitHandle;
+        Exception? interrupted=null;
+        while(!pending.IsCompleted)
+        {
+            if(_frameWaiter.Value.WaitForCompletion(completed,4))break;
+            try{PulseCentering();}
+            catch(Exception ex){_centeringPlan.Reset();_input.ReleaseAll();_isMouseDown=false;interrupted=ex;break;}
+        }
+        var result=pending.GetAwaiter().GetResult();
+        try
+        {
+            if(interrupted is not null)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(interrupted).Throw();
+            ValidateGameplay();return result;
+        }
+        catch{result.Crop.Dispose();result.Detection.Dispose();throw;}
+    }
+
     private void SetMouseDown(bool down)
     {
         if (_isMouseDown != down)
         {
             if (down && CurrentState is MacroState.Casting or MacroState.Reeling)
                 EnsureCursorInGameView(_activeWindow, _activeGeometry);
-            _isMouseDown = down;
             IntPtr robloxHwnd = _desktop.FindRobloxWindow();
             int sx = -1, sy = -1, cx = -1, cy = -1;
             if (_desktop.GetCursorPos(out Win32.POINT pt))
@@ -1471,7 +1520,11 @@ public class FishingEngine : IDisposable
             {
                 _input.SendHardwareMouseUp(sx, sy, window: robloxHwnd);
             }
+            _isMouseDown = down;
         }
+        _reelPulses.Input(_clock.ElapsedMilliseconds(0), _isMouseDown);
+        _reelMotion.Input(_clock.ElapsedMilliseconds(0), _isMouseDown);
+        _centeringPlan.Input(_clock.ElapsedMilliseconds(0), _isMouseDown);
     }
 
     private void Transition(MacroState newState, string reason = "")
@@ -1509,7 +1562,7 @@ public class FishingEngine : IDisposable
         _lastFishSeenTime = _clock.Timestamp;
         _lastBarPosSeenTime = 0;
         _prevBarWidth = 0;
-        _lastTickTime = 0; // Velocity samples belong to this reel, never a previous cycle/session.
+        _lastReelObservationMs = 0; // Velocity samples belong to this reel.
         _prevBarCenter = 0;
         _barVelocity = 0;
         _prevFishX = 0;
@@ -1517,7 +1570,9 @@ public class FishingEngine : IDisposable
         _luringConfirmCount = 0;
         _pulseState = false;
         _lastPulseTime = 0;
-        _dutyAccumulator = 0.0;
+        _reelPulses.Reset();
+        _reelMotion.Reset();
+        _centeringPlan.Reset();
         _prevBarVelocity = 0;
         _shakeMemoryX = 0;
         _shakeMemoryY = 0;
@@ -2098,12 +2153,25 @@ public class FishingEngine : IDisposable
 
             // Capture track crop directly from the Desktop DWM frame for REELING
             visionSw.Restart();
-            using Mat? crop = _capture.CaptureClientRegion(robloxHwnd, trackX1, trackY1, trackW, trackH);
-            if (crop == null || crop.Empty()) throw new GameplayInterruptedException("Invalid gameplay capture. Resume explicitly.");
-            using DetectionResult detect = (crop != null)
-                ? _vision.ProcessTrack(crop, trackX1, trackY1, scaleFactor, Config.SelectedTheme,
-                    shouldGenerateDebug && CurrentState == MacroState.Reeling)
-                : new DetectionResult();
+            (Mat Crop, DetectionResult Detection, long Ticks, double Ms) Observe(Action? heartbeat)
+            {
+                long ticks = _clock.Timestamp;
+                double ms = _clock.ElapsedMilliseconds(0);
+                Mat pixels = (_capture is RecordingFrameSource recorded
+                    ? recorded.CaptureReadOnly(robloxHwnd,trackX1,trackY1,trackW,trackH,heartbeat)
+                    : heartbeat is not null && _capture is ICooperativeFrameSource cooperative
+                    ? cooperative.CaptureClientRegion(robloxHwnd,trackX1,trackY1,trackW,trackH,heartbeat)
+                    : _capture.CaptureClientRegion(robloxHwnd,trackX1,trackY1,trackW,trackH))
+                    ?? throw new GameplayInterruptedException("Invalid gameplay capture. Resume explicitly.");
+                try { return (pixels,_vision.ProcessTrack(pixels,trackX1,trackY1,scaleFactor,Config.SelectedTheme,
+                    shouldGenerateDebug&&CurrentState==MacroState.Reeling),ticks,ms); }
+                catch { pixels.Dispose(); throw; }
+            }
+            var observation = ObserveReelFrame(Observe);
+            using Mat crop=observation.Crop;
+            using DetectionResult detect=observation.Detection;
+            long observationTicks=observation.Ticks;
+            double observationMs=observation.Ms;
             visionSw.Stop();
             if (CurrentState is MacroState.Reeling or MacroState.PostCatch)
             {
@@ -2152,19 +2220,29 @@ public class FishingEngine : IDisposable
                     RecoverAndRestart($"Reel minigame stall ({Config.ReelTimeoutMs / 1000}s exceeded)");
                     continue;
                 }
-                double dtSec = (_lastTickTime > 0) ? (GetElapsedMs(_lastTickTime) / 1000.0) : 0.01;
-                if (dtSec <= 0 || dtSec > 0.1)
+                // Positions are timestamped before capture/readback. Comparing
+                // loop-start to analysis-completion can double-count slow work
+                // and reject every subsequent otherwise-fresh observation.
+                double previousObservationMs = _lastReelObservationMs;
+                double dtSec = _lastReelObservationMs > 0 ? (observationMs - _lastReelObservationMs) / 1000 : .01;
+                _lastReelObservationMs = observationMs;
+                if (dtSec <= 0 || dtSec > .25)
                 {
                     _prevBarCenter = _prevFishX = 0;
                     _barVelocity = _fishVelocity = _prevBarVelocity = 0;
+                    // Only motion history is invalid. Evaluate current positions
+                    // and ordinary safety/deadline checks on this same tick.
+                    dtSec = .01;
+                }
+                if (GetElapsedMs(observationTicks) > 250)
+                {
+                    _prevBarCenter = _prevFishX = 0;
+                    _barVelocity = _fishVelocity = _prevBarVelocity = 0;
+                    _centeringPlan.Reset();
                     SetMouseDown(false);
-                    _lastTickTime = nowTicks;
-                    detect.AnnotatedFrame?.Dispose();
-                    Delay(1); // Yield one control tick after rejecting a timing sample; avoid a busy retry loop.
+                    Delay(1);
                     continue;
                 }
-                _lastTickTime = nowTicks;
-
                 // Ensure Roblox is foreground
                 if (_desktop.GetForegroundWindow() != robloxHwnd)
                 {
@@ -2185,9 +2263,9 @@ public class FishingEngine : IDisposable
                     // Bar velocity smoothing (pixels per second)
                     if (_prevBarCenter > 0 && dtSec > 0)
                     {
-                        double rawVel = (detect.BarCenter - _prevBarCenter) / dtSec;
-                        rawVel = Math.Clamp(rawVel, -2.1 * trackW, 2.1 * trackW);
-                        _barVelocity = (_barVelocity * 0.4) + (rawVel * 0.6);
+                        double release = (Config.EnableAdaptiveRodDynamics ? _releaseEstimator?.Pull ?? _gravityFallAccel / 1188.0 : _gravityFallAccel / 1188.0) * trackW;
+                        _barVelocity = Math.Clamp(_reelMotion.CaptureVelocity(previousObservationMs, observationMs,
+                            _prevBarCenter, detect.BarCenter, _estRodPullAccel, release), -2.1 * trackW, 2.1 * trackW);
 
                         // Online Adaptive Rod Dynamic Calibration:
                         // Measures actual rod pull acceleration during MouseDown to auto-tune to any rod
@@ -2291,11 +2369,35 @@ public class FishingEngine : IDisposable
                     _lastBarSeenTime = nowTicks;
                 }
 
+                if (!detect.BarFound || !detect.FishFound || !detect.ReelProgressFound) _centeringPlan.Reset();
+                double controlVelocity = _barVelocity;
+                double decisionMs = _clock.ElapsedMilliseconds(0);
+                if (detect.BarFound && detect.FishFound)
+                {
+                    double release = (Config.EnableAdaptiveRodDynamics ? _releaseEstimator?.Pull ?? _gravityFallAccel / 1188.0 : _gravityFallAccel / 1188.0) * trackW;
+                    var current = _reelMotion.Project(observationMs, decisionMs, detect.BarCenter, _barVelocity, _estRodPullAccel, release);
+                    targetBarCenter = current.Position;
+                    controlVelocity = current.Velocity;
+                    targetFishX += _fishVelocity * Math.Clamp((decisionMs-observationMs)/1000,0,.25);
+                }
                 // Dynamic Bar-Relative Geometry (Calibrated via active Rod Profile)
                 double dynEdgeMargin = Math.Clamp(barW * _edgeMarginFactor, 20.0, 95.0);
                 double dynDeadzone = Math.Clamp(barW * _deadzoneFactor, 8.0, 24.0);
 
-                if (hasBarTarget && hasFishTarget)
+                if (detect.BarFound && detect.FishFound && detect.ReelProgressFound)
+                {
+                    double release = (Config.EnableAdaptiveRodDynamics ? _releaseEstimator?.Pull ?? _gravityFallAccel / 1188.0 : _gravityFallAccel / 1188.0) * trackW;
+                    _centeringPlan.Configure(decisionMs,targetBarCenter,controlVelocity,targetFishX,_fishVelocity,
+                        _estRodPullAccel,release,_isMouseDown,trackLeft:trackX1,trackRight:trackX2,barHalfWidth:barW/2.0);
+                    _centeringUntil=decisionMs+250;
+                    _nextCenteringPulse=decisionMs+16;
+                    if(_centeringPlan.TryDuty(decisionMs,out double duty))
+                        SetMouseDown(_reelPulses.Choose(decisionMs,duty));
+                    double error=targetFishX-targetBarCenter;
+                    string direction=error>dynDeadzone&&_isMouseDown ? "PULL RIGHT >>" : error < -dynDeadzone&&!_isMouseDown ? "<< DROP LEFT" : "Centering";
+                    action=$"{direction} [{error:+0.0;-0.0;0.0}px]";
+                }
+                else if (hasBarTarget && hasFishTarget)
                 {
                     double error = targetFishX - targetBarCenter;
 
@@ -2304,13 +2406,13 @@ public class FishingEngine : IDisposable
                     {
                         SetMouseDown(true);
                         action = "EMERGENCY RIGHT >>";
-                        _dutyAccumulator = 1.0;
+                        _reelPulses.Force(_clock.ElapsedMilliseconds(0), true);
                     }
                     else if (targetFishX <= targetBarLeft + dynEdgeMargin)
                     {
                         SetMouseDown(false);
                         action = "<< EMERGENCY LEFT";
-                        _dutyAccumulator = 0.0;
+                        _reelPulses.Force(_clock.ElapsedMilliseconds(0), false);
                     }
                     else
                     {
@@ -2322,7 +2424,7 @@ public class FishingEngine : IDisposable
                         double uHover = aFall / (aPull + aFall);
 
                         // Relative velocity in target (fish) frame of reference
-                        double vRel = _barVelocity - _fishVelocity;
+                        double vRel = controlVelocity - _fishVelocity;
 
                         // Kinetic stopping distance relative to moving fish:
                         // When bar moves right faster than fish (vRel > 0), gravity coasting stops it in:
@@ -2336,7 +2438,7 @@ public class FishingEngine : IDisposable
                         {
                             SetMouseDown(false);
                             action = "Coast Right ->";
-                            _dutyAccumulator = 0.0;
+                            _reelPulses.Force(_clock.ElapsedMilliseconds(0), false);
                         }
                         // Anti-Overshoot Phase B: Brake into target from the right
                         // If the bar is dropping left towards the target and must brake now to avoid blowing past, apply full pull!
@@ -2344,7 +2446,7 @@ public class FishingEngine : IDisposable
                         {
                             SetMouseDown(true);
                             action = "<- Brake Left";
-                            _dutyAccumulator = 1.0;
+                            _reelPulses.Force(_clock.ElapsedMilliseconds(0), true);
                         }
                         // Phase C: Proportional Velocity Tracking with Delta-Sigma Pulse Density Modulation
                         else
@@ -2352,27 +2454,16 @@ public class FishingEngine : IDisposable
                             // Velocity feedforward + proportional position error
                             double targetVel = _fishVelocity + (5.0 * error);
                             targetVel = Math.Clamp(targetVel, -850.0, 850.0);
-                            double velError = targetVel - _barVelocity;
+                            double velError = targetVel - controlVelocity;
 
                             // Continuous throttle command centered around hover equilibrium
                             double kv = 1.0 / (aPull + aFall);
                             double throttle = uHover + (velError * kv * 2.8);
                             throttle = Math.Clamp(throttle, 0.0, 1.0);
 
-                            // First-order Delta-Sigma discrete pulse-density modulation
-                            _dutyAccumulator += throttle;
-                            bool doMouseDown = false;
-                            if (_dutyAccumulator >= 1.0)
-                            {
-                                doMouseDown = true;
-                                _dutyAccumulator -= 1.0;
-                            }
-                            else
-                            {
-                                doMouseDown = false;
-                            }
-                            SetMouseDown(doMouseDown);
-
+                            // Settle desired versus actual held milliseconds;
+                            // unequal observation intervals must not bias hover.
+                            SetMouseDown(_reelPulses.Choose(_clock.ElapsedMilliseconds(0), throttle));
                             if (Math.Abs(error) <= dynDeadzone)
                             {
                                 action = $"Locked Center [{throttle:P0}]";
@@ -2438,6 +2529,15 @@ public class FishingEngine : IDisposable
                     continue;
                 }
 
+                // Ancillary analysis must not age an otherwise current image
+                // past the input lease before the final guarded command.
+                if (GetElapsedMs(observationTicks) > 250)
+                {
+                    _centeringPlan.Reset();
+                    SetMouseDown(false);
+                    action="Stale image / awaiting current evidence";
+                }
+
                 // Render dynamic Action & Mouse HUD directly on the live camera frame
                 if (detect.AnnotatedFrame != null && !detect.AnnotatedFrame.Empty())
                 {
@@ -2478,9 +2578,15 @@ public class FishingEngine : IDisposable
                     Action = action,
                     BarLeft = hasBarTarget ? targetBarLeft : detect.BarLeft,
                     BarRight = hasBarTarget ? targetBarRight : detect.BarRight,
-                    BarCenter = hasBarTarget ? targetBarCenter : detect.BarCenter,
+                    BarCenter = detect.BarCenter,
+                    ObservedBarCenter = detect.BarFound ? detect.BarCenter : null,
+                    ControlBarCenter = hasBarTarget ? targetBarCenter : null,
+                    ControlBarVelocity = controlVelocity,
+                    ObservationAgeMs = GetElapsedMs(observationTicks),
                     BarWidth = hasBarTarget ? barW : detect.BarWidth,
-                    FishX = (int)Math.Round(targetFishX),
+                    FishX = detect.FishX,
+                    ObservedFishX = detect.FishFound ? detect.FishX : null,
+                    ControlFishX = hasFishTarget ? targetFishX : null,
                     Error = (hasBarTarget && hasFishTarget) ? (targetFishX - targetBarCenter) : 0,
                     BarVelocity = _barVelocity,
                     FishVelocity = _fishVelocity,
@@ -2730,6 +2836,8 @@ public class FishingEngine : IDisposable
         _recorder.Dispose();
         _fishingView.Dispose();
         _shakeCapture.Dispose();
+        if(_frameWorker.IsValueCreated)_frameWorker.Value.Dispose();
+        if(_frameWaiter.IsValueCreated)_frameWaiter.Value.Dispose();
         _capture.Dispose();
     }
 }

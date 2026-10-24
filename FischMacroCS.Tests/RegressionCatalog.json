@@ -1,0 +1,38 @@
+{
+  "SchemaVersion": 1,
+  "Scope": "Isolated126 baseline; reviewed source625 timing/geometry evidence only. Archived full catalog remains on codex/archive-post-126-20261024-625.",
+  "Cases": [
+    {
+      "Id": "625-seraphic-tilt-latency-20261024",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261024_221716_409_2c651cc4f2af4b6fa46d7685e1e41e54",
+      "Evidence": "Fixtures/PROVENANCE.md#october24-source625-seraphic-latency",
+      "Fixtures": [
+        "seraphic_625/frame_00000150.png",
+        "seraphic_625/frame_00000158.png",
+        "seraphic_625/frame_00000315.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost"
+      ],
+      "Expectation": "Reviewed native body bounds/width/target and four-observation cost <=250ms; no live centering acceptance"
+    }
+  ],
+  "Fixtures": [
+    {
+      "Path": "seraphic_625/frame_00000150.png",
+      "Required": true,
+      "SHA256": "95FF9CD651889746DBCB3E2717027FB547E9622EB2863A013678425FFF3423B9"
+    },
+    {
+      "Path": "seraphic_625/frame_00000158.png",
+      "Required": true,
+      "SHA256": "FE1CA2C2DA59E19F27CA7E171460086D985AEC1BEC078BBA946A6849597920E9"
+    },
+    {
+      "Path": "seraphic_625/frame_00000315.png",
+      "Required": true,
+      "SHA256": "AAB3EBD27865A65E201EB00C3F769539D0395AB6F0A5DFCE152D280FAD464525"
+    }
+  ]
+}

@@ -113,3 +113,15 @@ crate_inventory_79_stacks.png retains only (1250,890,940,390) from frame_0000000
 reel_false_coral.png: unchanged gameplay track crop, frame 3230 from session_20260930_172914_139_97e4f1425344462daf2dbaa5d4035663, desktop origin (968,1013), 1504x273, viewport3440x1369. Retains coral and rod-description text; no player names or chat. Reproduces a bar-shaped scenery candidate with no fish needle.
 
 aquarium_navigation_1920.png: top navigation only from user-supplied son's-PC screenshot codex-clipboard-d924607e-fa84-4c31-bfd6-222a6aa990b4.png, confirmed release v1.0.21. Actual image width1919; fixture height1032. Everything outside rectangle(790,0,340,65) is masked black to remove player information. Tests retain native pixels and pad to1080 as a second capture-height case.
+
+## October24 source625 Seraphic latency
+
+Original application crops copied byte-for-byte from session_20261024_221716_409_2c651cc4f2af4b6fa46d7685e1e41e54, build1.0.26-local.20261024.625+a274d18, viewport3440x1369,DPI96. User identified poor centering; Herculean Seraphic and Krill visible. Source session starts2026-10-24T22:17:16.4101847Z (17:17CDT). ThemesAutoCalibrate,profileStandard,AFKPerformance/recordingtrue,preview/adaptationfalse. Actual application crops were adaptive.
+
+| Frame | Capture origin | Size | Monotonic capture-completion timestamp | Reviewed body X | Target X |
+|---|---|---|---|---|---|
+|150|917,920|1607x382|7225914798289|1165..2276|1720|
+|158|686,825|2015x544|7225930322024|1032..2144|1655|
+|315|917,920|1607x382|7226789166739|1087..2199|1689|
+
+Frequency10000000. Body bounds were reviewed from the visible original shoulders/walls, target from the capsule axis; original raster/tilt permits the stated4px body/3px target test tolerance. No resizes, palette changes, padding or rotations. Frame158 and315 retained clear body, needle and meter despite app vision latency4889.66/3139.35ms. Original625 offline frame158 took5071.84ms without tracing. These three nonconsecutive observations test geometry/cost, not a chronological catch or Perfect award. Complete raw journals and additional surviving frames remain private in the main ignored artifacts directory. The independent flow recording lacks a completion summary after interruption; do not certify it as complete video. Tests: Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost.

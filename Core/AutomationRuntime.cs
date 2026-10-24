@@ -26,6 +26,11 @@ public interface IFrameSource : IDisposable
     Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height);
 }
 
+public interface ICooperativeFrameSource : IFrameSource
+{
+    Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height, Action heartbeat);
+}
+
 public enum ActionOutcome { Unknown, ConfirmedSuccess, ConfirmedFailure }
 public sealed record Observation(long FrameId, long Timestamp, Rect Viewport, Rect Region,
     string Detector, double Confidence, string Evidence);

@@ -285,14 +285,25 @@ public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder reco
     IClock? clock = null, Action? validate = null) : IFrameSource
 {
     private readonly IClock _clock = clock ?? new MonotonicClock();
+    public bool SupportsHeartbeat => inner is ICooperativeFrameSource;
     public Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height)
     {
         validate?.Invoke();
+        var frame = CaptureReadOnly(window, x, y, width, height);
+        try { validate?.Invoke(); return frame; }
+        catch { frame?.Dispose(); throw; }
+    }
+
+    // The caller validates on the coordinator before dispatch and after joining.
+    // This operation records pixels and never sends or authorizes gameplay input.
+    internal Mat? CaptureReadOnly(IntPtr window, int x, int y, int width, int height, Action? heartbeat = null)
+    {
         long start = _clock.Timestamp;
-        var frame = inner.CaptureClientRegion(window, x, y, width, height);
+        var frame = heartbeat is not null && inner is ICooperativeFrameSource cooperative
+            ? cooperative.CaptureClientRegion(window, x, y, width, height, heartbeat)
+            : inner.CaptureClientRegion(window, x, y, width, height);
         try
         {
-            validate?.Invoke();
             double captureMs = _clock.ElapsedMilliseconds(start);
             if (frame == null || frame.Empty() || captureMs > 250)
                 throw new GameplayInterruptedException("Invalid or stale capture. Resume explicitly when the game is visible.");
