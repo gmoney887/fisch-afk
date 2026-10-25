@@ -64,8 +64,17 @@ public class RuinousOathTests
         using var result = new VisionProcessor().ProcessTrack(frame, 968, 1013, 1369.0 / 1080, MinigameTheme.AutoCalibrate, false);
         Assert.True(result.BarFound);
         Assert.True(result.HasLiveReel);
+        Assert.Equal(MinigameTheme.Ruinous, result.ResolvedTheme);
         Assert.InRange(result.BarLeft, 968 + left - 12, 968 + left + 12);
         Assert.InRange(result.BarRight, 968 + right - 12, 968 + right + 12);
         Assert.InRange(result.FishX, 1700, 1730);
+    }
+
+    [Fact]
+    public void RuinousOathProfile_ConfiguresRodKinetics()
+    {
+        var engine = new FishingEngine(new Settings());
+        engine.ApplyRodProfile("Ruinous Oath");
+        Assert.Equal(680.0, engine.EstimatedRodPull);
     }
 }

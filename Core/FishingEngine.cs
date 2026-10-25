@@ -521,6 +521,13 @@ public class FishingEngine : IDisposable
                 _deadzoneFactor = 0.040;
                 _edgeMarginFactor = 0.15;
                 break;
+            case "Ruinous Oath":
+            case "Ruinous":
+                _baseRodPullAccel = 680.0;
+                _gravityFallAccel = 430.0;
+                _deadzoneFactor = 0.025;
+                _edgeMarginFactor = 0.12;
+                break;
             case "Standard":
             default:
                 _baseRodPullAccel = 550.0;
@@ -2257,6 +2264,15 @@ public class FishingEngine : IDisposable
 
                 if (detect.BarFound || detect.HasLiveReel)
                     _lastBarSeenTime = nowTicks;
+
+                if (detect.ResolvedTheme == MinigameTheme.Ruinous && Config.RodProfile == "Standard")
+                {
+                    _baseRodPullAccel = 680.0;
+                    _gravityFallAccel = 430.0;
+                    _deadzoneFactor = 0.025;
+                    _edgeMarginFactor = 0.12;
+                    if (_rodEstimator == null) _estRodPullAccel = _baseRodPullAccel;
+                }
 
                 if (detect.BarFound)
                 {

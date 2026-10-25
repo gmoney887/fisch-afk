@@ -84,6 +84,15 @@ public class VisionProcessor
                 Cv2.InRange(hsv, new Scalar(35, 100, 200), new Scalar(90, 255, 255), output); break;
             case MinigameTheme.Golden:
                 Cv2.InRange(hsv, new Scalar(18, 100, 200), new Scalar(35, 255, 255), output); break;
+            case MinigameTheme.Ruinous:
+                using (var m1 = new Mat())
+                using (var m2 = new Mat())
+                {
+                    Cv2.InRange(hsv, new Scalar(0, 40, 40), new Scalar(25, 255, 255), m1);
+                    Cv2.InRange(hsv, new Scalar(155, 40, 40), new Scalar(179, 255, 255), m2);
+                    Cv2.BitwiseOr(m1, m2, output);
+                }
+                break;
             default:
                 Cv2.InRange(hsv, new Scalar(0, 0, 201), new Scalar(179, 55, 255), output); break;
         }
@@ -110,7 +119,7 @@ public class VisionProcessor
         var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
             theme == MinigameTheme.AutoCalibrate ? _lockedTheme ?? MinigameTheme.Default : theme, generateDebug);
         result.ReelProgressFound = DetectReelProgress(crop, absOffsetY, viewportHeight);
-        if (theme == MinigameTheme.AutoCalibrate && !_lockedTheme.HasValue && !result.HasLiveReel)
+        if (theme == MinigameTheme.AutoCalibrate && (!result.BarFound || !_lockedTheme.HasValue))
         {
             // Evaluate colors separately: a union mask would merge a white bar
             // into bright green scenery and destroy its rectangular boundary.
@@ -119,7 +128,12 @@ public class VisionProcessor
                 var alternative = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor, candidate, generateDebug);
                 alternative.ReelProgressFound = result.ReelProgressFound;
                 if (alternative.BarFound && alternative.FishFound)
-                { result.Dispose(); result = alternative; break; }
+                {
+                    result.Dispose();
+                    result = alternative;
+                    _lockedTheme = candidate;
+                    break;
+                }
                 alternative.Dispose();
             }
         }
@@ -135,11 +149,13 @@ public class VisionProcessor
             result.BarRight = absOffsetX + inlineBar.Right;
             result.BarWidth = inlineBar.Width;
             result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+            result.ResolvedTheme = MinigameTheme.Ruinous;
         }
         if (!result.BarFound && result.HasLiveReel)
         {
             var dimBar = DetectGeometricReelBar(track, absOffsetY, viewportHeight)
-                ?? DetectDimReelBar(track, absOffsetY, viewportHeight);
+                ?? DetectDimReelBar(track, absOffsetY, viewportHeight)
+                ?? DetectInlineReelBar(track, absOffsetY, viewportHeight);
             if (!dimBar.HasValue && result.ReelProgressFound)
                 dimBar = DetectDimReelBar(track, absOffsetY, viewportHeight, cyan: true);
             if (dimBar is Rect bar)
@@ -149,6 +165,7 @@ public class VisionProcessor
                 result.BarRight = absOffsetX + bar.Right;
                 result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
                 result.BarWidth = bar.Width;
+                result.ResolvedTheme = MinigameTheme.Ruinous;
                 if (result.AnnotatedFrame != null)
                     Cv2.Rectangle(result.AnnotatedFrame, bar, Scalar.FromRgb(0, 230, 118), 2);
             }
@@ -677,10 +694,10 @@ public class VisionProcessor
         // Excludes outer screen margins, borders, and distant ocean water
         int trackSearchX1 = bestBar.HasValue 
             ? Math.Max(25, localBar.Left - (int)(localBar.Width * 1.7)) 
-            : 30;
+            : (int)Math.Max(45, Math.Round(50 * scaleFactor));
         int trackSearchX2 = bestBar.HasValue 
             ? Math.Min(cropW - 25, localBar.Right + (int)(localBar.Width * 1.7)) 
-            : cropW - 30;
+            : cropW - (int)Math.Max(45, Math.Round(50 * scaleFactor));
 
         int[] colHist = new int[cropW];
 
