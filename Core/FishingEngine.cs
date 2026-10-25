@@ -2384,7 +2384,7 @@ public class FishingEngine : IDisposable
                 double dynEdgeMargin = Math.Clamp(barW * _edgeMarginFactor, 20.0, 95.0);
                 double dynDeadzone = Math.Clamp(barW * _deadzoneFactor, 8.0, 24.0);
 
-                if (detect.BarFound && detect.FishFound && detect.ReelProgressFound)
+                if (hasBarTarget && hasFishTarget)
                 {
                     double release = (Config.EnableAdaptiveRodDynamics ? _releaseEstimator?.Pull ?? _gravityFallAccel / 1188.0 : _gravityFallAccel / 1188.0) * trackW;
                     _centeringPlan.Configure(decisionMs,targetBarCenter,controlVelocity,targetFishX,_fishVelocity,
@@ -2397,7 +2397,7 @@ public class FishingEngine : IDisposable
                     string direction=error>dynDeadzone&&_isMouseDown ? "PULL RIGHT >>" : error < -dynDeadzone&&!_isMouseDown ? "<< DROP LEFT" : "Centering";
                     action=$"{direction} [{error:+0.0;-0.0;0.0}px]";
                 }
-                else if (hasBarTarget && hasFishTarget)
+                else if (hasBarTarget)
                 {
                     double error = targetFishX - targetBarCenter;
 
