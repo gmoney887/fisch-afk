@@ -2369,7 +2369,7 @@ public class FishingEngine : IDisposable
                     _lastBarSeenTime = nowTicks;
                 }
 
-                if (!detect.BarFound || !detect.FishFound || !detect.ReelProgressFound) _centeringPlan.Reset();
+                if (!hasBarTarget || !hasFishTarget) _centeringPlan.Reset();
                 double controlVelocity = _barVelocity;
                 double decisionMs = _clock.ElapsedMilliseconds(0);
                 if (detect.BarFound && detect.FishFound)
