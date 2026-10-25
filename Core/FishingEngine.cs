@@ -2394,7 +2394,7 @@ public class FishingEngine : IDisposable
                     var current = _reelMotion.Project(observationMs, decisionMs, detect.BarCenter, _barVelocity, _estRodPullAccel, release);
                     targetBarCenter = current.Position;
                     controlVelocity = current.Velocity;
-                    targetFishX += _fishVelocity * Math.Clamp((decisionMs-observationMs)/1000,0,.25);
+                    targetFishX += _fishVelocity * Math.Clamp((decisionMs - observationMs + 20.0) / 1000.0, 0, 0.25);
                 }
                 // Dynamic Bar-Relative Geometry (Calibrated via active Rod Profile)
                 double dynEdgeMargin = Math.Clamp(barW * _edgeMarginFactor, 20.0, 95.0);
@@ -2442,16 +2442,16 @@ public class FishingEngine : IDisposable
                         double brakeDist = (vRel < 0) ? (vRel * vRel) / (2.0 * aPull) : 0;
 
                         // Anti-Overshoot Phase A: Coast into target from the left
-                        // If the bar already has enough kinetic energy to coast right to the target, cut power!
-                        if (error > dynDeadzone && coastDist >= (error - 3.0) && vRel > 0)
+                        // Cut power only if kinetic momentum would blow PAST the fish and exit the deadzone
+                        if (error > dynDeadzone && coastDist >= (error + dynDeadzone) && vRel > 250.0)
                         {
                             SetMouseDown(false);
                             action = "Coast Right ->";
                             _reelPulses.Force(_clock.ElapsedMilliseconds(0), false);
                         }
                         // Anti-Overshoot Phase B: Brake into target from the right
-                        // If the bar is dropping left towards the target and must brake now to avoid blowing past, apply full pull!
-                        else if (error < -dynDeadzone && brakeDist >= (-error - 3.0) && vRel < 0)
+                        // Apply full pull only if falling momentum would blow PAST the fish and exit the deadzone
+                        else if (error < -dynDeadzone && brakeDist >= (-error + dynDeadzone) && vRel < -250.0)
                         {
                             SetMouseDown(true);
                             action = "<- Brake Left";
@@ -2460,14 +2460,14 @@ public class FishingEngine : IDisposable
                         // Phase C: Proportional Velocity Tracking with Time-Integrated Pulse Density Modulation
                         else
                         {
-                            // Velocity feedforward + proportional position error for precision centering
-                            double targetVel = _fishVelocity + (7.0 * error);
+                            // Velocity feedforward + proportional position error for precision dead-center lock
+                            double targetVel = _fishVelocity + (8.5 * error);
                             targetVel = Math.Clamp(targetVel, -850.0, 850.0);
                             double velError = targetVel - controlVelocity;
 
                             // Continuous throttle command centered around hover equilibrium
                             double kv = 1.0 / (aPull + aFall);
-                            double throttle = uHover + (velError * kv * 3.0);
+                            double throttle = uHover + (velError * kv * 3.5);
                             throttle = Math.Clamp(throttle, 0.0, 1.0);
 
                             // Settle desired versus actual held milliseconds;
