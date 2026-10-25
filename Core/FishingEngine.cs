@@ -2398,23 +2398,16 @@ public class FishingEngine : IDisposable
                 }
                 // Dynamic Bar-Relative Geometry (Calibrated via active Rod Profile)
                 double dynEdgeMargin = Math.Clamp(barW * _edgeMarginFactor, 20.0, 95.0);
-                double dynDeadzone = Math.Clamp(barW * _deadzoneFactor, 8.0, 24.0);
+                double dynDeadzone = Math.Clamp(barW * _deadzoneFactor, 4.0, 14.0);
 
                 if (hasBarTarget && hasFishTarget)
                 {
                     double release = (Config.EnableAdaptiveRodDynamics ? _releaseEstimator?.Pull ?? _gravityFallAccel / 1188.0 : _gravityFallAccel / 1188.0) * trackW;
-                    _centeringPlan.Configure(decisionMs,targetBarCenter,controlVelocity,targetFishX,_fishVelocity,
-                        _estRodPullAccel,release,_isMouseDown,trackLeft:trackX1,trackRight:trackX2,barHalfWidth:barW/2.0);
-                    _centeringUntil=decisionMs+250;
-                    _nextCenteringPulse=decisionMs+16;
-                    if(_centeringPlan.TryDuty(decisionMs,out double duty))
-                        SetMouseDown(_reelPulses.Choose(decisionMs,duty));
-                    double error=targetFishX-targetBarCenter;
-                    string direction=error>dynDeadzone&&_isMouseDown ? "PULL RIGHT >>" : error < -dynDeadzone&&!_isMouseDown ? "<< DROP LEFT" : "Centering";
-                    action=$"{direction} [{error:+0.0;-0.0;0.0}px]";
-                }
-                else if (hasBarTarget)
-                {
+                    _centeringPlan.Configure(decisionMs, targetBarCenter, controlVelocity, targetFishX, _fishVelocity,
+                        _estRodPullAccel, release, _isMouseDown, trackLeft: trackX1, trackRight: trackX2, barHalfWidth: barW / 2.0);
+                    _centeringUntil = decisionMs + 250;
+                    _nextCenteringPulse = decisionMs + 16;
+
                     double error = targetFishX - targetBarCenter;
 
                     // 1. CRITICAL OVERRIDE: Fish near edges of safe zone (immediate recovery)
@@ -2464,17 +2457,17 @@ public class FishingEngine : IDisposable
                             action = "<- Brake Left";
                             _reelPulses.Force(_clock.ElapsedMilliseconds(0), true);
                         }
-                        // Phase C: Proportional Velocity Tracking with Delta-Sigma Pulse Density Modulation
+                        // Phase C: Proportional Velocity Tracking with Time-Integrated Pulse Density Modulation
                         else
                         {
-                            // Velocity feedforward + proportional position error
-                            double targetVel = _fishVelocity + (5.0 * error);
+                            // Velocity feedforward + proportional position error for precision centering
+                            double targetVel = _fishVelocity + (7.0 * error);
                             targetVel = Math.Clamp(targetVel, -850.0, 850.0);
                             double velError = targetVel - controlVelocity;
 
                             // Continuous throttle command centered around hover equilibrium
                             double kv = 1.0 / (aPull + aFall);
-                            double throttle = uHover + (velError * kv * 2.8);
+                            double throttle = uHover + (velError * kv * 3.0);
                             throttle = Math.Clamp(throttle, 0.0, 1.0);
 
                             // Settle desired versus actual held milliseconds;

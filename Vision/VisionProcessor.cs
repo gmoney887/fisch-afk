@@ -621,7 +621,7 @@ public class VisionProcessor
         double maxArea = 0;
         int minBarH = (int)Math.Max(20, Math.Round(26 * scaleFactor));
         int maxBarH = (int)Math.Max(120, Math.Round(140 * scaleFactor));
-        int minBarW = (int)Math.Max(25, Math.Round(35 * scaleFactor));
+        int minBarW = (int)Math.Max(30, Math.Round(55 * scaleFactor));
         int maxBarW = (int)(cropW * 0.95);
 
         foreach (var cnt in contours)
