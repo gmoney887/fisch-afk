@@ -1,4 +1,18 @@
+param(
+    [string]$Version = ""
+)
+
 $ErrorActionPreference = 'Stop'
+$userDotNet = Join-Path $env:USERPROFILE '.dotnet'
+$dotnetExe = 'dotnet'
+if (Test-Path -LiteralPath $userDotNet) {
+    $env:DOTNET_ROOT = $userDotNet
+    $env:PATH = "$userDotNet;$env:PATH"
+    if (Test-Path (Join-Path $userDotNet 'dotnet.exe')) {
+        $dotnetExe = Join-Path $userDotNet 'dotnet.exe'
+    }
+}
+
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $rootPrefix = $projectRoot.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 $stamp = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss-fff')
@@ -11,10 +25,34 @@ foreach ($target in @($stage, $current, $rollback)) {
         throw "Publish target is a filesystem link: $target"
     }
 }
-& dotnet publish (Join-Path $projectRoot 'FischMacroCS.csproj') -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $stage
+
+$publishArgs = @('publish', (Join-Path $projectRoot 'FischMacroCS.csproj'), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $stage)
+if (-not [string]::IsNullOrWhiteSpace($Version)) {
+    $publishArgs += @("-p:Version=$Version", "-p:InformationalVersion=$Version")
+}
+& $dotnetExe @publishArgs
 if ($LASTEXITCODE -ne 0) { throw 'Publish failed. The previous portable build is untouched.' }
 if (-not (Test-Path -LiteralPath (Join-Path $stage 'FischMacroCS.exe'))) { throw 'Portable executable is missing.' }
-if (Test-Path -LiteralPath $current) { Move-Item -LiteralPath $current -Destination $rollback }
+if (Test-Path -LiteralPath $current) {
+    try {
+        Move-Item -LiteralPath $current -Destination $rollback -ErrorAction Stop
+    }
+    catch {
+        Write-Warning "Cannot replace '$current' directly because FischMacroCS is currently running."
+        $versionFolder = if (-not [string]::IsNullOrWhiteSpace($Version)) {
+            Join-Path $projectRoot "publish-$Version"
+        } else {
+            Join-Path $projectRoot "publish-singlefile-latest"
+        }
+        if (Test-Path -LiteralPath $versionFolder) {
+            Remove-Item -LiteralPath $versionFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Move-Item -LiteralPath $stage -Destination $versionFolder
+        Write-Output "Portable build: $versionFolder"
+        Write-Output "(Close the running FischMacroCS app to replace the default publish-singlefile folder)"
+        return
+    }
+}
 try { Move-Item -LiteralPath $stage -Destination $current }
 catch {
     if ((Test-Path -LiteralPath $rollback) -and -not (Test-Path -LiteralPath $current)) { Move-Item -LiteralPath $rollback -Destination $current }
