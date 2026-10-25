@@ -1468,7 +1468,7 @@ public class FishingEngine : IDisposable
         double now=_clock.ElapsedMilliseconds(0);
         if(now>_centeringUntil){_centeringPlan.Reset();SetMouseDown(false);return;}
         if(now<_nextCenteringPulse)return;
-        _nextCenteringPulse+=(Math.Floor((now-_nextCenteringPulse)/16)+1)*16;
+        _nextCenteringPulse+=(Math.Floor((now-_nextCenteringPulse)/30)+1)*30;
         if(_centeringPlan.TryDuty(now,out double duty))SetMouseDown(_reelPulses.Choose(now,duty));
     }
 
@@ -2406,7 +2406,7 @@ public class FishingEngine : IDisposable
                     _centeringPlan.Configure(decisionMs, targetBarCenter, controlVelocity, targetFishX, _fishVelocity,
                         _estRodPullAccel, release, _isMouseDown, trackLeft: trackX1, trackRight: trackX2, barHalfWidth: barW / 2.0);
                     _centeringUntil = decisionMs + 250;
-                    _nextCenteringPulse = decisionMs + 16;
+                    _nextCenteringPulse = decisionMs + 30;
 
                     double error = targetFishX - targetBarCenter;
 

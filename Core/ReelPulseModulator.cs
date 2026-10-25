@@ -50,7 +50,7 @@ public sealed class ReelPulseModulator
             double elapsed = (nowMs - _decisionTime) / 1000;
             if (elapsed > 0)
             {
-                double period = Math.Clamp(elapsed, .01, .25);
+                double period = Math.Clamp(elapsed, .05, .25);
                 _period += .35 * (period - _period);
             }
         }
