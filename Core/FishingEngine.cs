@@ -803,6 +803,7 @@ public class FishingEngine : IDisposable
     private double _prevFishX = 0;
     private double _fishVelocity = 0;
     private double _lastReelObservationMs;
+    private double _centerIntegral = 0;
     private readonly ReelInputMotion _reelMotion = new();
     private readonly ReelActuationPlan _centeringPlan = new();
     private readonly Lazy<AutomationCoordinator> _frameWorker = new(() => new AutomationCoordinator());
@@ -2237,6 +2238,7 @@ public class FishingEngine : IDisposable
                 {
                     _prevBarCenter = _prevFishX = 0;
                     _barVelocity = _fishVelocity = _prevBarVelocity = 0;
+                    _centerIntegral = 0;
                     // Only motion history is invalid. Evaluate current positions
                     // and ordinary safety/deadline checks on this same tick.
                     dtSec = .01;
@@ -2245,6 +2247,7 @@ public class FishingEngine : IDisposable
                 {
                     _prevBarCenter = _prevFishX = 0;
                     _barVelocity = _fishVelocity = _prevBarVelocity = 0;
+                    _centerIntegral = 0;
                     _centeringPlan.Reset();
                     SetMouseDown(false);
                     Delay(1);
@@ -2331,12 +2334,13 @@ public class FishingEngine : IDisposable
                         hasFishTarget = true;
                         targetFishX = detect.FishX;
 
-                        // Fish velocity smoothing
+                        // Fish velocity smoothing with instant response on direction reversals
                         if (_prevFishX > 0 && dtSec > 0)
                         {
                             double rawFVel = (detect.FishX - _prevFishX) / dtSec;
                             rawFVel = Math.Clamp(rawFVel, -2.1 * trackW, 2.1 * trackW);
-                            _fishVelocity = (_fishVelocity * 0.4) + (rawFVel * 0.6);
+                            double alpha = (rawFVel * _fishVelocity < 0 && Math.Abs(rawFVel) > 40.0) ? 0.85 : 0.60;
+                            _fishVelocity = (_fishVelocity * (1.0 - alpha)) + (rawFVel * alpha);
                         }
                         else
                         {
@@ -2411,13 +2415,18 @@ public class FishingEngine : IDisposable
                     double error = targetFishX - targetBarCenter;
 
                     // 1. CRITICAL OVERRIDE: Fish near edges of safe zone (immediate recovery)
-                    if (targetFishX >= targetBarRight - dynEdgeMargin)
+                    // Velocity-predictive edge defense: anticipate when an agile fish is darting towards the edge
+                    double edgeLeadSec = Math.Clamp(Math.Abs(_fishVelocity) / (2.0 * Math.Max(200.0, _estRodPullAccel)), 0.05, 0.16);
+                    double projectedFishRight = targetFishX + (_fishVelocity > 0 ? _fishVelocity * edgeLeadSec : 0);
+                    double projectedFishLeft = targetFishX + (_fishVelocity < 0 ? _fishVelocity * edgeLeadSec : 0);
+
+                    if (projectedFishRight >= targetBarRight - dynEdgeMargin)
                     {
                         SetMouseDown(true);
                         action = "EMERGENCY RIGHT >>";
                         _reelPulses.Force(_clock.ElapsedMilliseconds(0), true);
                     }
-                    else if (targetFishX <= targetBarLeft + dynEdgeMargin)
+                    else if (projectedFishLeft <= targetBarLeft + dynEdgeMargin)
                     {
                         SetMouseDown(false);
                         action = "<< EMERGENCY LEFT";
@@ -2457,11 +2466,21 @@ public class FishingEngine : IDisposable
                             action = "<- Brake Left";
                             _reelPulses.Force(_clock.ElapsedMilliseconds(0), true);
                         }
-                        // Phase C: Proportional Velocity Tracking with Time-Integrated Pulse Density Modulation
+                        // Phase C: Proportional-Integral-Derivative Velocity Tracking with Time-Integrated Pulse Density Modulation
                         else
                         {
-                            // Velocity feedforward + proportional position error for precision dead-center lock
-                            double targetVel = _fishVelocity + (8.5 * error);
+                            // Anti-windup integral term cancels steady-state offsets without destabilizing large excursions
+                            if (Math.Abs(error) < dynEdgeMargin)
+                            {
+                                _centerIntegral = Math.Clamp(_centerIntegral + (error * dtSec), -30.0, 30.0);
+                            }
+                            else
+                            {
+                                _centerIntegral = 0;
+                            }
+
+                            // Velocity feedforward + proportional position error + integral centering for exact 0.0px lock
+                            double targetVel = _fishVelocity + (8.5 * error) + (_centerIntegral * 1.2);
                             targetVel = Math.Clamp(targetVel, -850.0, 850.0);
                             double velError = targetVel - controlVelocity;
 
