@@ -77,4 +77,71 @@ public class RuinousOathTests
         engine.ApplyRodProfile("Ruinous Oath");
         Assert.Equal(680.0, engine.EstimatedRodPull);
     }
+
+    [Theory]
+    [InlineData("oath_green_238.png", 1098, 1358, 1835)]
+    [InlineData("oath_slash_297.png", 1697, 1961, 1836)]
+    [InlineData("oath_red_475.png", 1612, 1823, 1719)]
+    [InlineData("oath_brown_484.png", 1035, 1246, 1440)]
+    public void RuinousOath_DynamicPalettes_TrackAccurately(string fixture, int expLeft, int expRight, int expFishX)
+    {
+        using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+        Assert.False(frame.Empty(), $"Fixture {fixture} must load");
+
+        var vision = new VisionProcessor();
+        using var result = vision.ProcessTrack(frame, 968, 1013, 1369.0 / 1080.0, MinigameTheme.Ruinous, false);
+
+        Assert.True(result.HasLiveReel, $"Fixture {fixture} must detect live reel");
+        Assert.True(result.BarFound, $"Fixture {fixture} must find bar");
+        Assert.True(result.FishFound, $"Fixture {fixture} must find fish");
+        Assert.InRange(result.BarLeft, expLeft - 25, expLeft + 25);
+        Assert.InRange(result.BarRight, expRight - 25, expRight + 25);
+        Assert.InRange(result.FishX, expFishX - 25, expFishX + 25);
+    }
+
+    [Fact]
+    public void RuinousOath_AutoCalibrate_Sequence_DoesNotLockToDefaultAndLoseGreenOrBrownBar()
+    {
+        var vision = new VisionProcessor();
+
+        // Step 1: Start with frame 210 from user session
+        using var fStart = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "oath_start_210.png"));
+        using var res1 = vision.ProcessTrack(fStart, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+        using var res2 = vision.ProcessTrack(fStart, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+
+        // Step 2: Bar shifts away to green (drifting)
+        using var fGreen = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "oath_green_238.png"));
+        using var resGreen = vision.ProcessTrack(fGreen, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+
+        // Must still find the green bar at ~1098..1358 and NOT lose it or report a false white ghost at 1829!
+        Assert.True(resGreen.BarFound, "Must find green bar in AutoCalibrate after white frames");
+        Assert.InRange(resGreen.BarLeft, 1070, 1125);
+        // Step 3: Bar shifts to brown
+        using var fBrown = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "oath_brown_484.png"));
+        using var resBrown = vision.ProcessTrack(fBrown, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+        Assert.True(resBrown.BarFound, "Must find brown bar in AutoCalibrate");
+        Assert.InRange(resBrown.BarLeft, 1010, 1060);
+        Assert.InRange(resBrown.BarRight, 1220, 1270);
+    }
+
+    [Theory]
+    [InlineData("oath_green_238.png", 1098, 1358, 1835)]
+    [InlineData("oath_slash_297.png", 1697, 1961, 1836)]
+    [InlineData("oath_red_475.png", 1612, 1823, 1719)]
+    [InlineData("oath_brown_484.png", 1035, 1246, 1440)]
+    public void RuinousOath_AutoCalibrate_IndividualFrames_ResolveThemeAndBounds(string fixture, int expLeft, int expRight, int expFishX)
+    {
+        using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
+        Assert.False(frame.Empty(), $"Fixture {fixture} must load");
+
+        var vision = new VisionProcessor();
+        using var result = vision.ProcessTrack(frame, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+
+        Assert.True(result.HasLiveReel, $"Fixture {fixture} must detect live reel");
+        Assert.True(result.BarFound, $"Fixture {fixture} must find bar");
+        Assert.True(result.FishFound, $"Fixture {fixture} must find fish");
+        Assert.InRange(result.BarLeft, expLeft - 25, expLeft + 25);
+        Assert.InRange(result.BarRight, expRight - 25, expRight + 25);
+        Assert.InRange(result.FishX, expFishX - 25, expFishX + 25);
+    }
 }

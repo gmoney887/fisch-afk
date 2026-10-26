@@ -85,12 +85,18 @@ public class VisionProcessor
             case MinigameTheme.Golden:
                 Cv2.InRange(hsv, new Scalar(18, 100, 200), new Scalar(35, 255, 255), output); break;
             case MinigameTheme.Ruinous:
-                using (var m1 = new Mat())
-                using (var m2 = new Mat())
+                using (var mRed1 = new Mat())
+                using (var mRed2 = new Mat())
+                using (var mGreen = new Mat())
                 {
-                    Cv2.InRange(hsv, new Scalar(0, 40, 40), new Scalar(25, 255, 255), m1);
-                    Cv2.InRange(hsv, new Scalar(155, 40, 40), new Scalar(179, 255, 255), m2);
-                    Cv2.BitwiseOr(m1, m2, output);
+                    // Red & Brown / Dim Red: Hue 0..35 and 155..179
+                    Cv2.InRange(hsv, new Scalar(0, 25, 40), new Scalar(35, 255, 255), mRed1);
+                    Cv2.InRange(hsv, new Scalar(155, 25, 40), new Scalar(179, 255, 255), mRed2);
+                    Cv2.BitwiseOr(mRed1, mRed2, output);
+
+                    // Olive / Green (unaligned drifting bar): Hue 35..90
+                    Cv2.InRange(hsv, new Scalar(35, 20, 40), new Scalar(90, 255, 255), mGreen);
+                    Cv2.BitwiseOr(output, mGreen, output);
                 }
                 break;
             case MinigameTheme.Doomsekkar:
@@ -153,6 +159,21 @@ public class VisionProcessor
                 alternative.Dispose();
             }
         }
+        if ((theme == MinigameTheme.Ruinous || _lockedTheme == MinigameTheme.Ruinous) && !result.BarFound)
+        {
+            var whiteAlt = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor, MinigameTheme.Default, generateDebug);
+            whiteAlt.ReelProgressFound = result.ReelProgressFound;
+            if (whiteAlt.BarFound && whiteAlt.FishFound)
+            {
+                result.Dispose();
+                result = whiteAlt;
+                result.ResolvedTheme = MinigameTheme.Ruinous;
+            }
+            else
+            {
+                whiteAlt.Dispose();
+            }
+        }
         // Inline fish glyphs use a different silhouette from the default needle.
         // Confirm all three independent shapes before accepting an unfamiliar palette.
         if (!result.HasLiveReel && DetectInlineReelFish(crop, absOffsetY, viewportHeight) is Rect inlineFish
@@ -186,15 +207,18 @@ public class VisionProcessor
                     Cv2.Rectangle(result.AnnotatedFrame, bar, Scalar.FromRgb(0, 230, 118), 2);
             }
         }
-        if (theme == MinigameTheme.AutoCalibrate && !_lockedTheme.HasValue)
+        if (theme == MinigameTheme.AutoCalibrate)
         {
-            if (result.HasLiveReel)
+            if (!_lockedTheme.HasValue || (_lockedTheme == MinigameTheme.Default && result.ResolvedTheme == MinigameTheme.Ruinous))
             {
-                _themeMatches = _candidateTheme == result.ResolvedTheme ? _themeMatches + 1 : 1;
-                _candidateTheme = result.ResolvedTheme;
-                if (_themeMatches >= 2) _lockedTheme = result.ResolvedTheme;
+                if (result.HasLiveReel)
+                {
+                    _themeMatches = _candidateTheme == result.ResolvedTheme ? _themeMatches + 1 : 1;
+                    _candidateTheme = result.ResolvedTheme;
+                    if (_themeMatches >= 2 || result.ResolvedTheme == MinigameTheme.Ruinous) _lockedTheme = result.ResolvedTheme;
+                }
+                else { _themeMatches = 0; _candidateTheme = null; }
             }
-            else { _themeMatches = 0; _candidateTheme = null; }
         }
         // Catch text and the displayed fish can satisfy both bar and needle
         // geometry after Glorp's track vanishes. A confirmed player catch
