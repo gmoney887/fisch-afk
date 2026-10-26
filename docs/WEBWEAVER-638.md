@@ -24,6 +24,9 @@ Current ordinary bar/meter continuity avoids an unnecessary family search during
 a missing needle. A current pointed hint changes search order only. A miss runs
 the AGY reader immediately; resize, stop, reel end or lost context clears hints.
 Decorative rail ridges are not published as measured stationary endpoints.
+Cold discovery first requires a current thin-panel nomination before extracting
+edges. The marker search uses the measured reference spacing from the meter;
+all original tip/cap/meter acceptance proofs and coordinate assertions remain.
 
 The legacy entry/reel crop cuts off Webweaver's meter. Entry now acquires full
 context, and lure/scene checks reuse existing full frames. Subsequent reel captures

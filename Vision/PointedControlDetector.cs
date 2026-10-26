@@ -26,7 +26,11 @@ internal static class PointedControlDetector
         Cv2.MeanStdDev(image,out _,out Scalar deviation);
         if(deviation.Val0==0&&deviation.Val1==0&&deviation.Val2==0)return null;
         using var gray = new Mat(); using var edges = new Mat(); using var horizontal = new Mat();
-        Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY); Cv2.Canny(gray, edges, 5, 15);
+        Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY);
+        // Most non-reel frames have no candidate meter. Reject those before
+        // edge extraction; a warmed hint still goes straight to current proof.
+        if(meterHint is null&&!HasPotentialMeter(gray))return null;
+        Cv2.Canny(gray, edges, 5, 15);
         var edge = edges.GetUnsafeGenericIndexer<byte>(); var tones = gray.GetUnsafeGenericIndexer<byte>();
         bool Hit(int x, int y)
         {
@@ -71,8 +75,10 @@ internal static class PointedControlDetector
             var meter=candidate.Meter;
             trace?.Invoke($"pointed meter={meter}");
             double scale = meter.Width / 749.0;
-            var search = new Rect(Math.Max(0, meter.X - meter.Width / 2), Math.Max(0, meter.Y - (int)(meter.Width * .55)),
-                Math.Min(imageWidth, meter.Width * 2), (int)(meter.Width * .43)) & new Rect(0, 0, imageWidth, imageHeight);
+            // Measured reference spacing leaves a generous corridor around
+            // both current marker tips, without scanning the unrelated header.
+            var search = new Rect(Math.Max(0, meter.X - meter.Width / 2), Math.Max(0, meter.Y - (int)(meter.Width * .43)),
+                Math.Min(imageWidth, meter.Width * 2), (int)(meter.Width * .26)) & new Rect(0, 0, imageWidth, imageHeight);
             if (search.Width < 1 || search.Height < 1) continue;
             Mat Template(Mat shape,int shapeIndex)
             {
@@ -265,6 +271,7 @@ internal static class PointedControlDetector
             var warmed=Read(new[]{(Meter:hint,Observed:true)});
             if(warmed.HasValue)return warmed;
         }
+        if(meterHint is not null&&!HasPotentialMeter(gray))return null;
         using var ridges = new Mat(); using var dark = new Mat(); using var light = new Mat();
         using var ridgeKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(1, 5));
         Cv2.MorphologyEx(gray, dark, MorphTypes.BlackHat, ridgeKernel); Cv2.MorphologyEx(gray, light, MorphTypes.TopHat, ridgeKernel);
@@ -436,5 +443,19 @@ internal static class PointedControlDetector
 
         return Read(meters.OrderByDescending(m=>m.Width).Take(4).Select(m=>(Meter:m,Observed:true))
             .Concat(panelHints.OrderByDescending(m=>m.Width).Take(4).Select(m=>(Meter:m,Observed:false))));
+    }
+
+    private static bool HasPotentialMeter(Mat gray)
+    {
+        // Only a proposal gate: every accepted meter still passes the original
+        // wall, corner and shoulder proofs. No hue or desktop scale is used.
+        using var gradient=new Mat();using var flat=new Mat();
+        using var vertical=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(1,3));
+        using var horizontal=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(31,1));
+        Cv2.MorphologyEx(gray,gradient,MorphTypes.Gradient,vertical);
+        Cv2.Compare(gradient,Scalar.All(3),flat,CmpTypes.LE);
+        Cv2.MorphologyEx(flat,flat,MorphTypes.Open,horizontal);
+        Cv2.FindContours(flat,out Point[][] contours,out _,RetrievalModes.List,ContourApproximationModes.ApproxSimple);
+        return contours.Select(Cv2.BoundingRect).Any(r=>r.Width>=120&&r.Height>=3&&r.Width/(double)r.Height is >=20 and <=150);
     }
 }
