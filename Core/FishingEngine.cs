@@ -528,6 +528,12 @@ public class FishingEngine : IDisposable
                 _deadzoneFactor = 0.025;
                 _edgeMarginFactor = 0.12;
                 break;
+            case "Doomsekkar":
+                _baseRodPullAccel = 670.0;
+                _gravityFallAccel = 420.0;
+                _deadzoneFactor = 0.025;
+                _edgeMarginFactor = 0.12;
+                break;
             case "Standard":
             default:
                 _baseRodPullAccel = 550.0;
@@ -2272,6 +2278,14 @@ public class FishingEngine : IDisposable
                 {
                     _baseRodPullAccel = 680.0;
                     _gravityFallAccel = 430.0;
+                    _deadzoneFactor = 0.025;
+                    _edgeMarginFactor = 0.12;
+                    if (_rodEstimator == null) _estRodPullAccel = _baseRodPullAccel;
+                }
+                else if (detect.ResolvedTheme == MinigameTheme.Doomsekkar && Config.RodProfile == "Standard")
+                {
+                    _baseRodPullAccel = 670.0;
+                    _gravityFallAccel = 420.0;
                     _deadzoneFactor = 0.025;
                     _edgeMarginFactor = 0.12;
                     if (_rodEstimator == null) _estRodPullAccel = _baseRodPullAccel;

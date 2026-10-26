@@ -93,6 +93,15 @@ public class VisionProcessor
                     Cv2.BitwiseOr(m1, m2, output);
                 }
                 break;
+            case MinigameTheme.Doomsekkar:
+                using (var m1 = new Mat())
+                using (var m2 = new Mat())
+                {
+                    Cv2.InRange(hsv, new Scalar(120, 30, 110), new Scalar(165, 255, 255), m1);
+                    Cv2.InRange(hsv, new Scalar(35, 40, 90), new Scalar(85, 255, 255), m2);
+                    Cv2.BitwiseOr(m1, m2, output);
+                }
+                break;
             default:
                 Cv2.InRange(hsv, new Scalar(0, 0, 201), new Scalar(179, 55, 255), output); break;
         }
@@ -115,6 +124,13 @@ public class VisionProcessor
             // that happens to satisfy another rod's color thresholds.
             if (theme == MinigameTheme.Glorp || glorp.HasLiveReel || _lockedTheme == MinigameTheme.Glorp) return glorp;
             glorp.Dispose();
+        }
+        if (theme == MinigameTheme.Doomsekkar || theme == MinigameTheme.AutoCalibrate)
+        {
+            var doom = ProcessDoomsekkar(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
+            if (doom.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Doomsekkar;
+            if (theme == MinigameTheme.Doomsekkar || doom.HasLiveReel || _lockedTheme == MinigameTheme.Doomsekkar) return doom;
+            doom.Dispose();
         }
         var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
             theme == MinigameTheme.AutoCalibrate ? _lockedTheme ?? MinigameTheme.Default : theme, generateDebug);
@@ -350,6 +366,246 @@ public class VisionProcessor
                 Cv2.Rectangle(result.AnnotatedFrame, new Rect(fish.X, top + fish.Y, fish.Width, fish.Height), Scalar.Red, 2);
             }
         }
+        return result;
+    }
+
+    private static DetectionResult ProcessDoomsekkar(Mat crop, int offsetX, int offsetY, double height, bool debug)
+    {
+        var result = new DetectionResult { ResolvedTheme = MinigameTheme.Doomsekkar };
+
+        // 1. Progress Bar Detection (Neon Green Strip: 0.90 to 0.94 of viewport height)
+        int pTop = Math.Max(0, (int)(height * 0.90) - offsetY);
+        int pBottom = Math.Min(crop.Height, (int)(height * 0.94) - offsetY);
+        if (pBottom > pTop)
+        {
+            using var pStrip = new Mat(crop, new Rect(0, pTop, crop.Width, pBottom - pTop));
+            using var pHsv = new Mat();
+            using var pMask = new Mat();
+            Cv2.CvtColor(pStrip, pHsv, ColorConversionCodes.BGR2HSV);
+            Cv2.InRange(pHsv, new Scalar(35, 90, 90), new Scalar(85, 255, 255), pMask);
+
+            using var pBridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(3, (int)Math.Round(height * 0.035)), 1));
+            Cv2.MorphologyEx(pMask, pMask, MorphTypes.Close, pBridge);
+            Cv2.FindContours(pMask, out Point[][] pContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+            foreach (var contour in pContours)
+            {
+                var box = Cv2.BoundingRect(contour);
+                double solidity = Cv2.ContourArea(contour) / Math.Max(1.0, (box.Width - 1) * (box.Height - 1));
+                if (box.Width >= height * 0.015 && box.Width <= height * 0.60
+                    && box.Height >= height * 0.005 && box.Height <= height * 0.022
+                    && solidity >= 0.70)
+                {
+                    result.ReelProgressFound = true;
+                    break;
+                }
+            }
+        }
+
+        // An unfamiliar custom rod palette cannot confirm live reel without its progress meter
+        if (!result.ReelProgressFound)
+            return result;
+
+        // 2. Fish Target (Green Pumpkin Flame/Contour + Black Stalk Projection)
+        int fTop = 0;
+        int fBottom = Math.Min(crop.Height, (int)(height * 0.82) - offsetY);
+        if (fBottom > fTop)
+        {
+            using var fStrip = new Mat(crop, new Rect(0, fTop, crop.Width, fBottom - fTop));
+            using var fHsv = new Mat();
+            Cv2.CvtColor(fStrip, fHsv, ColorConversionCodes.BGR2HSV);
+
+            // Black stalk mask: V <= 60
+            using var blackMask = new Mat();
+            Cv2.InRange(fHsv, new Scalar(0, 0, 0), new Scalar(179, 255, 60), blackMask);
+            using var vColSum = new Mat();
+            Cv2.Reduce(blackMask, vColSum, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+
+            // Green contour near top of crop (pumpkin base / flame / leaf)
+            using var topStrip = new Mat(fHsv, new Rect(0, 0, crop.Width, Math.Min(fStrip.Height, (int)(height * 0.045))));
+            using var topGreen = new Mat();
+            Cv2.InRange(topStrip, new Scalar(35, 60, 60), new Scalar(85, 255, 255), topGreen);
+            Cv2.FindContours(topGreen, out Point[][] gContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+            double bestFishScore = 0;
+            double detectedX = 0;
+            float bestStalkVal = 0;
+
+            foreach (var c in gContours)
+            {
+                var box = Cv2.BoundingRect(c);
+                double area = Cv2.ContourArea(c);
+                if (box.Width >= height * 0.02 && box.Height >= height * 0.008 && area >= 50)
+                {
+                    double cx = box.X + box.Width / 2.0;
+                    int xStart = Math.Max(0, (int)(cx - height * 0.02));
+                    int xEnd = Math.Min(crop.Width - 1, (int)(cx + height * 0.02));
+                    float maxStalk = 0;
+                    int bestStalkX = (int)cx;
+                    for (int x = xStart; x <= xEnd; x++)
+                    {
+                        float val = vColSum.At<float>(0, x);
+                        if (val > maxStalk) { maxStalk = val; bestStalkX = x; }
+                    }
+
+                    double score = area + (maxStalk > 100 ? 5000 : maxStalk * 20);
+                    if (score > bestFishScore)
+                    {
+                        bestFishScore = score;
+                        detectedX = (maxStalk > 120) ? bestStalkX : cx;
+                        bestStalkVal = maxStalk;
+                    }
+                }
+            }
+
+            // A valid pumpkin fish glyph must be anchored to a dark stalk
+            if (bestFishScore > 0 && bestStalkVal >= 50)
+            {
+                result.FishFound = true;
+                result.FishX = offsetX + (int)Math.Round(detectedX);
+            }
+        }
+
+        // 3. Control Bar Detection (Purple body + Lime fangs)
+        int bTop = Math.Max(0, (int)(height * 0.81) - offsetY);
+        int bBottom = Math.Min(crop.Height, (int)(height * 0.88) - offsetY);
+        if (bBottom > bTop)
+        {
+            using var bStrip = new Mat(crop, new Rect(0, bTop, crop.Width, bBottom - bTop));
+            using var bHsv = new Mat();
+            using var purple = new Mat();
+            using var lime = new Mat();
+            using var combined = new Mat();
+            Cv2.CvtColor(bStrip, bHsv, ColorConversionCodes.BGR2HSV);
+
+            Cv2.InRange(bHsv, new Scalar(120, 30, 110), new Scalar(165, 255, 255), purple);
+            Cv2.InRange(bHsv, new Scalar(35, 40, 90), new Scalar(85, 255, 255), lime);
+
+            // Both distinctive purple box and interior lime fangs must exist
+            int purplePixels = Cv2.CountNonZero(purple);
+            int limePixels = Cv2.CountNonZero(lime);
+            if (purplePixels >= height * 0.15 && limePixels >= height * 0.05)
+            {
+                Cv2.BitwiseOr(purple, lime, combined);
+
+                using var colSum = new Mat();
+                Cv2.Reduce(combined, colSum, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+                using var colThresh = new Mat();
+                Cv2.InRange(colSum, new Scalar(255 * 0.30), new Scalar(255), colThresh);
+
+                using var sBridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(5, (int)(height * 0.015)), 1));
+                Cv2.MorphologyEx(colThresh, colThresh, MorphTypes.Close, sBridge);
+                Cv2.FindContours(colThresh, out Point[][] bContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+
+                var segments = new List<Rect>();
+                foreach (var c in bContours)
+                {
+                    var b = Cv2.BoundingRect(c);
+                    if (b.Width >= height * 0.05)
+                    {
+                        segments.Add(b);
+                    }
+                }
+                segments.Sort((a, b) => a.X.CompareTo(b.X));
+
+                double maxGap = height * 0.065;
+                var merged = new List<Rect>();
+                foreach (var seg in segments)
+                {
+                    if (merged.Count > 0)
+                    {
+                        var last = merged[^1];
+                        int gap = seg.X - (last.X + last.Width);
+                        if (gap >= 0 && gap <= maxGap)
+                        {
+                            merged[^1] = new Rect(last.X, last.Y, (seg.X + seg.Width) - last.X, Math.Max(last.Height, seg.Height));
+                            continue;
+                        }
+                    }
+                    merged.Add(seg);
+                }
+
+                double expectedBarW = height * 0.3755;
+                double railMinX = (crop.Width / 2.0) - (height * 0.548);
+                double railMaxX = (crop.Width / 2.0) + (height * 0.548);
+
+                Rect? bestBar = null;
+                double minDiff = double.MaxValue;
+                foreach (var box in merged)
+                {
+                    if (box.Width >= height * 0.15 && box.Width <= height * 0.65)
+                    {
+                        double diff = Math.Abs(box.Width - expectedBarW);
+                        if (diff < minDiff)
+                        {
+                            minDiff = diff;
+                            bestBar = box;
+                        }
+                    }
+                }
+
+                if (bestBar is Rect bar)
+                {
+                    double left = bar.Left;
+                    double right = bar.Right;
+                    double width = bar.Width;
+
+                    if (width > expectedBarW + height * 0.025)
+                    {
+                        bool atLeftWall = Math.Abs(bar.Left - railMinX) < height * 0.04;
+                        bool atRightWall = Math.Abs(bar.Right - railMaxX) < height * 0.04;
+
+                        if (atLeftWall)
+                        {
+                            left = railMinX;
+                            right = left + expectedBarW;
+                        }
+                        else if (atRightWall)
+                        {
+                            right = railMaxX;
+                            left = right - expectedBarW;
+                        }
+                        else
+                        {
+                            double center = (bar.Left + bar.Right) / 2.0;
+                            left = center - expectedBarW / 2.0;
+                            right = center + expectedBarW / 2.0;
+                        }
+                        width = right - left;
+                    }
+
+                    result.BarFound = true;
+                    result.BarLeft = offsetX + (int)Math.Round(left);
+                    result.BarRight = offsetX + (int)Math.Round(right);
+                    result.BarWidth = (int)Math.Round(width);
+                    result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+                }
+            }
+        }
+
+        // Require both fish and bar for an unfamiliar custom minigame reel
+        if (!result.FishFound || !result.BarFound)
+        {
+            result.FishFound = result.BarFound = false;
+            result.BarLeft = result.BarRight = result.BarWidth = result.FishX = 0;
+            result.BarCenter = 0;
+            return result;
+        }
+
+        if (debug)
+        {
+            result.AnnotatedFrame = crop.Clone();
+            if (result.BarFound)
+            {
+                int bH = Math.Max(10, bBottom - bTop);
+                Cv2.Rectangle(result.AnnotatedFrame, new Rect(result.BarLeft - offsetX, bTop, result.BarWidth, bH), Scalar.FromRgb(168, 85, 247), 2);
+            }
+            if (result.FishFound)
+            {
+                Cv2.Line(result.AnnotatedFrame, new Point(result.FishX - offsetX, 0), new Point(result.FishX - offsetX, crop.Height), Scalar.FromRgb(34, 197, 94), 2);
+            }
+        }
+
         return result;
     }
 

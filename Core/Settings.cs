@@ -12,7 +12,8 @@ public enum MinigameTheme
     Trident,
     Golden,
     Glorp,
-    Ruinous
+    Ruinous,
+    Doomsekkar
 }
 
 public class Settings

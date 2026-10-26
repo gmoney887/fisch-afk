@@ -827,6 +827,7 @@
                                         <ComboBoxItem Content="Golden"/>
                                         <ComboBoxItem Content="Blade of Glorp"/>
                                         <ComboBoxItem Content="Ruinous (Red)"/>
+                                        <ComboBoxItem Content="Doomsekkar (Spooky)"/>
                                     </ComboBox>
                                 </StackPanel>
 
