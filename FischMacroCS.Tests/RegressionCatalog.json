@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Scope": "Isolated126 baseline; reviewed source625 timing/geometry evidence only. Archived full catalog remains on codex/archive-post-126-20261024-625.",
+  "Scope": "AGY v1.0.27 4f96f45 with diagnostics-only candidate 637. Existing reviewed geometry fixtures retained unchanged; runtime incidents remain Unreviewed.",
   "Cases": [
     {
       "Id": "625-seraphic-tilt-latency-20261024",
@@ -16,6 +16,22 @@
         "FischMacroCS.Tests.Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost"
       ],
       "Expectation": "Reviewed native body bounds/width/target and four-observation cost <=250ms; no live centering acceptance"
+    },
+    {
+      "Id": "637-diagnostics-preservation",
+      "Status": "Reviewed",
+      "SourceSession": "Generated temporary storage tests; no additional recorded attempt",
+      "Evidence": "docs/DIAGNOSTICS-637.md",
+      "Fixtures": [],
+      "Tests": [
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.DecisionJournalKeepsObservedGeometrySeparateFromControlEstimates",
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.UserStopWhileReelingPreservesOriginalEvidenceWithoutCallingItACatchFailure",
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.UnwritableIncidentArchiveLeavesTheRealRollingWriterHealthy",
+        "FischMacroCS.Tests.RecorderArchiveStatusTests.FullIncidentArchiveLeavesRollingFramesActiveAndRecoversAfterCapacityReturns",
+        "FischMacroCS.Tests.IncidentEvidenceArchiveTests.RoutineSessionRetentionCannotDeleteThePreservedIncident",
+        "FischMacroCS.Tests.IncidentEvidenceArchiveTests.FreezesBoundedBeforeAndAfterWithIdentityCoordinatesInputsAndHashes"
+      ],
+      "Expectation": "Actual writer preserves original hashes, source identity, coordinates/events, incomplete windows and export; optional archive failures do not stop rolling recording. No live acceptance."
     }
   ],
   "Fixtures": [

@@ -548,9 +548,23 @@ public partial class MainWindow : Window
                 {
                     TxtRecordingIndicator.Visibility = Visibility.Visible;
                     TxtRecordingIndicator.Text = "REC ERROR";
+                    TxtRecordingIndicator.Foreground = CachedBrush(Color.FromRgb(239, 68, 68));
                     TxtRecordingIndicator.ToolTip = recorderError;
                 }
-                else { TxtRecordingIndicator.Text = "● REC"; TxtRecordingIndicator.ToolTip = null; }
+                else if (_engine.Recorder.IncidentArchiveWarning is string archiveWarning)
+                {
+                    TxtRecordingIndicator.Visibility = Visibility.Visible;
+                    TxtRecordingIndicator.Text = _engine.Recorder.IsRecording ? "REC · CLIPS" : "CLIP WARNING";
+                    TxtRecordingIndicator.Foreground = CachedBrush(Color.FromRgb(245, 158, 11));
+                    TxtRecordingIndicator.ToolTip = archiveWarning + (_engine.Recorder.IsRecording
+                        ? " Rolling recording continues." : " Recorder is stopped.");
+                }
+                else
+                {
+                    TxtRecordingIndicator.Text = "● REC";
+                    TxtRecordingIndicator.Foreground = CachedBrush(Color.FromRgb(239, 68, 68));
+                    TxtRecordingIndicator.ToolTip = null;
+                }
 
                 // Update Live Action Overlay on Camera Preview
                 if (t.State == MacroState.Reeling && !string.IsNullOrEmpty(t.Action))

@@ -99,8 +99,10 @@ public class RecordingSubmissionService
             long selectedBytes = Directory.EnumerateFiles(sessionDir).Where(path =>
                 media == null || !path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || media.Frames.Contains(Path.GetFileName(path)))
                 .Sum(path => new FileInfo(path).Length);
-            long recordingBytes = Directory.EnumerateDirectories(baseDir, "session_*").Sum(FlightRecorder.StoredBytes)
-                + FlightRecorder.StoredBytes(exportsDir);
+            string budgetRoot = Path.GetFileName(baseDir) == "incident-archive" ? Path.GetDirectoryName(baseDir)! : baseDir;
+            long recordingBytes = Directory.EnumerateDirectories(budgetRoot, "session_*").Sum(FlightRecorder.StoredBytes)
+                + FlightRecorder.StoredBytes(Path.Combine(budgetRoot, "incident-archive"))
+                + FlightRecorder.StoredBytes(Path.Combine(budgetRoot, "exports"));
             if (recordingBytes + selectedBytes * 2 + 1024 * 1024 > 1024L * 1024 * 1024)
                 throw new IOException("The 1 GB recording/report budget is full. Export or remove old reports, or select fewer frames.");
             // Never replace a previous report whose upload may have an uncertain outcome.
@@ -146,7 +148,7 @@ public class RecordingSubmissionService
 
                 // Session-owned metadata only: never mix current statistics or logs into an older report.
                 foreach (string name in new[] { "manifest.json", "events.jsonl", "events.1.jsonl", "events.2.jsonl", "events.3.jsonl",
-                    "incidents.jsonl", "incidents.1.jsonl", "incidents.2.jsonl", "incidents.3.jsonl", "completed.json", "frame-index.json", "first-incident.json" })
+                    "incidents.jsonl", "incidents.1.jsonl", "incidents.2.jsonl", "incidents.3.jsonl", "completed.json", "frame-index.json", "first-incident.json", "incident.json" })
                 {
                     string source = Path.Combine(sessionDir, name);
                     if (File.Exists(source)) File.WriteAllText(Path.Combine(tempStageDir, name), SanitizeText(File.ReadAllText(source)));

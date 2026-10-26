@@ -25,7 +25,8 @@ public partial class SubmitRecordingDialog : Window
             .Where(Directory.Exists).SelectMany(Directory.GetDirectories)
             .Where(d => File.Exists(Path.Combine(d, "summary.txt")))
             .OrderByDescending(Directory.GetCreationTimeUtc)
-            .Select(d => new SessionItemViewModel(d, Path.GetFileName(d))).ToArray();
+            .Select(d => new SessionItemViewModel(d, File.Exists(Path.Combine(d, "incident.json"))
+                ? "Unreviewed incident · " + Path.GetFileName(d) : Path.GetFileName(d))).ToArray();
         Closed += (_, _) => _closing.Cancel();
         if (LstSessions.Items.Count > 0) LstSessions.SelectedIndex = 0;
     }
