@@ -13,7 +13,8 @@
     <ApplicationIcon>Assets/angler.ico</ApplicationIcon>
     <Version>1.0.29</Version>
     <AssemblyVersion>1.0.29.0</AssemblyVersion>
-    <FileVersion>1.0.29.0</FileVersion>
+    <FileVersion>1.0.29.639</FileVersion>
+    <InformationalVersion>1.0.29-webweaver.639</InformationalVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);FischMacroCS.Tests\**;artifacts\**;dist\**;publish*\**</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -25,6 +26,7 @@
     <Resource Include="splash_logo.png" />
     <EmbeddedResource Include="Assets\shake_template.png" />
     <EmbeddedResource Include="Assets\Workflows\*.png" />
+    <EmbeddedResource Include="Assets\ReelShapes\*.png" />
     <EmbeddedResource Include="Assets\catch_prefix.png" />
     <EmbeddedResource Include="Assets\catch_loss_prefix.png" />
     <EmbeddedResource Include="Assets\catch_loss_suffix.png" />

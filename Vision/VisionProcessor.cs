@@ -6,6 +6,9 @@ namespace FischMacroCS.Vision;
 
 public class DetectionResult : IDisposable
 {
+    public double DetectionLatencyMs { get; internal set; }
+    public double FamilyProbeLatencyMs { get; internal set; }
+    public string DetectorPath { get; internal set; } = "AGY";
     public bool BarFound { get; set; }
     public int BarLeft { get; set; }
     public int BarRight { get; set; }
@@ -70,10 +73,64 @@ public class ToolToggleResult
 
 public class VisionProcessor
 {
+    private bool _webweaverHint;
+    private bool _ordinaryLayoutHint;
+    private Rect? _pointedCaptureHint;
+    private Rect? _pointedMeterHint;
+    private Size _pointedViewport;
+    public Rect GetReelCaptureRegion(Rect ordinary,Size viewport)
+    {
+        if(_pointedViewport!=viewport){_pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=false;_pointedViewport=viewport;}
+        return _pointedCaptureHint is Rect hint?(ordinary|hint)&new Rect(0,0,viewport.Width,viewport.Height):ordinary;
+    }
+
+    public DetectionResult? TryAcquirePointedLayout(Mat pixels,int x=0,int y=0,bool debug=false)
+    {
+        long start=System.Diagnostics.Stopwatch.GetTimestamp();
+        var result=ReadPointed(pixels,x,y,debug);
+        if(result is not null){_webweaverHint=true;result.DetectionLatencyMs=result.FamilyProbeLatencyMs=System.Diagnostics.Stopwatch.GetElapsedTime(start).TotalMilliseconds;}
+        return result;
+    }
+
+    // Full context is used only at entry, recovery and existing scene checks.
+    // The active reel continues to use its directly captured measured region.
+    public DetectionResult ProcessReelContext(Mat frame,MinigameTheme theme)
+    {
+        int half=Math.Min(frame.Width/2,(int)(frame.Height*.55));
+        int left=frame.Width/2-half,top=(int)(frame.Height*.74),bottom=(int)(frame.Height*.94);
+        var region=GetReelCaptureRegion(new Rect(left,top,half*2,bottom-top),frame.Size());
+        using var roi=new Mat(frame,region);
+        var result=ProcessTrack(roi,region.X,region.Y,frame.Height/1080.0,theme,false);
+        if(!result.HasLiveReel&&theme is MinigameTheme.Default or MinigameTheme.AutoCalibrate)
+        {
+            var special=TryAcquirePointedLayout(frame);
+            if(special is not null){result.Dispose();return special;}
+        }
+        return result;
+    }
+
+    private DetectionResult? ReadPointed(Mat crop,int absOffsetX,int absOffsetY,bool generateDebug)
+    {
+        Rect? local=_pointedMeterHint is Rect hint?new Rect(hint.X-absOffsetX,hint.Y-absOffsetY,hint.Width,hint.Height):null;
+        if(crop is null||crop.Empty()||PointedControlDetector.Find(crop,meterHint:local) is not PointedControlDetector.Observation current)return null;
+        if(!current.MeterObserved){_pointedMeterHint=null;return new DetectionResult{DetectorPath="PointedFlared"};}
+        _pointedMeterHint=new Rect(absOffsetX+current.Meter.X,absOffsetY+current.Meter.Y,current.Meter.Width,current.Meter.Height);
+        int margin=Math.Max(3,(int)Math.Ceiling(current.Meter.Width*.03));
+        int top=current.Needle?.Y??current.Body?.Y??current.Meter.Y;
+        _pointedCaptureHint=new Rect(absOffsetX+current.Meter.X-current.Meter.Width/2,
+            absOffsetY+top-margin,current.Meter.Width*2,
+            current.Meter.Bottom-top+margin*2);
+        return new DetectionResult { DetectorPath="PointedFlared",FishFound=current.Needle.HasValue,ReelProgressFound=true,
+            FishX=current.Needle is Rect needle?absOffsetX+needle.X+needle.Width/2:0,
+            BarFound=current.Body.HasValue,BarLeft=current.Body is Rect l?absOffsetX+l.Left:0,
+            BarRight=current.Body is Rect r?absOffsetX+r.Right:0,BarWidth=current.Body?.Width??0,
+            BarCenter=current.Body is Rect b?absOffsetX+b.X+b.Width/2.0:0,
+            AnnotatedFrame=generateDebug?crop.Clone():null };
+    }
     private MinigameTheme? _lockedTheme;
     private MinigameTheme? _candidateTheme;
     private int _themeMatches;
-    public void ResetReelTheme() { _lockedTheme = _candidateTheme = null; _themeMatches = 0; }
+    public void ResetReelTheme() { _pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=false; _lockedTheme = _candidateTheme = null; _themeMatches = 0; }
     private static void MaskBar(Mat hsv, Mat output, MinigameTheme theme)
     {
         switch (theme)
@@ -113,6 +170,40 @@ public class VisionProcessor
         }
     }
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
+    {
+        long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        double familyMs=0;
+        DetectionResult? Pointed()
+        {
+            if(crop is null||crop.Empty())return null;
+            long probe=System.Diagnostics.Stopwatch.GetTimestamp();
+            var reading=ReadPointed(crop,absOffsetX,absOffsetY,generateDebug);
+            familyMs+=System.Diagnostics.Stopwatch.GetElapsedTime(probe).TotalMilliseconds;
+            return reading;
+        }
+        // A hint changes search order only; every component is re-proved now.
+        // A miss immediately runs the unchanged AGY reader, including ordinary bars.
+        DetectionResult? result=_webweaverHint?Pointed():null;
+        if(result is null)
+        {
+            _webweaverHint=false;
+            _pointedCaptureHint=_pointedMeterHint=null;
+            result=ProcessTrackLegacy(crop,absOffsetX,absOffsetY,scaleFactor,theme,generateDebug);
+            bool ordinaryBarOnly=_ordinaryLayoutHint&&result.BarFound&&result.ReelProgressFound;
+            if(!result.HasLiveReel&&!ordinaryBarOnly&&familyMs==0&&theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default)
+            {
+                var special=Pointed();if(special is not null){result.Dispose();result=special;}
+            }
+        }
+        _webweaverHint=result.DetectorPath=="PointedFlared";
+        _ordinaryLayoutHint=!_webweaverHint&&result.BarFound&&result.ReelProgressFound
+            &&(_ordinaryLayoutHint||result.FishFound);
+        result.FamilyProbeLatencyMs=familyMs;
+        result.DetectionLatencyMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        return result;
+    }
+
+    private DetectionResult ProcessTrackLegacy(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme, bool generateDebug)
     {
         if (crop == null || crop.Empty()) return new DetectionResult();
         double viewportHeight = scaleFactor * 1080;

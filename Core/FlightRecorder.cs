@@ -117,7 +117,9 @@ public sealed class FlightRecorder : IDisposable
             ObservedCenterError = t.ObservedBarCenter is double body && t.ObservedFishX is int fish ? fish - body : (double?)null,
             ObservedCenterErrorFraction = t.ObservedBarCenter is double b && t.ObservedFishX is int f && t.BarWidth > 0 ? (f - b) / t.BarWidth : (double?)null,
             t.ObservationAgeMs, t.RodPullAccel, t.BarVelocity, t.FishVelocity, t.LoopLatencyMs, t.VisionLatencyMs,
-            t.TotalCatches, t.TotalFails, t.SessionUptimeSeconds });
+            t.TotalCatches, t.TotalFails, t.SessionUptimeSeconds,
+            t.CaptureLatencyMs, t.DetectionLatencyMs, t.FamilyProbeLatencyMs, t.DetectorPath,
+            t.ObservationTimestampTicks, t.DecisionTimestampTicks });
     }
     public void StopSession(string outcome = "Unknown", object? statistics = null)
     {
@@ -301,6 +303,7 @@ public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder reco
     IClock? clock = null, Action? validate = null) : IFrameSource
 {
     private readonly IClock _clock = clock ?? new MonotonicClock();
+    public double LastCaptureLatencyMs { get; private set; }
     public bool SupportsHeartbeat => inner is ICooperativeFrameSource;
     public Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height)
     {
@@ -321,6 +324,7 @@ public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder reco
         try
         {
             double captureMs = _clock.ElapsedMilliseconds(start);
+            LastCaptureLatencyMs = captureMs;
             if (frame == null || frame.Empty() || captureMs > 250)
                 throw new GameplayInterruptedException("Invalid or stale capture. Resume explicitly when the game is visible.");
             recorder.RecordFrame(frame, new Rect(x, y, width, height), viewport(), captureMs);

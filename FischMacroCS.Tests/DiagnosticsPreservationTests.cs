@@ -23,7 +23,9 @@ public sealed class DiagnosticsPreservationTests : IDisposable
             BarCenter = 1150, FishX = 1130, Error = -20,
             ObservedBarCenter = 1100, ObservedFishX = 1120,
             ControlBarCenter = 1150, ControlFishX = 1130, ControlBarVelocity = 35,
-            ObservationAgeMs = 12.5, RodPullAccel = 550
+            ObservationAgeMs = 12.5, RodPullAccel = 550,
+            CaptureLatencyMs=7,DetectionLatencyMs=4,FamilyProbeLatencyMs=0,DetectorPath="AGY",
+            ObservationTimestampTicks=1234,DecisionTimestampTicks=1300
         };
         recorder.RecordTick(observed, true, null);
         using var missing = new TelemetryData
@@ -45,6 +47,10 @@ public sealed class DiagnosticsPreservationTests : IDisposable
         Assert.Equal(0.1, first.GetProperty("ObservedCenterErrorFraction").GetDouble(), 8);
         Assert.Equal(-20, first.GetProperty("Error").GetDouble());
         Assert.Equal(12.5, first.GetProperty("ObservationAgeMs").GetDouble());
+        Assert.Equal(7,first.GetProperty("CaptureLatencyMs").GetDouble());
+        Assert.Equal(4,first.GetProperty("DetectionLatencyMs").GetDouble());
+        Assert.Equal(1234,first.GetProperty("ObservationTimestampTicks").GetInt64());
+        Assert.Equal(1300,first.GetProperty("DecisionTimestampTicks").GetInt64());
         Assert.True(first.GetProperty("MouseDown").GetBoolean());
         var second = rows[1].GetProperty("Data");
         Assert.Equal(JsonValueKind.Null, second.GetProperty("ObservedBarCenter").ValueKind);
