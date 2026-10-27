@@ -116,7 +116,10 @@ public class VisionProcessor
         if(!current.MeterObserved){_pointedMeterHint=null;return new DetectionResult{DetectorPath="PointedFlared"};}
         _pointedMeterHint=new Rect(absOffsetX+current.Meter.X,absOffsetY+current.Meter.Y,current.Meter.Width,current.Meter.Height);
         int margin=Math.Max(3,(int)Math.Ceiling(current.Meter.Width*.03));
-        int top=current.Needle?.Y??current.Body?.Y??current.Meter.Y;
+        // A missing marker remains missing. Reserve its search extent above
+        // the currently observed body so a shifted UI can reacquire both tips.
+        int top=current.Needle?.Y??(current.Body is Rect observedBody
+            ?observedBody.Y-(int)Math.Ceiling(current.Meter.Width*.06):current.Meter.Y);
         _pointedCaptureHint=new Rect(absOffsetX+current.Meter.X-current.Meter.Width/2,
             absOffsetY+top-margin,current.Meter.Width*2,
             current.Meter.Bottom-top+margin*2);

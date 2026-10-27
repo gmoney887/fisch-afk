@@ -140,4 +140,23 @@ public sealed class WebweaverRecordingTests(ITestOutputHelper output)
         using(var r=vision.ProcessTrack(web,840,800,1369/1080.0,MinigameTheme.AutoCalibrate,false))Assert.True(r.BarFound);
         Assert.Equal(ordinary,vision.GetReelCaptureRegion(ordinary,new Size(3441,1369)));
     }
+
+    [Fact]
+    public void ShiftedBarOnlyCaptureRetainsTheReturningOriginalMarker()
+    {
+        const int x=840,y=625;var viewport=new Size(3440,1369);var ordinary=new Rect(968,1013,1504,273);
+        var vision=new VisionProcessor();vision.GetReelCaptureRegion(ordinary,viewport);
+        using var clear=Load(21);using var missing=clear.Clone();
+        using(var erase=new Mat(missing,new Rect(744,214,52,142)))erase.SetTo(Scalar.All(35));
+        for(int i=0;i<4;i++){using var r=vision.ProcessTrack(clear,x,y,1369/1080.0,MinigameTheme.AutoCalibrate,false);Assert.True(r.BarFound&&r.FishFound);}
+        for(int i=0;i<4;i++){using var r=vision.ProcessTrack(missing,x,y,1369/1080.0,MinigameTheme.AutoCalibrate,false);Assert.True(r.BarFound);Assert.False(r.FishFound);}
+        var capture=vision.GetReelCaptureRegion(ordinary,viewport);
+        Assert.True(capture.Contains(new Point(x+754,y+220)),"Missing-marker capture clipped its original reference extent: "+capture);
+        using var client=new Mat(viewport,MatType.CV_8UC3,Scalar.All(35));
+        using(var target=new Mat(client,new Rect(x,y,clear.Width,clear.Height)))clear.CopyTo(target);
+        using var current=new Mat(client,capture);
+        using var reacquired=vision.ProcessTrack(current,capture.X,capture.Y,1369/1080.0,MinigameTheme.AutoCalibrate,false);
+        Assert.True(reacquired.BarFound&&reacquired.FishFound&&reacquired.ReelProgressFound);
+        Assert.InRange(reacquired.BarLeft,1352,1356);Assert.InRange(reacquired.BarRight,1805,1809);Assert.InRange(reacquired.FishX,1609,1613);
+    }
 }

@@ -52,7 +52,8 @@
         "FischMacroCS.Tests.WebweaverRecordingTests.ErasedPoolNeedleCannotBecomePointedSilhouette",
         "FischMacroCS.Tests.FishingEngineReplayTests.PointedLayoutAcquiresOutsideLegacyCropAndKeepsGuardedInput",
         "FischMacroCS.Tests.FishingEngineReplayTests.PointedRecordedOrderConfirmsPlayerCatchAndReentersNextReel",
-        "FischMacroCS.Tests.ReelTimingInstrumentationTests.RepeatedNativePointedCropKeepsOriginalGeometryWithinLatencyGate"
+        "FischMacroCS.Tests.ReelTimingInstrumentationTests.RepeatedNativePointedCropKeepsOriginalGeometryWithinLatencyGate",
+        "FischMacroCS.Tests.WebweaverRecordingTests.ShiftedBarOnlyCaptureRetainsTheReturningOriginalMarker"
       ],
       "Expectation": "Original body/width/target, current meter/caps/tips, 4 fresh observations, UI scale/origin/appearance, missing-component negatives and guarded worker entry/outcome/next reel; repeated native p95<=25ms. No live Perfect acceptance."
     },

@@ -168,3 +168,13 @@ Tests: WebweaverRecordingTests, FishingEngineReplayTests.PointedLayoutAcquiresOu
 FishingEngineReplayTests.PointedRecordedOrderConfirmsPlayerCatchAndReentersNextReel,
 and ReelTimingInstrumentationTests. Repeated benchmark clones are fresh image
 observations, not additional game attempts. No personal recordings ship.
+
+The returning-marker regression translates the same frame21 to origin840,625
+(-175px vertically), erases only the marker rectangle744,214,52x142, and exercises
+four fresh original observations then four bar-only observations. Missing stays
+missing. The next measured capture must retain the original marker reference
+extent754,220,34x126; restoring the original pixels must reacquire the unchanged
+body1354..1807 and target1611. Padding outside the retained crop is neutral35,
+not known gameplay. This is a synthetic geometry/reacquisition test, not a new
+attempt or measured acceleration. The original failing crop849..1286 and red TRX
+remain in returning-marker-red; no coordinate or timing expectation was loosened.
