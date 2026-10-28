@@ -58,6 +58,7 @@ These patterns have repeatedly caused regressions. **NEVER** use them:
 - **Do NOT cut a release on every change**: Do not bump versions (`1.0.x`), create Git tags, or publish GitHub releases during active development, iteration, and debugging.
 - **Local Verification First**: Iterate using local builds (`dotnet build`) and automated test suites (`dotnet test`).
 - **Explicit Release Only**: Only invoke `publish-release` to tag and publish to GitHub when the user explicitly requests a release (e.g. "publish", "release", "ship build") or when an agreed-upon milestone is thoroughly verified and approved for release.
+- **Offer to Launch Local Build**: After creating or updating a local build for testing, check if an existing instance is running and always offer to launch (or restart) the executable for the user so they never have to locate or navigate to the binary manually.
 
 ---
 

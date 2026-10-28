@@ -64,6 +64,7 @@ if ($targetVer -ne $currentVerStr) {
     $csprojContent = [regex]::Replace($csprojContent, "<Version>.*?</Version>", "<Version>$targetVer</Version>")
     $csprojContent = [regex]::Replace($csprojContent, "<AssemblyVersion>.*?</AssemblyVersion>", "<AssemblyVersion>$assemblyVer</AssemblyVersion>")
     $csprojContent = [regex]::Replace($csprojContent, "<FileVersion>.*?</FileVersion>", "<FileVersion>$assemblyVer</FileVersion>")
+    $csprojContent = [regex]::Replace($csprojContent, "<InformationalVersion>.*?</InformationalVersion>\r?\n?", "")
     Set-Content -Path $csprojPath -Value $csprojContent -NoNewline
 }
 

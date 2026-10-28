@@ -134,8 +134,8 @@ public class VisionProcessor
         if (theme == MinigameTheme.Doomsekkar || theme == MinigameTheme.AutoCalibrate)
         {
             var doom = ProcessDoomsekkar(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
-            if (doom.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Doomsekkar;
-            if (theme == MinigameTheme.Doomsekkar || doom.HasLiveReel || _lockedTheme == MinigameTheme.Doomsekkar) return doom;
+            if (doom.BarFound && doom.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Doomsekkar;
+            if (theme == MinigameTheme.Doomsekkar || (doom.BarFound && doom.HasLiveReel) || _lockedTheme == MinigameTheme.Doomsekkar) return doom;
             doom.Dispose();
         }
         var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
@@ -397,7 +397,30 @@ public class VisionProcessor
     {
         var result = new DetectionResult { ResolvedTheme = MinigameTheme.Doomsekkar };
 
-        // 1. Progress Bar Detection (Neon Green Strip: 0.90 to 0.94 of viewport height)
+        // 1. Minigame Presence Verification: The Doomsekkar minigame MUST contain its purple body + lime rails
+        int bTop = Math.Max(0, (int)(height * 0.81) - offsetY);
+        int bBottom = Math.Min(crop.Height, (int)(height * 0.88) - offsetY);
+        if (bBottom <= bTop) return result;
+
+        using var bStrip = new Mat(crop, new Rect(0, bTop, crop.Width, bBottom - bTop));
+        using var bHsv = new Mat();
+        using var purple = new Mat();
+        using var lime = new Mat();
+        using var combined = new Mat();
+        Cv2.CvtColor(bStrip, bHsv, ColorConversionCodes.BGR2HSV);
+
+        Cv2.InRange(bHsv, new Scalar(120, 30, 110), new Scalar(165, 255, 255), purple);
+        Cv2.InRange(bHsv, new Scalar(35, 40, 90), new Scalar(85, 255, 255), lime);
+
+        int purplePixels = Cv2.CountNonZero(purple);
+        int limePixels = Cv2.CountNonZero(lime);
+        if (purplePixels < height * 0.15 || limePixels < height * 0.05)
+        {
+            // Minigame has disappeared; reel has concluded
+            return result;
+        }
+
+        // 2. Progress Bar Detection (Neon Green Strip: 0.90 to 0.94 of viewport height)
         int pTop = Math.Max(0, (int)(height * 0.90) - offsetY);
         int pBottom = Math.Min(crop.Height, (int)(height * 0.94) - offsetY);
         if (pBottom > pTop)
@@ -426,11 +449,7 @@ public class VisionProcessor
             }
         }
 
-        // An unfamiliar custom rod palette cannot confirm live reel without its progress meter
-        if (!result.ReelProgressFound)
-            return result;
-
-        // 2. Fish Target (Green Pumpkin Flame/Contour + Black Stalk Projection)
+        // 3. Fish Target (Green Pumpkin Flame/Contour + Black Stalk Projection)
         int fTop = 0;
         int fBottom = Math.Min(crop.Height, (int)(height * 0.82) - offsetY);
         if (fBottom > fTop)
@@ -454,7 +473,6 @@ public class VisionProcessor
             double bestFishScore = 0;
             double detectedX = 0;
             float bestStalkVal = 0;
-
             foreach (var c in gContours)
             {
                 var box = Cv2.BoundingRect(c);
@@ -488,29 +506,47 @@ public class VisionProcessor
                 result.FishFound = true;
                 result.FishX = offsetX + (int)Math.Round(detectedX);
             }
+            else
+            {
+                // Starburst / bright glowing event / shiny fish fallback
+                using var brightMask = new Mat();
+                Cv2.InRange(fHsv, new Scalar(0, 0, 200), new Scalar(179, 85, 255), brightMask);
+                using var limeGlow = new Mat();
+                Cv2.InRange(fHsv, new Scalar(35, 30, 180), new Scalar(85, 255, 255), limeGlow);
+                using var starMask = new Mat();
+                Cv2.BitwiseOr(brightMask, limeGlow, starMask);
+
+                using var k = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(5, (int)(height * 0.015)), Math.Max(5, (int)(height * 0.015))));
+                Cv2.MorphologyEx(starMask, starMask, MorphTypes.Close, k);
+
+                Cv2.FindContours(starMask, out Point[][] sContours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+                double bestStarArea = 0;
+                Rect bestStarRect = default;
+                foreach (var sc in sContours)
+                {
+                    var sb = Cv2.BoundingRect(sc);
+                    double sArea = Cv2.ContourArea(sc);
+                    if (sb.Width >= height * 0.025 && sb.Height >= height * 0.025 && sArea >= 250)
+                    {
+                        if (sArea > bestStarArea)
+                        {
+                            bestStarArea = sArea;
+                            bestStarRect = sb;
+                        }
+                    }
+                }
+
+                if (bestStarArea > 0)
+                {
+                    result.FishFound = true;
+                    result.FishX = offsetX + (int)Math.Round(bestStarRect.X + bestStarRect.Width / 2.0);
+                }
+            }
         }
 
-        // 3. Control Bar Detection (Purple body + Lime fangs)
-        int bTop = Math.Max(0, (int)(height * 0.81) - offsetY);
-        int bBottom = Math.Min(crop.Height, (int)(height * 0.88) - offsetY);
-        if (bBottom > bTop)
+        // 4. Control Bar Extraction
         {
-            using var bStrip = new Mat(crop, new Rect(0, bTop, crop.Width, bBottom - bTop));
-            using var bHsv = new Mat();
-            using var purple = new Mat();
-            using var lime = new Mat();
-            using var combined = new Mat();
-            Cv2.CvtColor(bStrip, bHsv, ColorConversionCodes.BGR2HSV);
-
-            Cv2.InRange(bHsv, new Scalar(120, 30, 110), new Scalar(165, 255, 255), purple);
-            Cv2.InRange(bHsv, new Scalar(35, 40, 90), new Scalar(85, 255, 255), lime);
-
-            // Both distinctive purple box and interior lime fangs must exist
-            int purplePixels = Cv2.CountNonZero(purple);
-            int limePixels = Cv2.CountNonZero(lime);
-            if (purplePixels >= height * 0.15 && limePixels >= height * 0.05)
-            {
-                Cv2.BitwiseOr(purple, lime, combined);
+            Cv2.BitwiseOr(purple, lime, combined);
 
                 using var colSum = new Mat();
                 Cv2.Reduce(combined, colSum, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
@@ -532,7 +568,9 @@ public class VisionProcessor
                 }
                 segments.Sort((a, b) => a.X.CompareTo(b.X));
 
-                double maxGap = height * 0.065;
+                double expectedBarW = height * 0.3755;
+                double maxAllowedW = height * 0.44;
+                double maxGap = height * 0.085;
                 var merged = new List<Rect>();
                 foreach (var seg in segments)
                 {
@@ -540,16 +578,16 @@ public class VisionProcessor
                     {
                         var last = merged[^1];
                         int gap = seg.X - (last.X + last.Width);
-                        if (gap >= 0 && gap <= maxGap)
+                        int combinedW = (seg.X + seg.Width) - last.X;
+                        if (gap >= 0 && gap <= maxGap && combinedW <= maxAllowedW)
                         {
-                            merged[^1] = new Rect(last.X, last.Y, (seg.X + seg.Width) - last.X, Math.Max(last.Height, seg.Height));
+                            merged[^1] = new Rect(last.X, last.Y, combinedW, Math.Max(last.Height, seg.Height));
                             continue;
                         }
                     }
                     merged.Add(seg);
                 }
 
-                double expectedBarW = height * 0.3755;
                 double railMinX = (crop.Width / 2.0) - (height * 0.548);
                 double railMaxX = (crop.Width / 2.0) + (height * 0.548);
 
@@ -557,13 +595,29 @@ public class VisionProcessor
                 double minDiff = double.MaxValue;
                 foreach (var box in merged)
                 {
-                    if (box.Width >= height * 0.15 && box.Width <= height * 0.65)
+                    Rect candidate = box;
+                    // If bar fused with left rail, extract the bar at the right end
+                    if (candidate.X <= railMinX + height * 0.05 && candidate.Width > expectedBarW + height * 0.04)
                     {
-                        double diff = Math.Abs(box.Width - expectedBarW);
+                        int right = candidate.Right;
+                        int left = Math.Max((int)railMinX, right - (int)expectedBarW);
+                        candidate = new Rect(left, candidate.Y, right - left, candidate.Height);
+                    }
+                    // If bar fused with right rail, extract the bar at the left end
+                    else if (candidate.Right >= railMaxX - height * 0.05 && candidate.Width > expectedBarW + height * 0.04)
+                    {
+                        int left = candidate.X;
+                        int right = Math.Min((int)railMaxX, left + (int)expectedBarW);
+                        candidate = new Rect(left, candidate.Y, right - left, candidate.Height);
+                    }
+
+                    if (candidate.Width >= height * 0.25 && candidate.Width <= height * 0.65)
+                    {
+                        double diff = Math.Abs(candidate.Width - expectedBarW);
                         if (diff < minDiff)
                         {
                             minDiff = diff;
-                            bestBar = box;
+                            bestBar = candidate;
                         }
                     }
                 }
@@ -605,14 +659,9 @@ public class VisionProcessor
                     result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
                 }
             }
-        }
 
-        // Require both fish and bar for an unfamiliar custom minigame reel
-        if (!result.FishFound || !result.BarFound)
+        if (!result.FishFound && !result.BarFound)
         {
-            result.FishFound = result.BarFound = false;
-            result.BarLeft = result.BarRight = result.BarWidth = result.FishX = 0;
-            result.BarCenter = 0;
             return result;
         }
 
