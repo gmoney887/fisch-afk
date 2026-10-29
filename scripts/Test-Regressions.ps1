@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Push-Location $root
 try {
-    $baseline = '55e4357822050939a03b9baceab5f51027b2410a'
+    $baseline = 'b7abcefd5f9cf9ababa72387fdf7cc55ae644447'
     $allowed = @('Core/AppDataPaths.cs', 'Core/FlightRecorder.cs', 'Core/IncidentEvidenceArchive.cs',
         'Core/IncidentFrameSelection.cs', 'Core/RecordingSubmissionService.cs', 'MainWindow.xaml.cs',
         'SubmitRecordingDialog.xaml.cs', 'FischMacroCS.csproj',
@@ -65,7 +65,7 @@ try {
             'ReelEntryGuardTests', 'ReelActuationPlanTests', 'Baseline', 'Seraphic625RecordingTests',
             'CatchVerificationTests', 'ChronologicalCatchTests', 'GlorpReelTests', 'RuinousOathTests',
             'NatesBladeTests', 'OptimizationRegressionTests', 'DimReelTests', 'MultiResolutionTests',
-            'WebweaverRecordingTests','ReelTimingInstrumentationTests','DoomsekkarTests')
+            'WebweaverRecordingTests','WebweaverEngineReplayTests','ReelTimingInstrumentationTests','DoomsekkarTests')
         $filter=($groups | ForEach-Object { "FullyQualifiedName~$_" }) -join '|'
     }
     & (Join-Path $PSScriptRoot 'Invoke-NativeTests.ps1') -Run $Tier.ToLowerInvariant() -ResultsDirectory $ResultsDirectory -DotNet $DotNet -Filter $filter -Full:($Tier -eq 'Full')
