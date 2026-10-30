@@ -2,7 +2,7 @@
 
 Baseline: AGY `b7abcefd5f9cf9ababa72387fdf7cc55ae644447`, including its
 committed Doomsekkar and Oath work. Build637 incident preservation is retained.
-Informational version: `1.0.29-webweaver.639`; file version 1.0.29.639.
+Informational version: `1.0.29` plus source revision; file version 1.0.29.639. The package name identifies this Webweaver candidate.
 
 The controller, pulse/motion/profile components and guarded input implementation
 remain AGY. Engine edits add scalar timings and select/retain a measured capture
