@@ -2659,7 +2659,9 @@ public class FishingEngine : IDisposable
             // ==============================================================
             else if (CurrentState == MacroState.PostCatch)
             {
-                if (!_catchFailureSeen && detect.HasLiveReel && TryResumeVisibleReel())
+                // Guard against phantom reel bounce: while verifying catch outcome or during the initial
+                // reel UI fade-out window (< 600ms), do not re-enter reeling on residual fading UI elements.
+                if (!_catchFailureSeen && _catchOutcome.IsFinalized && GetElapsedMs(_stateStartTime) >= 600 && detect.HasLiveReel && TryResumeVisibleReel())
                 {
                     detect.AnnotatedFrame?.Dispose();
                     continue;

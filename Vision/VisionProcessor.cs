@@ -414,9 +414,32 @@ public class VisionProcessor
 
         int purplePixels = Cv2.CountNonZero(purple);
         int limePixels = Cv2.CountNonZero(lime);
-        if (purplePixels < height * 0.15 || limePixels < height * 0.05)
+        if (purplePixels < height * 0.15 || limePixels * 1.5 < height * 0.05)
         {
             // Minigame has disappeared; reel has concluded
+            return result;
+        }
+
+        double railMinX = (crop.Width / 2.0) - (height * 0.548);
+        double railMaxX = (crop.Width / 2.0) + (height * 0.548);
+
+        // Verification of lime boundary rails:
+        using var limeColSum = new Mat();
+        Cv2.Reduce(lime, limeColSum, ReduceDimension.Row, ReduceTypes.Avg, MatType.CV_32F);
+        float maxLeftRail = 0, maxRightRail = 0;
+        int railPad = Math.Max(2, (int)(height * 0.025));
+        int leftRailIdx = (int)Math.Round(railMinX);
+        int rightRailIdx = (int)Math.Round(railMaxX - 5);
+        for (int dx = -railPad; dx <= railPad; dx++)
+        {
+            int lx = leftRailIdx + dx;
+            if (lx >= 0 && lx < crop.Width) maxLeftRail = Math.Max(maxLeftRail, limeColSum.At<float>(0, lx));
+            int rx = rightRailIdx + dx;
+            if (rx >= 0 && rx < crop.Width) maxRightRail = Math.Max(maxRightRail, limeColSum.At<float>(0, rx));
+        }
+
+        if (maxLeftRail < 10 && maxRightRail < 10)
+        {
             return result;
         }
 
@@ -441,7 +464,8 @@ public class VisionProcessor
                 double solidity = Cv2.ContourArea(contour) / Math.Max(1.0, (box.Width - 1) * (box.Height - 1));
                 if (box.Width >= height * 0.015 && box.Width <= height * 0.60
                     && box.Height >= height * 0.005 && box.Height <= height * 0.022
-                    && solidity >= 0.70)
+                    && solidity >= 0.70
+                    && Math.Abs(box.Left - railMinX) <= height * 0.06)
                 {
                     result.ReelProgressFound = true;
                     break;
@@ -501,7 +525,7 @@ public class VisionProcessor
             }
 
             // A valid pumpkin fish glyph must be anchored to a dark stalk
-            if (bestFishScore > 0 && bestStalkVal >= 50)
+            if (bestFishScore > 0 && bestStalkVal >= 50 && detectedX >= railMinX - height * 0.04 && detectedX <= railMaxX + height * 0.04)
             {
                 result.FishFound = true;
                 result.FishX = offsetX + (int)Math.Round(detectedX);
@@ -538,8 +562,12 @@ public class VisionProcessor
 
                 if (bestStarArea > 0)
                 {
-                    result.FishFound = true;
-                    result.FishX = offsetX + (int)Math.Round(bestStarRect.X + bestStarRect.Width / 2.0);
+                    double starX = bestStarRect.X + bestStarRect.Width / 2.0;
+                    if (starX >= railMinX - height * 0.04 && starX <= railMaxX + height * 0.04)
+                    {
+                        result.FishFound = true;
+                        result.FishX = offsetX + (int)Math.Round(starX);
+                    }
                 }
             }
         }
@@ -588,9 +616,6 @@ public class VisionProcessor
                     merged.Add(seg);
                 }
 
-                double railMinX = (crop.Width / 2.0) - (height * 0.548);
-                double railMaxX = (crop.Width / 2.0) + (height * 0.548);
-
                 Rect? bestBar = null;
                 double minDiff = double.MaxValue;
                 foreach (var box in merged)
@@ -613,6 +638,9 @@ public class VisionProcessor
 
                     if (candidate.Width >= height * 0.25 && candidate.Width <= height * 0.65)
                     {
+                        if (candidate.X < railMinX - height * 0.05 || candidate.Right > railMaxX + height * 0.05)
+                            continue;
+
                         double diff = Math.Abs(candidate.Width - expectedBarW);
                         if (diff < minDiff)
                         {
@@ -1067,12 +1095,15 @@ public class VisionProcessor
 
         int shoulderDist = Math.Max(15, (int)Math.Round(25 * scaleFactor));
         int maxNeedleWidth = Math.Max(20, (int)Math.Round(32 * scaleFactor));
+        int edgeMargin = Math.Max(shoulderDist, (int)Math.Round(18 * scaleFactor));
 
-        for (int nx = trackSearchX1 + 5; nx <= trackSearchX2 - 5; nx++)
+        for (int nx = trackSearchX1 + edgeMargin; nx <= trackSearchX2 - edgeMargin; nx++)
         {
             if (colHist[nx] >= minNeedleHeight)
             {
-                int baseline = Math.Max(colHist[Math.Max(0, nx - shoulderDist)], colHist[Math.Min(cropW - 1, nx + shoulderDist)]);
+                int leftIdx = Math.Clamp(nx - shoulderDist, trackSearchX1, trackSearchX2);
+                int rightIdx = Math.Clamp(nx + shoulderDist, trackSearchX1, trackSearchX2);
+                int baseline = Math.Max(colHist[leftIdx], colHist[rightIdx]);
                 int prominence = colHist[nx] - baseline;
 
                 // Evaluate contiguous peak width at half-prominence above baseline (FWHM):
@@ -1102,7 +1133,7 @@ public class VisionProcessor
         if (bestNeedleX < 0)
         {
             int fallbackMax = 0;
-            for (int nx = trackSearchX1 + 10; nx <= trackSearchX2 - 10; nx++)
+            for (int nx = trackSearchX1 + edgeMargin; nx <= trackSearchX2 - edgeMargin; nx++)
             {
                 if (colHist[nx] > fallbackMax && colHist[nx] >= minNeedleHeight)
                 {
@@ -1483,7 +1514,7 @@ public class VisionProcessor
                     int capCenterX = r.X + r.Width / 2;
                     int capBottomY = r.Y + r.Height;
                     int expectedBarH = (int)Math.Round(r.Width * 20.0);
-                    int scanW = Math.Max(4, Math.Min(r.Width, 14));
+                    int scanW = Math.Max(6, Math.Min(r.Width + 4, (int)Math.Round(24 * scale)));
                     int scanX = Math.Clamp(capCenterX - scanW / 2, 0, roiW - scanW);
                     int scanH = Math.Min(roiH - capBottomY, (int)Math.Round(expectedBarH * 1.85));
                     if (scanH < 20) continue;

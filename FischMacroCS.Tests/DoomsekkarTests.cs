@@ -142,5 +142,20 @@ public class DoomsekkarTests(ITestOutputHelper output)
         Assert.DoesNotContain("preview", rawVer, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(asm.GetName().Version?.ToString(3), rawVer);
     }
+
+    [Fact]
+    public void Doomsekkar_PlayerIdleNearPurpleScenery_DoesNotDetectFalseReel()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Fixtures", "doom_idle_scenery.png");
+        Assert.True(File.Exists(path), "Fixture must exist: " + path);
+
+        using var frame = Cv2.ImRead(path);
+        Assert.NotNull(frame);
+        Assert.False(frame.Empty());
+
+        var vp = new VisionProcessor();
+        using var res = vp.ProcessTrack(frame, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, generateDebug: false);
+        Assert.False(res.HasLiveReel, "Must NOT detect live reel on idle scenery with purple rock and boots!");
+    }
 }
 

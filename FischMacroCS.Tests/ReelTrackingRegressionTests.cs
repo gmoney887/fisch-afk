@@ -113,4 +113,28 @@ public class ReelTrackingRegressionTests
         Assert.True(res.FishFound, "Fish needle should be detected");
         Assert.InRange(res.FishX, 1640, 1680);
     }
+
+    [Fact]
+    public void DetectTrack_DarkTrackEdges_DoesNotLockOntoTrackBorderAsNeedle()
+    {
+        string fixturePath = GetFixturePath("reel_wide_bar_arrow.png");
+        Assert.True(File.Exists(fixturePath), $"Fixture file not found: {fixturePath}");
+
+        using var frame = Cv2.ImRead(fixturePath);
+        Assert.False(frame.Empty(), "Fixture image failed to load");
+
+        // Add dark edge caps at the extreme borders of the frame
+        Cv2.Rectangle(frame, new Rect(0, 10, 25, frame.Height - 20), new Scalar(15, 20, 25), -1);
+        Cv2.Rectangle(frame, new Rect(frame.Width - 25, 10, 25, frame.Height - 20), new Scalar(15, 20, 25), -1);
+
+        double estWinH = frame.Height / 0.17;
+        double scaleFactor = estWinH / 1080.0;
+
+        using var res = _vision.ProcessTrack(frame, 0, 0, scaleFactor, MinigameTheme.Default, generateDebug: false);
+
+        Assert.True(res.BarFound, "Control bar should be detected");
+        Assert.True(res.FishFound, "Fish needle should be detected");
+        // Must stay locked onto the actual needle at 230..270, NOT the borders at < 50 or > frame.Width - 50
+        Assert.InRange(res.FishX, 230, 270);
+    }
 }
