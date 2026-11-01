@@ -1,6 +1,6 @@
 {
   "SchemaVersion": 1,
-  "Scope": "Isolated126 baseline; reviewed source625 timing/geometry evidence only. Archived full catalog remains on codex/archive-post-126-20261024-625.",
+  "Scope": "AGY 55e4357 plus diagnostics637 and isolated pointed-layout support638. Controller/pulse/input preserved. Only reviewed fixture ownership below; runtime incidents remain Unreviewed.",
   "Cases": [
     {
       "Id": "625-seraphic-tilt-latency-20261024",
@@ -16,6 +16,63 @@
         "FischMacroCS.Tests.Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost"
       ],
       "Expectation": "Reviewed native body bounds/width/target and four-observation cost <=250ms; no live centering acceptance"
+    },
+    {
+      "Id": "637-diagnostics-preservation",
+      "Status": "Reviewed",
+      "SourceSession": "Generated temporary storage tests; no additional recorded attempt",
+      "Evidence": "docs/DIAGNOSTICS-637.md",
+      "Fixtures": [],
+      "Tests": [
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.DecisionJournalKeepsObservedGeometrySeparateFromControlEstimates",
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.UserStopWhileReelingPreservesOriginalEvidenceWithoutCallingItACatchFailure",
+        "FischMacroCS.Tests.DiagnosticsPreservationTests.UnwritableIncidentArchiveLeavesTheRealRollingWriterHealthy",
+        "FischMacroCS.Tests.RecorderArchiveStatusTests.FullIncidentArchiveLeavesRollingFramesActiveAndRecoversAfterCapacityReturns",
+        "FischMacroCS.Tests.IncidentEvidenceArchiveTests.RoutineSessionRetentionCannotDeleteThePreservedIncident",
+        "FischMacroCS.Tests.IncidentEvidenceArchiveTests.FreezesBoundedBeforeAndAfterWithIdentityCoordinatesInputsAndHashes"
+      ],
+      "Expectation": "Actual writer preserves original hashes, source identity, coordinates/events, incomplete windows and export; optional archive failures do not stop rolling recording. No live acceptance."
+    },
+    {
+      "Id": "638-pointed-layout",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261022_003331_788_db8de98de7ae48ad970e5dbb02fa1de9",
+      "Evidence": "Fixtures/PROVENANCE.md#webweaver638",
+      "Fixtures": [
+        "webweaver/frame_00000016.png",
+        "webweaver/frame_00000021.png",
+        "webweaver/frame_00000024.png",
+        "webweaver/frame_00000025.png",
+        "webweaver/frame_00000029.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.WebweaverRecordingTests.CurrentOriginalBoundsSurviveFourProductionObservations",
+        "FischMacroCS.Tests.WebweaverRecordingTests.CurrentGeometryUsesUiScaleAndOriginIndependentlyOfDesktop",
+        "FischMacroCS.Tests.WebweaverRecordingTests.MissingComponentsCannotBorrowEarlierEvidence",
+        "FischMacroCS.Tests.WebweaverRecordingTests.ErasedPoolNeedleCannotBecomePointedSilhouette",
+        "FischMacroCS.Tests.FishingEngineReplayTests.PointedLayoutAcquiresOutsideLegacyCropAndKeepsGuardedInput",
+        "FischMacroCS.Tests.FishingEngineReplayTests.PointedRecordedOrderConfirmsPlayerCatchAndReentersNextReel",
+        "FischMacroCS.Tests.ReelTimingInstrumentationTests.RepeatedNativePointedCropKeepsOriginalGeometryWithinLatencyGate",
+        "FischMacroCS.Tests.WebweaverRecordingTests.ShiftedBarOnlyCaptureRetainsTheReturningOriginalMarker"
+      ],
+      "Expectation": "Original body/width/target, current meter/caps/tips, 4 fresh observations, UI scale/origin/appearance, missing-component negatives and guarded worker entry/outcome/next reel; repeated native p95<=25ms. No live Perfect acceptance."
+    },
+    {
+      "Id": "638-pointed-adversarial-exclusion",
+      "Status": "Reviewed",
+      "ReviewScope": "Pointed-family rejection only; inherited source-session metadata remains limited",
+      "SourceSession": "Inherited archive e583ded; see provenance limits",
+      "Evidence": "Fixtures/PROVENANCE.md#webweaver638",
+      "Fixtures": [
+        "regular_914.png",
+        "boat_catch_25.png",
+        "styx_6376.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.WebweaverRecordingTests.OtherRecordedStructuresCannotBecomePointedLayout",
+        "FischMacroCS.Tests.WebweaverRecordingTests.ErasedPoolNeedleCannotBecomePointedSilhouette"
+      ],
+      "Expectation": "No pointed-layout observation from pool scenery/erased needle, boat or Styx; no general legacy-detector or hazard acceptance"
     }
   ],
   "Fixtures": [
@@ -33,6 +90,72 @@
       "Path": "seraphic_625/frame_00000315.png",
       "Required": true,
       "SHA256": "AAB3EBD27865A65E201EB00C3F769539D0395AB6F0A5DFCE152D280FAD464525"
+    },
+    {
+      "Path": "webweaver/frame_00000016.png",
+      "Required": true,
+      "SHA256": "39F01F09CEF3DCBC609DD5D1F2C0582A520327AFC37906A85CF743D4286CE184"
+    },
+    {
+      "Path": "webweaver/frame_00000021.png",
+      "Required": true,
+      "SHA256": "ECC124823FE212EB406B5565FFCF05FCEC7B6D1ED62380849BFF45810C657CFE"
+    },
+    {
+      "Path": "webweaver/frame_00000024.png",
+      "Required": true,
+      "SHA256": "7F1C93A91DE5752BEE3E1D792BE62DE76B684B040F0D115F2DFB5D8A83B2209C"
+    },
+    {
+      "Path": "webweaver/frame_00000025.png",
+      "Required": true,
+      "SHA256": "0CF9A27766BD37B4494B3CFCD5E74968ACEE95041B23C7418E1E60D698CA778D"
+    },
+    {
+      "Path": "webweaver/frame_00000029.png",
+      "Required": true,
+      "SHA256": "A58D88D5AAA34DB8FB99D3AE1811164E92CEB32BB2444AA7B99E847D77531541"
+    },
+    {
+      "Path": "regular_914.png",
+      "Required": true,
+      "SHA256": "B6907CE59BBB13FA16A00406C9D3F7BBD0166FD17AA8DA1A9FAE50AE265A2DAD"
+    },
+    {
+      "Path": "boat_catch_25.png",
+      "Required": true,
+      "SHA256": "A766A39A839687686D949148274A448E361041C15955B029352D15BB7D12921A"
+    },
+    {
+      "Path": "styx_6376.png",
+      "Required": true,
+      "SHA256": "7DCE73DB45857FE620B028680A045B8A6941B9F00BF5808EA5D692137EB58776"
+    }
+  ],
+  "ReferenceAssets": [
+    {
+      "Path": "Assets/ReelShapes/flared_left_luma.png",
+      "SHA256": "F10E4B4626F8918865591F3046FC7A17D4CCD3B68EB693DCBAA1AD4E7BDE148C"
+    },
+    {
+      "Path": "Assets/ReelShapes/flared_left.png",
+      "SHA256": "880F342DA41DB10D88A5934DFA1D009202BBB41F36CF8D36E304F756C0BB9563"
+    },
+    {
+      "Path": "Assets/ReelShapes/flared_right_luma.png",
+      "SHA256": "8D31B8CC469E0926055573FF337035C836DEC2CCD8B28EAE7EFF77675786BB66"
+    },
+    {
+      "Path": "Assets/ReelShapes/flared_right.png",
+      "SHA256": "174571AC6678D966E63249D20F8CA4E7A49549AADAD00B0E17145E5D0C88576F"
+    },
+    {
+      "Path": "Assets/ReelShapes/pointed_luma.png",
+      "SHA256": "2F34126F8679D4965A7788F17D7C43FB7576B7E5899756B58D7079BABC594D6C"
+    },
+    {
+      "Path": "Assets/ReelShapes/pointed.png",
+      "SHA256": "AB8BB1CA09EC684C47F0A6EFE8935907B4B4F55B52C590F4E69E5955CA8B2FC2"
     }
   ]
 }

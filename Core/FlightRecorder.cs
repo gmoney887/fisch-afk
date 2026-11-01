@@ -16,6 +16,7 @@ public sealed class FlightRecorder : IDisposable
     private sealed record Entry(long Id, long Timestamp, string Kind, object Data, Mat? Frame = null, long DroppedBefore = 0);
     private readonly object _gate = new();
     private readonly string _baseDir;
+    private readonly IncidentArchiveLimits? _incidentLimits;
     private BlockingCollection<Entry>? _queue;
     private Task? _writer;
     private long _nextId, _dropped, _lastFrame, _lastContext;
@@ -27,12 +28,16 @@ public sealed class FlightRecorder : IDisposable
     private int _maxRecordings = 25;
     public bool IsRecording { get { lock (_gate) return _queue != null; } }
     public string RecordingsDirectory => _baseDir;
+    public string IncidentArchiveDirectory => Path.Combine(_baseDir, "incident-archive");
     public string? CurrentSessionDirectory => _sessionDirectory;
     public string? LastError { get; private set; }
+    public string? IncidentArchiveWarning { get; private set; }
     public int MaxRecordingsToKeep { get => _maxRecordings; set => _maxRecordings = Math.Max(1, value); }
-    public FlightRecorder(string? customDir = null, int maxRecordings = 25)
+    public FlightRecorder(string? customDir = null, int maxRecordings = 25) : this(customDir, maxRecordings, null) { }
+    public FlightRecorder(string? customDir, int maxRecordings, IncidentArchiveLimits? incidentLimits)
     {
         _baseDir = customDir ?? AppDataPaths.FilePath("recordings");
+        _incidentLimits = incidentLimits;
         MaxRecordingsToKeep = maxRecordings;
     }
     public void StartSession(int frameWidth, int frameHeight, object? metadata = null, bool demonstration = false)
@@ -51,6 +56,7 @@ public sealed class FlightRecorder : IDisposable
             var queue = new BlockingCollection<Entry>(1024);
             _queue = queue; _nextId = _dropped = _lastFrame = _lastContext = 0;
             LastError = null;
+            IncidentArchiveWarning = null;
             string directory = _sessionDirectory;
             long started = Stopwatch.GetTimestamp();
             var manifest = new { SchemaVersion = 3, SessionId = Path.GetFileName(directory),
@@ -106,8 +112,14 @@ public sealed class FlightRecorder : IDisposable
     public void RecordTick(TelemetryData t, bool isMouseDown, Mat? rawFrame)
     {
         RecordEvent("decision", new { t.State, t.Action, MouseDown = isMouseDown, t.BarLeft, t.BarRight,
-            t.FishX, t.BarVelocity, t.FishVelocity, t.LoopLatencyMs, t.VisionLatencyMs,
-            t.TotalCatches, t.TotalFails, t.SessionUptimeSeconds });
+            t.BarCenter, t.BarWidth, t.FishX, t.Error,
+            t.ObservedBarCenter, t.ObservedFishX, t.ControlBarCenter, t.ControlBarVelocity, t.ControlFishX,
+            ObservedCenterError = t.ObservedBarCenter is double body && t.ObservedFishX is int fish ? fish - body : (double?)null,
+            ObservedCenterErrorFraction = t.ObservedBarCenter is double b && t.ObservedFishX is int f && t.BarWidth > 0 ? (f - b) / t.BarWidth : (double?)null,
+            t.ObservationAgeMs, t.RodPullAccel, t.BarVelocity, t.FishVelocity, t.LoopLatencyMs, t.VisionLatencyMs,
+            t.TotalCatches, t.TotalFails, t.SessionUptimeSeconds,
+            t.CaptureLatencyMs, t.DetectionLatencyMs, t.FamilyProbeLatencyMs, t.DetectorPath,
+            t.ObservationTimestampTicks, t.DecisionTimestampTicks });
     }
     public void StopSession(string outcome = "Unknown", object? statistics = null)
     {
@@ -129,6 +141,8 @@ public sealed class FlightRecorder : IDisposable
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(manifest, Json));
             using var journal = new SessionEventJournal(directory);
+            using var archive = new IncidentEvidenceArchive(directory, JsonSerializer.SerializeToElement(manifest, Json),
+                Stopwatch.Frequency, _incidentLimits, error: message => IncidentArchiveWarning = message);
             var frameIndex = new Dictionary<string, object>(StringComparer.Ordinal);
             int frames = 0;
             var rolling = new Queue<(string File, long Timestamp, long Bytes)>();
@@ -218,7 +232,10 @@ public sealed class FlightRecorder : IDisposable
                     }
                     var row = new { FrameId = entry.Id, entry.Timestamp, entry.Kind, Data = data, File = filename, entry.DroppedBefore };
                     if (filename != null && File.Exists(Path.Combine(directory, filename))) frameIndex[filename] = row;
-                    journal.WriteLine(entry.Kind, data, JsonSerializer.Serialize(row, Json));
+                    string serializedRow = JsonSerializer.Serialize(row, Json);
+                    journal.WriteLine(entry.Kind, data, serializedRow);
+                    archive.Observe(entry.Timestamp, entry.Kind, data, serializedRow, filename, entry.DroppedBefore);
+                    IncidentArchiveWarning = archive.LastError;
                 }
             }
             _completion.TryRemove(queue, out var completion);
@@ -233,6 +250,7 @@ public sealed class FlightRecorder : IDisposable
             File.WriteAllText(Path.Combine(directory, "completed.json"), JsonSerializer.Serialize(completed, Json));
             File.WriteAllText(Path.Combine(directory, "summary.txt"), FormattableString.Invariant(
                 $"Session Outcome: {completion.Outcome}\nDuration: {Stopwatch.GetElapsedTime(start, completion.End).TotalSeconds:F2} seconds\nTotal Recorded Frames: {frames}\nDropped Entries: {completion.Dropped}\nJournal Entries Expired: {journal.ExpiredEntries}\nIncident Journal Entries Expired: {journal.IncidentExpiredEntries}\nStatistics: {JsonSerializer.Serialize(completion.Statistics, Json)}\n"));
+            archive.Dispose();
             EnforceRetentionPolicy();
         }
         catch (Exception ex)
@@ -285,6 +303,7 @@ public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder reco
     IClock? clock = null, Action? validate = null) : IFrameSource
 {
     private readonly IClock _clock = clock ?? new MonotonicClock();
+    public double LastCaptureLatencyMs { get; private set; }
     public bool SupportsHeartbeat => inner is ICooperativeFrameSource;
     public Mat? CaptureClientRegion(IntPtr window, int x, int y, int width, int height)
     {
@@ -305,6 +324,7 @@ public sealed class RecordingFrameSource(IFrameSource inner, FlightRecorder reco
         try
         {
             double captureMs = _clock.ElapsedMilliseconds(start);
+            LastCaptureLatencyMs = captureMs;
             if (frame == null || frame.Empty() || captureMs > 250)
                 throw new GameplayInterruptedException("Invalid or stale capture. Resume explicitly when the game is visible.");
             recorder.RecordFrame(frame, new Rect(x, y, width, height), viewport(), captureMs);

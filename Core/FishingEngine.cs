@@ -21,6 +21,14 @@ public enum MacroState
 
 public class TelemetryData : IDisposable
 {
+    // timing-only begin
+    public double CaptureLatencyMs { get; set; }
+    public double DetectionLatencyMs { get; set; }
+    public double FamilyProbeLatencyMs { get; set; }
+    public string DetectorPath { get; set; } = "AGY";
+    public long ObservationTimestampTicks { get; set; }
+    public long DecisionTimestampTicks { get; set; }
+    // timing-only end
     public MacroState State { get; set; }
     public string Action { get; set; } = "";
     public int BarLeft { get; set; }
@@ -618,11 +626,8 @@ public class FishingEngine : IDisposable
         int w = _activeGeometry.Width, h = _activeGeometry.Height;
         void GuardReel(Mat frame)
         {
-            int half = Math.Min(w / 2, (int)(h * .55));
-            int left = w / 2 - half, top = (int)(h * .74), bottom = (int)(h * .94);
-            using var strip = new Mat(frame, new Rect(left, top, half * 2, bottom - top));
             _viewReelVision.ResetReelTheme();
-            using var reel = _viewReelVision.ProcessTrack(strip, left, top, h / 1080.0, Config.SelectedTheme, false);
+            using var reel = _viewReelVision.ProcessReelContext(frame,Config.SelectedTheme);
             if (reel.HasLiveReel) throw new RewardReelDetectedException();
         }
         void Click(Point point)
@@ -797,6 +802,12 @@ public class FishingEngine : IDisposable
     private Task? _workerTask;
 
     private bool _isMouseDown = false;
+    // timing-only begin
+    private long _diagnosticDecisionCaptureTicks, _diagnosticDecisionTicks;
+    // timing-only end
+    // pointed-layout begin
+    private long _lastPointedAcquisitionTicks;
+    // pointed-layout end
     private long _stateStartTime = 0;
     private long _lastBarSeenTime = 0;
     private long _lastFishSeenTime = 0;
@@ -848,7 +859,14 @@ public class FishingEngine : IDisposable
         _heartbeat = new AntiIdleHeartbeat(_clock);
         _afkRecovery = new AfkRecovery(_clock);
         _input = input ?? new GameplayInput(ValidateGameplay, Delay, name => _recorder.RecordEvent("input",
-            new { Action = name, State = CurrentState.ToString(), Recovering = _isRecovering, Source = "Macro" }), hardware);
+            new { Action = name, State = CurrentState.ToString(), Recovering = _isRecovering, Source = "Macro"
+                // timing-only begin
+                , DecisionCaptureTimestampTicks = CurrentState == MacroState.Reeling ? _diagnosticDecisionCaptureTicks : 0,
+                DecisionTimestampTicks = CurrentState == MacroState.Reeling ? _diagnosticDecisionTicks : 0,
+                DecisionCaptureAgeMs = CurrentState == MacroState.Reeling && _diagnosticDecisionCaptureTicks != 0
+                    ? _clock.ElapsedMilliseconds(_diagnosticDecisionCaptureTicks) : (double?)null
+                // timing-only end
+            }), hardware);
         Config = settings;
         _recorder.MaxRecordingsToKeep = Config.MaxRecordingsToKeep;
         ApplyRodProfile(Config.RodProfile);
@@ -1162,14 +1180,11 @@ public class FishingEngine : IDisposable
     {
         ValidateGameplay();
         int width = _activeGeometry.Width, height = _activeGeometry.Height;
-        int halfWidth = Math.Min(width / 2, (int)(height * .55));
-        int left = width / 2 - halfWidth;
-        int top = (int)(height * .74), bottom = (int)(height * .94);
         bool confirmed = ReelEntryGuard.Confirm(() =>
         {
-            using var frame = _capture.CaptureClientRegion(_activeWindow, left, top, halfWidth * 2, bottom - top);
+            using var frame = _capture.CaptureClientRegion(_activeWindow, 0, 0, width, height);
             if (frame == null || frame.Empty()) throw new GameplayInterruptedException("Invalid reel capture.");
-            return _vision.ProcessTrack(frame, left, top, height / 1080.0, Config.SelectedTheme, false);
+            return _vision.ProcessReelContext(frame,Config.SelectedTheme);
         }, Delay, _operationCancellation);
         if (!confirmed) return false;
         SetMouseDown(false);
@@ -1686,11 +1701,8 @@ public class FishingEngine : IDisposable
         bool liveReel = false;
         if (status is FishingViewStatus.Uncertain or FishingViewStatus.Changed)
         {
-            int half = Math.Min(frame.Width / 2, (int)(frame.Height * .55));
-            int left = frame.Width / 2 - half, top = (int)(frame.Height * .74);
-            using var reel = new Mat(frame, new Rect(left, top, half * 2, (int)(frame.Height * .94) - top));
             // Separate detector state prevents the safety check from altering the reel controller.
-            using var evidence = _viewReelVision.ProcessTrack(reel, left, top, frame.Height / 1080.0, Config.SelectedTheme, false);
+            using var evidence = _viewReelVision.ProcessReelContext(frame,Config.SelectedTheme);
             liveReel = evidence.HasLiveReel;
             if (!_viewSafety.IsSuspected)
                 _recorder.RecordEvent("position-suspected", new { State = CurrentState.ToString(),
@@ -1764,6 +1776,10 @@ public class FishingEngine : IDisposable
             int trackY2 = (int)(winH * 0.94); // Include catch progress to recognize dim/translucent reels.
             int trackW = trackX2 - trackX1;
             int trackH = trackY2 - trackY1;
+            // pointed-layout begin
+            var measuredCapture=_vision.GetReelCaptureRegion(new Rect(trackX1,trackY1,trackW,trackH),new Size(winW,winH));
+            trackX1=measuredCapture.X;trackY1=measuredCapture.Y;trackW=measuredCapture.Width;trackH=measuredCapture.Height;
+            // pointed-layout end
             if (_adaptationTrackWidth != trackW || _adaptiveEnabled != Config.EnableAdaptiveRodDynamics)
             {
                 _adaptiveEnabled = Config.EnableAdaptiveRodDynamics;
@@ -2009,6 +2025,15 @@ public class FishingEngine : IDisposable
 
                     using var trackCrop = new Mat(fullFrame, new Rect(safeTrackX1, safeTrackY1, safeTrackW, safeTrackH));
                     luringDetect = _vision.ProcessTrack(trackCrop, safeTrackX1, safeTrackY1, scaleFactor, Config.SelectedTheme, false);
+                    // pointed-layout begin
+                    if(!luringDetect.HasLiveReel&&Config.SelectedTheme is MinigameTheme.Default or MinigameTheme.AutoCalibrate
+                        &&(_lastPointedAcquisitionTicks==0||GetElapsedMs(_lastPointedAcquisitionTicks)>=250))
+                    {
+                        _lastPointedAcquisitionTicks=_clock.Timestamp;
+                        var pointed=_vision.TryAcquirePointedLayout(fullFrame);
+                        if(pointed is not null){luringDetect.Dispose();luringDetect=pointed;}
+                    }
+                    // pointed-layout end
                 }
 
                 if (luringDetect.HasLiveReel)
@@ -2405,6 +2430,10 @@ public class FishingEngine : IDisposable
 
                 if (!hasBarTarget || !hasFishTarget) _centeringPlan.Reset();
                 double controlVelocity = _barVelocity;
+                // timing-only begin
+                _diagnosticDecisionCaptureTicks = observationTicks;
+                _diagnosticDecisionTicks = _clock.Timestamp;
+                // timing-only end
                 double decisionMs = _clock.ElapsedMilliseconds(0);
                 if (detect.BarFound && detect.FishFound)
                 {
@@ -2636,6 +2665,14 @@ public class FishingEngine : IDisposable
                     LoopLatencyMs = loopSw.Elapsed.TotalMilliseconds,
                     VisionLatencyMs = visionSw.Elapsed.TotalMilliseconds,
                     IsMouseDown = _isMouseDown,
+                    // timing-only begin
+                    CaptureLatencyMs = (_capture as RecordingFrameSource)?.LastCaptureLatencyMs ?? 0,
+                    DetectionLatencyMs = detect.DetectionLatencyMs,
+                    FamilyProbeLatencyMs = detect.FamilyProbeLatencyMs,
+                    DetectorPath = detect.DetectorPath,
+                    ObservationTimestampTicks = observationTicks,
+                    DecisionTimestampTicks = _diagnosticDecisionTicks,
+                    // timing-only end
                     AnnotatedFrame = detect.TakeAnnotatedFrame()
                 };
                 PopulateTelemetryStats(telem);

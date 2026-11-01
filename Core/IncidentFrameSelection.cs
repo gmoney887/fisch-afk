@@ -14,14 +14,15 @@ public static class IncidentFrameSelection
         using var index = JsonDocument.Parse(File.ReadAllText(indexPath));
         long at = incident.RootElement.GetProperty("Timestamp").GetInt64();
         long frequency = incident.RootElement.GetProperty("TimestampFrequency").GetInt64();
+        bool archived = File.Exists(Path.Combine(directory, "incident.json"));
         return index.RootElement.EnumerateArray().Where(row =>
         {
             long time = row.GetProperty("Timestamp").GetInt64();
             return time >= at - frequency * 15 && time <= at + frequency * 5 &&
-                row.GetProperty("Data").TryGetProperty("Context", out var context) && context.GetBoolean();
+                (archived || row.GetProperty("Data").TryGetProperty("Context", out var context) && context.GetBoolean());
         }).OrderBy(row => row.GetProperty("Timestamp").GetInt64())
             .Select(row => row.GetProperty("File").GetString()!)
             .Where(name => Path.GetFileName(name) == name && File.Exists(Path.Combine(directory, name)))
-            .Take(24).ToArray();
+            .Take(archived ? 48 : 24).ToArray();
     }
 }

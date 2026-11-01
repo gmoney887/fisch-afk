@@ -125,3 +125,56 @@ Original application crops copied byte-for-byte from session_20261024_221716_409
 |315|917,920|1607x382|7226789166739|1087..2199|1689|
 
 Frequency10000000. Body bounds were reviewed from the visible original shoulders/walls, target from the capsule axis; original raster/tilt permits the stated4px body/3px target test tolerance. No resizes, palette changes, padding or rotations. Frame158 and315 retained clear body, needle and meter despite app vision latency4889.66/3139.35ms. Original625 offline frame158 took5071.84ms without tracing. These three nonconsecutive observations test geometry/cost, not a chronological catch or Perfect award. Complete raw journals and additional surviving frames remain private in the main ignored artifacts directory. The independent flow recording lacks a completion summary after interruption; do not certify it as complete video. Tests: Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost.
+
+## Webweaver638
+
+Ported reviewed evidence from archive e583ded; originals remain in ignored
+artifacts/webreaver-review-20261021. Session
+session_20261022_003331_788_db8de98de7ae48ad970e5dbb02fa1de9,
+build1.0.26+4b35889c3dd6e379ad1f90763489d5389fdff0fa,
+viewport3440x1369,DPI96,AutoCalibrate/Standard (profile does not identify rod).
+All five webweaver PNGs are unchanged1760x569 crops at840,800. No transformations
+were made when porting. Native reviewed body left/right-exclusive and target:
+21=1354..1807/1611;24=1159..1612/1317;29=1481..1934/1724 (2px tolerance).
+Frame16 has a currently observed marker1534 and meter but a hidden body endpoint;
+it must not publish a bar. Frame25 visibly contains a player Haddock catch and a
+separate Extra Webweaver Spider reward, with no live reel.
+
+Original relative frame times (ms):16=0,21=5219.2672,24=8284.8082,
+25=9369.2784,29=13675.6749. The worker uses21->24->25->29 with unchanged relative
+differences. Sample holds at70/120ms and neutral35 padding outside retained pixels
+are synthetic. They do not establish instantaneous acceleration, continuous
+centering or Perfect. No pixels outside this retained ROI are represented as
+known gameplay. The separate flow-video timeline is reference-only, not an added
+recorded attempt or fixture in this candidate.
+
+Six Assets/ReelShapes references are inherited unchanged from the same reviewed
+archive. Pointed patch: frame21-relative754,220,34x126; left cap509,241,94x90;
+right cap878,241,96x90. Each has an original grayscale reference and a stable edge
+mask. These are local UI reference coordinates, not desktop detection positions.
+Nomination requires original current tips, cap/shoulder evidence and an independent
+meter. Ornamental ridges do not establish full TrackBounds.
+
+regular_914.png,boat_catch_25.png,styx_6376.png are unchanged inherited archive
+negatives for this pointed family. The regular914 source viewport is3440x1369,
+crop origin968,1013; the needle erasure1105,80,40x140 is synthetic. Resizes to
+720/1080/1369/2160 and grayscale preserve that absence. Boat/Styx source session
+metadata is not duplicated in this port; archive e583ded retains its provenance.
+Those images only assert that the pointed reader rejects other structures; they
+do not certify baseline boat safety, Styx steering, or new ownership of missing
+original metadata. File hashes are pinned in RegressionCatalog.json.
+
+Tests: WebweaverRecordingTests, FishingEngineReplayTests.PointedLayoutAcquiresOutsideLegacyCropAndKeepsGuardedInput,
+FishingEngineReplayTests.PointedRecordedOrderConfirmsPlayerCatchAndReentersNextReel,
+and ReelTimingInstrumentationTests. Repeated benchmark clones are fresh image
+observations, not additional game attempts. No personal recordings ship.
+
+The returning-marker regression translates the same frame21 to origin840,625
+(-175px vertically), erases only the marker rectangle744,214,52x142, and exercises
+four fresh original observations then four bar-only observations. Missing stays
+missing. The next measured capture must retain the original marker reference
+extent754,220,34x126; restoring the original pixels must reacquire the unchanged
+body1354..1807 and target1611. Padding outside the retained crop is neutral35,
+not known gameplay. This is a synthetic geometry/reacquisition test, not a new
+attempt or measured acceleration. The original failing crop849..1286 and red TRX
+remain in returning-marker-red; no coordinate or timing expectation was loosened.

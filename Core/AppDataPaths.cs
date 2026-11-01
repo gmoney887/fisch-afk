@@ -6,6 +6,7 @@ public static class AppDataPaths
     public static IEnumerable<string> RecordingRoots(string current)
     {
         return new[] { current, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recordings") }
+            .SelectMany(root => new[] { root, Path.Combine(root, "incident-archive") })
             .Distinct(StringComparer.OrdinalIgnoreCase);
     }
     // Hosts such as the regression runner can isolate storage before loading application types.

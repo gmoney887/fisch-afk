@@ -294,6 +294,7 @@ public partial class FishingEngineReplayTests
     {
         public const int Width = 2254, Height = 1353;
         public int ClientWidth = Width;
+        public int ClientHeight = Height;
         public uint Dpi = 96;
         public Win32.POINT Cursor = new() { X = Width / 2, Y = 500 };
         public IntPtr Window = (IntPtr)99;
@@ -309,7 +310,7 @@ public partial class FishingEngineReplayTests
         public override bool IsIconic(IntPtr window) => Minimized;
         public override IntPtr GetForegroundWindow() => Focused ? Window : (IntPtr)55;
         public override bool GetClientRect(IntPtr window, out Win32.RECT rect)
-        { rect = new() { Right = ClientWidth, Bottom = Height }; return window != IntPtr.Zero && window == Window; }
+        { rect = new() { Right = ClientWidth, Bottom = ClientHeight }; return window != IntPtr.Zero && window == Window; }
         public override uint GetDpiForWindow(IntPtr window) => Dpi;
         public override void ForceSetForegroundWindow(IntPtr window)
         { Activations++; if (DenyNextActivations > 0) DenyNextActivations--; else Focused = true; }
