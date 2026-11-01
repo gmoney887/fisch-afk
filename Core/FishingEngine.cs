@@ -1407,23 +1407,7 @@ public class FishingEngine : IDisposable
                 if (castRes.Found)
                 {
                     double currentFill = castRes.FillPercent;
-                    if (lastFill >= 0.0 && currentFill > lastFill && (elapsed - lastFillElapsed) >= 12.0)
-                    {
-                        double instantRate = (currentFill - lastFill) / (elapsed - lastFillElapsed);
-                        if (instantRate >= 0.04 && instantRate <= 0.35)
-                        {
-                            fillRate = fillRate * 0.35 + instantRate * 0.65;
-                        }
-                        lastFill = currentFill;
-                        lastFillElapsed = elapsed;
-                    }
-                    else if (lastFill < 0.0 && currentFill > 0.0)
-                    {
-                        lastFill = currentFill;
-                        lastFillElapsed = elapsed;
-                    }
-
-                    double predictedFill = currentFill + (fillRate * leadMs);
+                    double predictedFill = AdvanceCastFillEstimate(currentFill, elapsed, leadMs, ref lastFill, ref lastFillElapsed, ref fillRate, out bool hitTarget);
 
                     if (Config.PreviewEnabled && castRes.AnnotatedFrame != null)
                     {
@@ -1437,7 +1421,6 @@ public class FishingEngine : IDisposable
                         OnTelemetry?.Invoke(telem);
                     }
 
-                    bool hitTarget = predictedFill >= 97.5 || currentFill >= 95.5;
                     bool capReached = castRes.WhiteTop > 0 && castRes.WhiteTop <= castRes.GreenY + 4;
 
                     if (elapsed >= 300 && (hitTarget || capReached))
@@ -1481,6 +1464,30 @@ public class FishingEngine : IDisposable
             _recorder.RecordEvent("cast-outcome", new { Outcome = "Unknown", CalibratedMs = calibratedMs, ReleaseMs = releaseMs });
         }
         return calibratedMs;
+    }
+
+    private static double AdvanceCastFillEstimate(double currentFill, double elapsed, double leadMs,
+        ref double lastFill, ref double lastFillElapsed, ref double fillRate, out bool hitTarget)
+    {
+        if (lastFill >= 0.0 && currentFill > lastFill && (elapsed - lastFillElapsed) >= 12.0)
+        {
+            double instantRate = (currentFill - lastFill) / (elapsed - lastFillElapsed);
+            if (instantRate >= 0.04 && instantRate <= 0.35)
+            {
+                fillRate = fillRate * 0.35 + instantRate * 0.65;
+            }
+            lastFill = currentFill;
+            lastFillElapsed = elapsed;
+        }
+        else if (lastFill < 0.0 && currentFill > 0.0)
+        {
+            lastFill = currentFill;
+            lastFillElapsed = elapsed;
+        }
+
+        double predictedFill = currentFill + (fillRate * leadMs);
+        hitTarget = predictedFill >= 97.5 || currentFill >= 95.5;
+        return predictedFill;
     }
 
     private void PulseCentering()
@@ -1879,26 +1886,7 @@ public class FishingEngine : IDisposable
                                     barEverFound = true;
                                     double currentFill = castResult.FillPercent;
 
-                                    // Compute rising fill velocity (% per ms)
-                                    if (lastFill >= 0.0 && currentFill > lastFill && (elapsed - lastFillElapsed) >= 12.0)
-                                    {
-                                        double instantRate = (currentFill - lastFill) / (elapsed - lastFillElapsed);
-                                        if (instantRate >= 0.04 && instantRate <= 0.35)
-                                        {
-                                            fillRate = fillRate * 0.35 + instantRate * 0.65;
-                                        }
-                                        lastFill = currentFill;
-                                        lastFillElapsed = elapsed;
-                                    }
-                                    else if (lastFill < 0.0 && currentFill > 0.0)
-                                    {
-                                        lastFill = currentFill;
-                                        lastFillElapsed = elapsed;
-                                    }
-
-                                    // Predictive lead calculation:
-                                    // Estimates fill level at the exact instant mouse release takes effect in Roblox (~25ms later)
-                                    double predictedFill = currentFill + (fillRate * leadMs);
+                                    double predictedFill = AdvanceCastFillEstimate(currentFill, elapsed, leadMs, ref lastFill, ref lastFillElapsed, ref fillRate, out bool hitTarget);
 
                                     if (Config.PreviewEnabled && castResult.AnnotatedFrame != null)
                                     {
@@ -1917,7 +1905,6 @@ public class FishingEngine : IDisposable
                                     // With ~25ms lead, predictedFill >= 97.5 dispatches mouse release when current fill is ~94-95%,
                                     // arriving precisely within the 97-99% window when processed by Roblox.
                                     // Safety fallback: if current fill already reached 95.5% or cap edge, release immediately.
-                                    bool hitTarget = predictedFill >= 97.5 || currentFill >= 95.5;
                                     bool capReached = castResult.WhiteTop > 0 && castResult.WhiteTop <= castResult.GreenY + 4;
 
                                     if (elapsed >= 300 && (hitTarget || capReached))
@@ -2009,31 +1996,38 @@ public class FishingEngine : IDisposable
             // ==============================================================
             if (CurrentState == MacroState.Luring)
             {
-                // Capture the FULL Roblox window for 100% game coverage and complete live preview
+                int safeTrackX1 = Math.Clamp(trackX1, 0, winW - 1);
+                int safeTrackY1 = Math.Clamp(trackY1, 0, winH - 1);
+                int safeTrackW = Math.Clamp(trackW, 1, winW - safeTrackX1);
+                int safeTrackH = Math.Clamp(trackH, 1, winH - safeTrackY1);
+                bool bobberSettled = GetElapsedMs(_stateStartTime) >= 250;
+                bool shakeActive = Config.EnableShakeClicks && Config.ShakeMode != "Disabled" && bobberSettled;
+                bool pointedProbeDue = Config.SelectedTheme is MinigameTheme.Default or MinigameTheme.AutoCalibrate
+                    && (_lastPointedAcquisitionTicks == 0 || GetElapsedMs(_lastPointedAcquisitionTicks) >= 250);
+                bool needFullFrame = shouldGenerateDebug || pointedProbeDue || (shakeActive && Config.ShakeMode == "Visual");
+
                 visionSw.Restart();
-                using Mat? fullFrame = _shakeCapture.CaptureClientRegion(robloxHwnd, 0, 0, winW, winH);
+                using Mat? fullFrame = needFullFrame ? _shakeCapture.CaptureClientRegion(robloxHwnd, 0, 0, winW, winH) : null;
+                using Mat? directTrackCrop = !needFullFrame ? _shakeCapture.CaptureClientRegion(robloxHwnd, safeTrackX1, safeTrackY1, safeTrackW, safeTrackH) : null;
                 visionSw.Stop();
 
                 DetectionResult luringDetect = new DetectionResult();
                 if (fullFrame != null && !fullFrame.Empty())
                 {
-                    // Crop reel minigame track from full frame to check if a bite occurred
-                    int safeTrackX1 = Math.Clamp(trackX1, 0, winW - 1);
-                    int safeTrackY1 = Math.Clamp(trackY1, 0, winH - 1);
-                    int safeTrackW = Math.Clamp(trackW, 1, winW - safeTrackX1);
-                    int safeTrackH = Math.Clamp(trackH, 1, winH - safeTrackY1);
-
                     using var trackCrop = new Mat(fullFrame, new Rect(safeTrackX1, safeTrackY1, safeTrackW, safeTrackH));
                     luringDetect = _vision.ProcessTrack(trackCrop, safeTrackX1, safeTrackY1, scaleFactor, Config.SelectedTheme, false);
                     // pointed-layout begin
-                    if(!luringDetect.HasLiveReel&&Config.SelectedTheme is MinigameTheme.Default or MinigameTheme.AutoCalibrate
-                        &&(_lastPointedAcquisitionTicks==0||GetElapsedMs(_lastPointedAcquisitionTicks)>=250))
+                    if(!luringDetect.HasLiveReel&&pointedProbeDue)
                     {
                         _lastPointedAcquisitionTicks=_clock.Timestamp;
                         var pointed=_vision.TryAcquirePointedLayout(fullFrame);
                         if(pointed is not null){luringDetect.Dispose();luringDetect=pointed;}
                     }
                     // pointed-layout end
+                }
+                else if (directTrackCrop != null && !directTrackCrop.Empty())
+                {
+                    luringDetect = _vision.ProcessTrack(directTrackCrop, safeTrackX1, safeTrackY1, scaleFactor, Config.SelectedTheme, false);
                 }
 
                 if (luringDetect.HasLiveReel)
@@ -2061,16 +2055,12 @@ public class FishingEngine : IDisposable
                     continue;
                 }
 
-                // Bobber settle guard: allow 250ms for bobber to land in water before scanning/clicking
-                bool bobberSettled = GetElapsedMs(_stateStartTime) >= 250;
                 string luringAction = bobberSettled ? "Luring (Waiting for bite)..." : "Bobber landing in water...";
                 Mat? luringDebugFrame = null;
 
-                bool shakeActive = Config.EnableShakeClicks && Config.ShakeMode != "Disabled" && bobberSettled;
-                if (fullFrame != null && !fullFrame.Empty())
+                if ((fullFrame != null && !fullFrame.Empty()) || (directTrackCrop != null && !directTrackCrop.Empty()))
                 {
-                    // Full-screen Shake detection with live annotated full game view preview
-                    var shakeResult = shakeActive || shouldGenerateDebug
+                    var shakeResult = fullFrame != null && !fullFrame.Empty() && ((shakeActive && Config.ShakeMode == "Visual") || shouldGenerateDebug)
                         ? _vision.DetectShakeIcon(fullFrame, 0, 0, scaleFactor, shouldGenerateDebug)
                         : new ShakeDetectionResult();
                     luringDebugFrame = shakeResult.AnnotatedFrame;

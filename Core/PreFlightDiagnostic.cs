@@ -363,8 +363,8 @@ public class PreFlightDiagnostic : IDisposable
                 Cv2.PutText(annotated, "CAST POWER ROI", new Point(castX + 6, castY + 16), HersheyFonts.HersheySimplex, 0.40, Scalar.FromRgb(0, 229, 255), 1);
 
                 // Draw Safe Water Crosshair (Gold)
-                int waterX = clientW / 2;
-                int waterY = clientH / 2;
+                int waterX = (clientW / 2) + (int)(clientH * 0.28);
+                int waterY = (int)Math.Round(clientH * 0.42);
                 Cv2.DrawMarker(annotated, new Point(waterX, waterY), Scalar.FromRgb(255, 215, 0), MarkerTypes.Cross, 22, 2);
                 Cv2.PutText(annotated, "WATER SAFE TARGET", new Point(waterX + 14, waterY + 4), HersheyFonts.HersheySimplex, 0.40, Scalar.FromRgb(255, 215, 0), 1);
 
@@ -441,7 +441,7 @@ public class PreFlightDiagnostic : IDisposable
     {
         var rawTargets = new List<(string Name, int X, int Y)>
         {
-            ("Water Casting Point", clientW / 2, clientH / 2),
+            ("Water Casting Point", (clientW / 2) + (int)(clientH * 0.28), (int)Math.Round(clientH * 0.42)),
             ("Slot 1 Hotbar Target", slot1CenterX ?? (clientW / 2 - (int)(clientH * 0.224)), clientH - (int)(clientH * 0.035)),
             ("Backpack Search Bar", (clientW / 2) + (int)Math.Round(clientH * 0.0498), (clientH / 2) + (int)Math.Round(clientH * 0.202)),
             ("Backpack Close Button", (clientW / 2) + (int)Math.Round(clientH * 0.1522), (clientH / 2) + (int)Math.Round(clientH * 0.172)),

@@ -252,9 +252,6 @@ public static partial class Win32
     public static extern bool DeleteObject(IntPtr hObject);
 
     [DllImport("user32.dll")]
-    public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
-
-    [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
 
@@ -744,10 +741,9 @@ public static partial class Win32
         
         if (vk != 0)
         {
-            byte scan = (byte)MapVirtualKey(vk, MAPVK_VK_TO_VSC);
-            keybd_event(vk, scan, 0, 0);
+            SendKeyboardEvent(vk, 0);
             System.Threading.Thread.Sleep(45);
-            keybd_event(vk, scan, KEYEVENTF_KEYUP, 0);
+            SendKeyboardEvent(vk, KEYEVENTF_KEYUP);
         }
     }
 
@@ -763,16 +759,14 @@ public static partial class Win32
     public static void SelectAllAndClear()
     {
         byte vkCtrl = 0x11;
-        byte scanCtrl = (byte)MapVirtualKey(vkCtrl, MAPVK_VK_TO_VSC);
         byte vkA = 0x41;
-        byte scanA = (byte)MapVirtualKey(vkA, MAPVK_VK_TO_VSC);
 
-        keybd_event(vkCtrl, scanCtrl, 0, 0);
+        SendKeyboardEvent(vkCtrl, 0);
         System.Threading.Thread.Sleep(25);
-        keybd_event(vkA, scanA, 0, 0);
+        SendKeyboardEvent(vkA, 0);
         System.Threading.Thread.Sleep(35);
-        keybd_event(vkA, scanA, KEYEVENTF_KEYUP, 0);
-        keybd_event(vkCtrl, scanCtrl, KEYEVENTF_KEYUP, 0);
+        SendKeyboardEvent(vkA, KEYEVENTF_KEYUP);
+        SendKeyboardEvent(vkCtrl, KEYEVENTF_KEYUP);
         System.Threading.Thread.Sleep(45);
         SendKeyPress('\b');
     }

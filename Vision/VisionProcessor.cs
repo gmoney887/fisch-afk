@@ -840,16 +840,13 @@ public class VisionProcessor
         foreach (var contour in contours)
         {
             var box = Cv2.BoundingRect(contour);
-            double solidity = Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1));
-            double meterThickness = box.Height;
-            if (glorp)
-            {
-                var rotated = Cv2.MinAreaRect(contour);
-                solidity = Math.Max(solidity, Cv2.ContourArea(contour) / Math.Max(1, rotated.Size.Width * rotated.Size.Height));
-                meterThickness = Math.Min(rotated.Size.Width, rotated.Size.Height) + 1;
-            }
+            var rotated = Cv2.MinAreaRect(contour);
+            double solidity = Math.Max(
+                Cv2.ContourArea(contour) / Math.Max(1, (box.Width - 1) * (box.Height - 1)),
+                Cv2.ContourArea(contour) / Math.Max(1, rotated.Size.Width * rotated.Size.Height));
+            double meterThickness = Math.Min(box.Height, Math.Min(rotated.Size.Width, rotated.Size.Height) + 1);
             // Recorded reels use both wide and compact progress layouts, anchored at viewport center.
-            if (Math.Min(Math.Abs(box.Left - wideLeft), Math.Abs(box.Left - compactLeft)) <= viewportHeight * .012
+            if (Math.Min(Math.Abs(box.Left - wideLeft), Math.Abs(box.Left - compactLeft)) <= viewportHeight * .018
                 && box.Width >= viewportHeight * .02 && box.Width <= viewportHeight * (glorp ? .565 : .56)
                 && meterThickness >= viewportHeight * .006 && meterThickness <= viewportHeight * .018
                 // Contour coordinates cover (w-1)*(h-1); using pixel-box area
@@ -857,7 +854,7 @@ public class VisionProcessor
                 && solidity >= .8)
                 return true;
         }
-        return glorp && !fillOnly && DetectReelProgress(crop, offsetY, viewportHeight, glorp: true, fillOnly: true);
+        return !fillOnly && DetectReelProgress(crop, offsetY, viewportHeight, glorp: glorp, fillOnly: true);
     }
 
     private static Rect? DetectInlineReelFish(Mat crop, int offsetY, double height)
@@ -1324,8 +1321,7 @@ public class VisionProcessor
                         string basePath = AppDomain.CurrentDomain.BaseDirectory;
                         string[] candidatePaths = {
                             System.IO.Path.Combine(basePath, "Assets", "shake_template.png"),
-                            System.IO.Path.Combine(basePath, "shake_template.png"),
-                            @"c:\Users\garre\OneDrive\Documents\AutoHotkey\FischMacroCS\Assets\shake_template.png"
+                            System.IO.Path.Combine(basePath, "shake_template.png")
                         };
 
                         foreach (var path in candidatePaths)

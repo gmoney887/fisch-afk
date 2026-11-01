@@ -31,37 +31,29 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
-        string logPath = AppDataPaths.FilePath("debug_startup.log");
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow constructor start\n"); } catch { }
 
         try
         {
             _settings = Settings.Load();
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Settings.Load OK\n");
 
             InitializeComponent();
             ApplyAppVersion();
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] InitializeComponent OK\n");
 
             _engine = new FishingEngine(_settings);
             _engine.OnTelemetry += Engine_OnTelemetry;
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] FishingEngine OK\n");
 
             _keyboardHook = new GlobalKeyboardHook();
             _keyboardHook.OnToggle += () => Dispatcher.BeginInvoke(ToggleMacro);
             _keyboardHook.OnReEquip += () => Dispatcher.BeginInvoke(new Action(() => { if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod(); }));
             _keyboardHook.OnStop += EmergencyStop;
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] GlobalKeyboardHook OK\n");
 
             PopulateSettingsUI();
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] PopulateSettingsUI OK\n");
 
             Loaded += MainWindow_Loaded;
-            System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow constructor complete\n");
         }
         catch (Exception ex)
         {
-            try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] EXCEPTION IN CONSTRUCTOR: {ex}\n"); } catch { }
+            SessionLogger.Instance.Log("LIFECYCLE", $"Exception in MainWindow constructor: {ex}");
             throw;
         }
     }
@@ -80,14 +72,11 @@ public partial class MainWindow : Window
                 Capture.CaptureExclusion.SetPinned(_hwnd, true);
         };
         _pinTimer.Start();
-        string logPath = AppDataPaths.FilePath("debug_startup.log");
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] OnSourceInitialized HWND=0x{_hwnd:X}\n"); } catch { }
 
         _hwndSource = HwndSource.FromHwnd(_hwnd);
         _hwndSource?.AddHook(HwndHook);
 
         RegisterHotkeys();
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] RegisterHotkeys OK\n"); } catch { }
     }
 
     private void RegisterHotkeys()
@@ -1487,14 +1476,11 @@ public partial class MainWindow : Window
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        string logPath = AppDataPaths.FilePath("debug_startup.log");
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow_Loaded start\n"); } catch { }
 
         _ = CheckForUpdatesAsync();
 
         await System.Threading.Tasks.Task.Delay(2600); // Display startup splash for 2.6s
         DismissSplash();
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] MainWindow_Loaded splash dismissed\n"); } catch { }
     }
 
     private string _latestReleaseUrl = "https://github.com/gmoney887/fisch-afk/releases/latest";
@@ -1591,8 +1577,6 @@ public partial class MainWindow : Window
         _closing = true;
         EmergencyStop();
         IsEnabled = false;
-        string logPath = AppDataPaths.FilePath("debug_startup.log");
-        try { System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] Window_Closing called! StackTrace:\n{Environment.StackTrace}\n"); } catch { }
 
         _keyboardHook?.Dispose();
         _pinTimer.Stop();

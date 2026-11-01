@@ -44,18 +44,13 @@ public class Settings
     public string ShakeMode { get; set; } = "Navigation"; // "Navigation" (recommended UI Key Shake), "Visual", "Disabled"
     public int ShakeClickIntervalMs { get; set; } = 50;
     public int ShakeRepeatBypass { get; set; } = 8;
-    public double ShakeAreaMarginX { get; set; } = 0.20;
-    public double ShakeAreaMarginY { get; set; } = 0.08;
 
     public int HoverDownMs { get; set; } = 22;
     public int HoverUpMs { get; set; } = 30;
-    public int EdgeSafetyMargin { get; set; } = 14;
-    public int Deadzone { get; set; } = 10;
 
     public string ToggleHotkey { get; set; } = "F6";
     public string ReEquipHotkey { get; set; } = "F7";
 
-    public bool ShowOverlay { get; set; } = true;
     public bool ShowVisionPreview { get; set; } = true;
     public bool EnableRecording { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = true;
@@ -69,8 +64,6 @@ public class Settings
     public bool EnableAntiAfk { get; set; } = true;
     // Legacy persisted preference. Runtime clamps to 1–2 minutes to leave recovery margin.
     public int AntiAfkIntervalMinutes { get; set; } = 2;
-    public double CustomPullAccel { get; set; } = 550.0;
-    public double CustomGravityFall { get; set; } = 410.0;
 
     // Aquarium Auto-Claim
     public bool EnableAutoClaimAquarium { get; set; } = false;
@@ -82,9 +75,6 @@ public class Settings
     public bool EnableAutoOpenCrates { get; set; } = false;
     public int CrateIntervalCatches { get; set; } = 15;
     public int CrateMaxTypes { get; set; } = 0; // Maximum stack-opening batches; 0 = until empty (safety limit 999 batches)
-    public int CrateStartSlot { get; set; } = 2;
-    public int CrateEndSlot { get; set; } = 7;
-    public int CrateSecondsPerSlot { get; set; } = 5;
 
     // Dynamic Perfect Cast Vision & Auto-Tuning
     public bool EnableDynamicCastRelease { get; set; } = true;

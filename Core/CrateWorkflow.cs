@@ -276,25 +276,10 @@ public sealed class CrateVision(string directory, bool useBundledTemplates = fal
     // Exact 3x3 [1 2 1] smoothing with reflect-101 borders. Avoid the native
     // GaussianBlur path which access-violated during live inventory closure.
     // Source and destination are separate and both owned for the entire loop.
-    private static unsafe Mat Smooth(Mat source)
+    private static Mat Smooth(Mat source)
     {
         var result = new Mat(source.Rows, source.Cols, MatType.CV_8UC1);
-        int w = source.Cols, h = source.Rows;
-        for (int y = 0; y < h; y++)
-        {
-            byte* above = (byte*)source.Ptr(y == 0 ? Math.Min(1, h - 1) : y - 1);
-            byte* row = (byte*)source.Ptr(y);
-            byte* below = (byte*)source.Ptr(y == h - 1 ? Math.Max(0, h - 2) : y + 1);
-            byte* dst = (byte*)result.Ptr(y);
-            for (int x = 0; x < w; x++)
-            {
-                int l = x == 0 ? Math.Min(1, w - 1) : x - 1;
-                int r = x == w - 1 ? Math.Max(0, w - 2) : x + 1;
-                dst[x] = (byte)((above[l] + 2 * above[x] + above[r] +
-                    2 * row[l] + 4 * row[x] + 2 * row[r] + below[l] + 2 * below[x] + below[r] + 8) / 16);
-            }
-        }
-        GC.KeepAlive(source);
+        ImageSmoothing.Apply(source, result);
         return result;
     }
 

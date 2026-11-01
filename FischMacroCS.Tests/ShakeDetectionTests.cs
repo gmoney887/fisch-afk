@@ -43,8 +43,10 @@ public class ShakeDetectionTests
         // Alternating bright pixels disappear in the coarse pass, but fail the
         // full-resolution text match. Several distractors outrank the real button.
         using var distractor = template.Clone();
-        for (int y = 0; y < distractor.Height; y++)
-        for (int x = 0; x < distractor.Width; x++)
+        int distractorHeight = distractor.Height;
+        int distractorWidth = distractor.Width;
+        for (int y = 0; y < distractorHeight; y++)
+        for (int x = 0; x < distractorWidth; x++)
         {
             var pixel = template.At<Vec3b>(y, x);
             int noise = (x + y) % 2 == 0 ? 255 : 0;
