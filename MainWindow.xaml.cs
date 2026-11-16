@@ -171,7 +171,7 @@ public partial class MainWindow : Window
         // Aquarium Auto-Claim
         ChkAutoClaimAquarium.IsChecked = _settings.EnableAutoClaimAquarium;
         TxtAquariumInterval.Text = _settings.AquariumClaimIntervalMinutes.ToString();
-        CmbMinigameTheme.SelectedIndex = (int)_settings.SelectedTheme;
+        CmbMinigameTheme.SelectedValue = _settings.SelectedTheme;
 
         // Auto-Open Crates ('g' Inventory)
         ChkAutoOpenCrates.IsChecked = _settings.EnableAutoOpenCrates;
@@ -861,9 +861,9 @@ public partial class MainWindow : Window
             _engine.Recorder.MaxRecordingsToKeep = mr;
         }
 
-        if (CmbMinigameTheme?.SelectedItem is ComboBoxItem themeItem)
+        if (CmbMinigameTheme?.SelectedValue is MinigameTheme theme)
         {
-            _settings.SelectedTheme = (MinigameTheme)CmbMinigameTheme.SelectedIndex;
+            _settings.SelectedTheme = theme;
             _engine.Config.SelectedTheme = _settings.SelectedTheme;
         }
 
@@ -909,8 +909,8 @@ public partial class MainWindow : Window
 
     private void CmbMinigameTheme_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!IsLoaded || CmbMinigameTheme == null || _settings == null || _engine == null) return;
-        _settings.SelectedTheme = (MinigameTheme)CmbMinigameTheme.SelectedIndex;
+        if (!IsLoaded || CmbMinigameTheme?.SelectedValue is not MinigameTheme theme || _settings == null || _engine == null) return;
+        _settings.SelectedTheme = theme;
         _engine.Config.SelectedTheme = _settings.SelectedTheme;
     }
 

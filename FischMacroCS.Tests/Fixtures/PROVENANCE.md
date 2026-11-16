@@ -178,3 +178,13 @@ body1354..1807 and target1611. Padding outside the retained crop is neutral35,
 not known gameplay. This is a synthetic geometry/reacquisition test, not a new
 attempt or measured acceleration. The original failing crop849..1286 and red TRX
 remain in returning-marker-red; no coordinate or timing expectation was loosened.
+
+`random-rod`: reel-region crops at (968, 1013) on a 3440×1369 viewport.
+Frames 26, 28, 40, 45, 54, 59 and 62 are from
+`session_20261116_024836_363_9d610db806794f3dba6885f2ef82a82a`. They cover
+entry, the black marker crossing an arrow, the dark red bar at the left stop,
+and the reel leaving the screen. The binary right-arrow reference comes from
+frame 28. Frame 324 is a wider, single-arrow bar from
+`session_20261116_022519_210_ed117f18e7da462a87a2d89bafe89e84`.
+Auto detection measured both the fish and the bar on every frame from 26
+through 59 of the last reel. Frames 23–25 and 60–64 did not report a live reel.

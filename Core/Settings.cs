@@ -13,7 +13,8 @@ public enum MinigameTheme
     Golden,
     Glorp,
     Ruinous,
-    Doomsekkar
+    Doomsekkar,
+    RandomRod = 10
 }
 
 public class Settings

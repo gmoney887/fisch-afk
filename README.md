@@ -23,6 +23,7 @@ Each PC keeps its own settings and local recordings under `%LOCALAPPDATA%\FischA
 ## Current behavior
 
 - Predictive cast release, visual shake clicks with mouse movement, and bar/fish tracking.
+- Random Rod is recognized automatically. Its black fish marker is tracked on both the white and dark red control bar. You can also select **Random Rod (Black / white)** under **Minigame Theme**.
 - Start remains requested through supported interruptions, with guarded input and paced recovery retries.
 - Confirmed catches and Unknown outcomes are tracked separately; companion rewards do not count as the player's catch.
 - AFK Performance reduces preview and interface overhead while retaining stored preferences.

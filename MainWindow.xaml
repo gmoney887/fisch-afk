@@ -1,6 +1,7 @@
 <Window x:Class="FischMacroCS.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:core="clr-namespace:FischMacroCS.Core"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -819,15 +820,16 @@
                                 <!-- Minigame Theme -->
                                 <StackPanel Grid.Row="1" Grid.Column="0" Margin="0,0,8,10">
                                     <TextBlock Text="MINIGAME THEME" Style="{StaticResource MetricLabel}"/>
-                                    <ComboBox x:Name="CmbMinigameTheme" SelectionChanged="CmbMinigameTheme_SelectionChanged" Height="30" FontSize="11" Margin="0,2,0,0">
-                                        <ComboBoxItem Content="Auto (default)" IsSelected="True"/>
-                                        <ComboBoxItem Content="White / slate"/>
-                                        <ComboBoxItem Content="Feline (Pink)"/>
-                                        <ComboBoxItem Content="Trident (Green)"/>
-                                        <ComboBoxItem Content="Golden"/>
-                                        <ComboBoxItem Content="Blade of Glorp"/>
-                                        <ComboBoxItem Content="Ruinous (Red)"/>
-                                        <ComboBoxItem Content="Doomsekkar (Spooky)"/>
+                                    <ComboBox x:Name="CmbMinigameTheme" SelectedValuePath="Tag" SelectionChanged="CmbMinigameTheme_SelectionChanged" Height="30" FontSize="11" Margin="0,2,0,0">
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.AutoCalibrate}" Content="Auto (default)" IsSelected="True"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Default}" Content="White / slate"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Feline}" Content="Feline (Pink)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Trident}" Content="Trident (Green)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Golden}" Content="Golden"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Glorp}" Content="Blade of Glorp"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Ruinous}" Content="Ruinous (Red)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Doomsekkar}" Content="Doomsekkar (Spooky)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.RandomRod}" Content="Random Rod (Black / white)"/>
                                     </ComboBox>
                                 </StackPanel>
 

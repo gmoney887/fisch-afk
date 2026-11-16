@@ -11,6 +11,7 @@ public partial class FishingEngineReplayTests
     [Theory]
     [InlineData("oath_red_45.png")]
     [InlineData("nate_24.png")]
+    [InlineData("random-rod/frame_00000045.png")]
     public async Task GeometryWorkerEntersReelingAndPullsTowardFish(string fixture)
     {
         var clock = new Clock(); var input = new Input(clock);

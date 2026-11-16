@@ -175,6 +175,7 @@ public class VisionProcessor
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
+        if (crop is null || crop.Empty()) return new DetectionResult();
         double familyMs=0;
         DetectionResult? Pointed()
         {
@@ -187,6 +188,38 @@ public class VisionProcessor
         // A hint changes search order only; every component is re-proved now.
         // A miss immediately runs the unchanged AGY reader, including ordinary bars.
         DetectionResult? result=_webweaverHint?Pointed():null;
+        bool automaticFamily = theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default;
+        if (automaticFamily || theme == MinigameTheme.RandomRod)
+        {
+            double height = scaleFactor * 1080;
+            var observed = RandomRodReelDetector.Find(crop, absOffsetY, height);
+            if (observed.HasValue || theme == MinigameTheme.RandomRod)
+            {
+                result?.Dispose();
+                var reading = new DetectionResult { DetectorPath = "RandomRod", ResolvedTheme = MinigameTheme.RandomRod };
+                if (observed is { } reel)
+                {
+                    _webweaverHint = _ordinaryLayoutHint = false;
+                    _pointedCaptureHint = _pointedMeterHint = null;
+                    reading.BarFound = reading.FishFound = true;
+                    reading.BarLeft = absOffsetX + reel.Body.Left;
+                    reading.BarRight = absOffsetX + reel.Body.Right;
+                    reading.BarWidth = reel.Body.Width;
+                    reading.BarCenter = reading.BarLeft + reel.Body.Width / 2.0;
+                    reading.FishX = absOffsetX + reel.Marker.X + reel.Marker.Width / 2;
+                    reading.ReelProgressFound = MeasureReelProgressFill(crop, absOffsetY, height, MinigameTheme.RandomRod).HasValue;
+                    if (generateDebug)
+                    {
+                        reading.AnnotatedFrame = crop.Clone();
+                        Cv2.Rectangle(reading.AnnotatedFrame, reel.Body, Scalar.LimeGreen, 2);
+                        Cv2.Rectangle(reading.AnnotatedFrame, reel.Marker, Scalar.Yellow, 2);
+                    }
+                }
+                reading.FamilyProbeLatencyMs = familyMs;
+                reading.DetectionLatencyMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                return reading;
+            }
+        }
         if(result is null)
         {
             _webweaverHint=false;
@@ -805,10 +838,46 @@ public class VisionProcessor
     }
 
     private static bool DetectReelProgress(Mat crop, int offsetY, double viewportHeight, bool glorp = false, bool fillOnly = false)
+        => FindReelProgress(crop,offsetY,viewportHeight,glorp,fillOnly).HasValue;
+
+    public static double? MeasureReelProgressFill(Mat crop, int offsetY, double viewportHeight, MinigameTheme theme=MinigameTheme.Default)
+    {
+        if(crop.Empty() || viewportHeight<200) return null;
+        if(theme == MinigameTheme.RandomRod)
+            return MeasureBlackReelFill(crop, offsetY, viewportHeight, 8);
+        var fill=FindReelProgress(crop,offsetY,viewportHeight,false,true)
+            ?? FindReelProgress(crop,offsetY,viewportHeight,true,true);
+        return fill?.Width/viewportHeight;
+    }
+
+    private static double? MeasureBlackReelFill(Mat crop, int offsetY, double height, int maxValue)
+    {
+        // Random Rod keeps the fill nearly pure black even against dark water.
+        int top=Math.Max(0,(int)(height*.90)-offsetY),bottom=Math.Min(crop.Height,(int)(height*.94)-offsetY);
+        if(bottom<=top)return null;
+        using var strip=new Mat(crop,new Rect(0,top,crop.Width,bottom-top));
+        using var hsv=new Mat();using var black=new Mat();
+        Cv2.CvtColor(strip,hsv,ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv,new Scalar(0,0,0),new Scalar(179,255,maxValue),black);
+        using var interior=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(3,3));
+        Cv2.MorphologyEx(black,black,MorphTypes.Open,interior);
+        Cv2.FindContours(black,out Point[][] fills,out _,RetrievalModes.External,ContourApproximationModes.ApproxSimple);
+        foreach(var contour in fills)
+        {
+            var r=Cv2.BoundingRect(contour);
+            if(Math.Abs(r.Left-(crop.Width/2.0-height*.274))<=height*.006
+                && r.Width>=3 && r.Width<=height*.55 && r.Height>=height*.006 && r.Height<=height*.018
+                && Cv2.ContourArea(contour)/Math.Max(1,(r.Width-1)*(r.Height-1))>=.9)
+                return r.Width/height;
+        }
+        return null;
+    }
+
+    private static Rect? FindReelProgress(Mat crop, int offsetY, double viewportHeight, bool glorp, bool fillOnly)
     {
         int top = Math.Max(0, (int)(viewportHeight * .90) - offsetY);
         int bottom = Math.Min(crop.Height, (int)(viewportHeight * .94) - offsetY);
-        if (bottom <= top) return false;
+        if (bottom <= top) return null;
         using var strip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
         using var hsv = new Mat();
         using var mask = new Mat();
@@ -852,9 +921,9 @@ public class VisionProcessor
                 // Contour coordinates cover (w-1)*(h-1); using pixel-box area
                 // unfairly rejects the same thin rectangle at smaller resolutions.
                 && solidity >= .8)
-                return true;
+                return box;
         }
-        return !fillOnly && DetectReelProgress(crop, offsetY, viewportHeight, glorp: glorp, fillOnly: true);
+        return !fillOnly ? FindReelProgress(crop, offsetY, viewportHeight, glorp, true) : null;
     }
 
     private static Rect? DetectInlineReelFish(Mat crop, int offsetY, double height)
