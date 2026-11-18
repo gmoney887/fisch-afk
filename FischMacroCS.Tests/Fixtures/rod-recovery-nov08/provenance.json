@@ -1,0 +1,122 @@
+{
+  "BuildVersion": "1.0.30-nov07dualmeter+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "TimestampFrequency": 10000000,
+  "Frames": [
+    {
+      "File": "frame_00002546.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2546,
+      "Timestamp": 2653396656040,
+      "SHA256": "EDAEEAEABD4F221C0949176CD5865404A23E0FAEED88BBB7CA2D7CCDBFD71FF5",
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": true,
+      "Annotation": "White selection outline present"
+    },
+    {
+      "File": "frame_00002550.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2550,
+      "Timestamp": 2653407655146,
+      "SHA256": "4B21D5B1FCE524B3080443C4053181AE03C0AF301DBB42420F26EC6EC5936D8B",
+      "Region": {
+        "X": 0,
+        "Y": 1027,
+        "Width": 3440,
+        "Height": 342
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": false,
+      "Annotation": "White selection outline absent; nine-slot hotbar remains visible; favorite stars join neighboring contours"
+    },
+    {
+      "File": "frame_00002559.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2559,
+      "Timestamp": 2653427159476,
+      "SHA256": "A511FD810DDE966B66B168BF4BDB2839D2D565FF72DAD97AC5E4B995D2F23E26",
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": false,
+      "Annotation": "White selection outline absent; nine-slot hotbar remains visible; favorite stars join neighboring contours"
+    },
+    {
+      "File": "frame_00002641.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2641,
+      "Timestamp": 2653795808518,
+      "SHA256": "3EECA9F5983FA12D57FF997F155982CA7B85D141549169B6F625A18FF39D0651",
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": true,
+      "Annotation": "White selection outline present"
+    },
+    {
+      "File": "frame_00002646.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2646,
+      "Timestamp": 2653807746815,
+      "SHA256": "5F3EFD021FFB004C8DCD0EC39D5C0BFD2CE618C3733813C46A9CDB886BCD837B",
+      "Region": {
+        "X": 0,
+        "Y": 1027,
+        "Width": 3440,
+        "Height": 342
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": false,
+      "Annotation": "White selection outline absent; nine-slot hotbar remains visible; favorite stars join neighboring contours"
+    },
+    {
+      "File": "frame_00002654.png",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "FrameId": 2654,
+      "Timestamp": 2653825663062,
+      "SHA256": "42EDD0893207B31C8BEA3B258424DC61F7055DF5F75873495F3BFB2C42307913",
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SlotOneSelected": false,
+      "Annotation": "White selection outline absent; nine-slot hotbar remains visible; favorite stars join neighboring contours"
+    }
+  ],
+  "Pixels": "Original PNG files copied byte-for-byte; full-client and bottom capture regions preserved separately.",
+  "WorkerReplay": "Recorded selected/unselected full frames drive the actual equipment reset; existing reel/catch strips are composited only in the controlled worker renderer after re-equip. No live catch acceptance is claimed."
+}

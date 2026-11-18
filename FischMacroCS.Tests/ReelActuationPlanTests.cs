@@ -4,6 +4,35 @@ namespace FischMacroCS.Tests;
 
 public class ReelActuationPlanTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DragonEdgeCommandSurvivesInterFramePulsesAndYieldsToFreshEvidence(bool right)
+    {
+        // Frame 587 of the Nov 16 dragon and its mirror. A centering pulse
+        // briefly released the hold between two consecutive emergency decisions.
+        double direction = right ? 1 : -1;
+        var plan = new ReelActuationPlan();
+        void Configure(double at) => plan.Configure(at, 0, direction * 463, direction * 143,
+            direction * 284, 696, 519, right, barHalfWidth: 173);
+        Configure(100);
+        plan.KeepEdgeInput(right);
+        foreach (int at in new[] { 116, 132 })
+        {
+            Assert.True(plan.TryDuty(at, out double duty));
+            Assert.Equal(right ? 1d : 0d, duty);
+            plan.Input(at, right);
+        }
+        Assert.True(plan.TryDuty(148, out double resumed));
+        Assert.NotEqual(right ? 1d : 0d, resumed);
+
+        Configure(150);
+        plan.KeepEdgeInput(right);
+        Configure(158);
+        Assert.True(plan.TryDuty(158, out double fresh));
+        Assert.NotEqual(right ? 1d : 0d, fresh);
+    }
+
     [Fact]
     public void ActuationCannotRenewItsOriginalEvidenceLease()
     {

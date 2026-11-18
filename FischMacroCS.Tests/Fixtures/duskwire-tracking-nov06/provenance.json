@@ -1,0 +1,200 @@
+{
+  "Purpose": "Raw observed live track dropouts, opposite fallback and outcomes; original pixels unchanged.",
+  "Frames": [
+    {
+      "File": "s1_121152.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121152.png",
+      "SHA256": "3ec9c736688dcdc5fa02e3a611151b13ba560dec7a8e11426c2e453e2cae4e1f"
+    },
+    {
+      "File": "s1_121192.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121192.png",
+      "SHA256": "f37f81a748475dab29bd07dad29f37c7a7f3bbf08c2a02de18c6d8a716672d45"
+    },
+    {
+      "File": "s1_121206.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121206.png",
+      "SHA256": "244ee82b8af63c67cd5704a8bde9ae7658c8ec6c926dbd76e25f446a172d2175"
+    },
+    {
+      "File": "s2_1490.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001490.png",
+      "SHA256": "029db169b2e4686ae7185eccc2f3e70d38bfce33118ffbee8d5653cc7d61955b"
+    },
+    {
+      "File": "s2_1507.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001507.png",
+      "SHA256": "516c6d27c84e996dfff7b19cc00d9d3e3895dbdf18ecc47434ddcae9f0dd4a44"
+    },
+    {
+      "File": "s1_126338.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1922\\sample-frame_00126338.png",
+      "SHA256": "e640ea5e42710ffdae08810c290be63fab581c6f05648844adf25f603cc92b25"
+    },
+    {
+      "File": "s1_126352.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1922\\sample-frame_00126352.png",
+      "SHA256": "cc82735a9998174d1d36bd9a31fa5c728435581295469132f9d52b69e103defa"
+    },
+    {
+      "File": "s1_121179.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121179.png",
+      "SHA256": "da64d8277777f86b3e0edfbdf101f4d9e4495d4f78d95c95f3957d4294c9e560",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s1_121195.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121195.png",
+      "SHA256": "bd08d391602428a1f768c1b60e6d744b80a11031d8719cc617e4aa05a6be55f2",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s1_121197.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1912\\loss121205\\frame_00121197.png",
+      "SHA256": "f270d0677bd1778834e9e828fec35054d925dc1ff8fbe76adaa7754484b118f2",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s2_1491.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001491.png",
+      "SHA256": "f4378f4be999e44501086552795022ffc4892b28d76aeea8904b76678d90980f",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s2_1492.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001492.png",
+      "SHA256": "23b8acb2bcc01ac2b41ed466a490432d82a405e0b5fa840a458682bf1fec9328",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s2_1493.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001493.png",
+      "SHA256": "7ad208f597e9bafbe1f4b68b85a857c5896b7f02559fb06952c47e1b0468d9a3",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s2_1505.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001505.png",
+      "SHA256": "3a6d9c818404d64b7800fdd7f9ba60cea9d23a66bc472ae8e252a169b8b97d9b",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "s2_1506.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1932\\loss1512\\frame_00001506.png",
+      "SHA256": "284da66ff7a24ea63e5f26682482f132158f8a39f8c901d0e98a652816a7fcab",
+      "Region": [
+        968,
+        1013,
+        1504,
+        301
+      ],
+      "Viewport": [
+        3440,
+        1369
+      ]
+    },
+    {
+      "File": "outcome_frame_00112240.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1852\\sample-frame_00112240.png",
+      "SHA256": "5bac3436866eaf644047531b66dce71968309c4501def1d53782d42c544f6246"
+    },
+    {
+      "File": "outcome_frame_00097385.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1822\\frame_00097385.png",
+      "SHA256": "10a3a36b570adfdecb050b1236217bd8468c31721d6372e42b1ff6b281283bd1"
+    },
+    {
+      "File": "outcome_frame_00097402.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-pool-nov06\\monitoring\\check-20261106-1822\\frame_00097402.png",
+      "SHA256": "8e985c736754f9568c22d53eaf40e14609ad1169f54d695f50c294476685a93e"
+    },
+    {
+      "File": "live_1208.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-tracking-nov06\\live-counter-followup\\frame_00001208.png",
+      "SHA256": "ebe6870891e7cfa834343408d6eaa06aef71d17c5449d0a0c148cd94681b42fe"
+    },
+    {
+      "File": "live_1287.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-tracking-nov06\\live-counter-followup\\frame_00001287.png",
+      "SHA256": "312d430ce098bce167c457af70e54b304f4e112bab5d204a1c60914adcc7d327"
+    },
+    {
+      "File": "live_1358.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-tracking-nov06\\live-counter-followup\\frame_00001358.png",
+      "SHA256": "2f8f31741d357c3e7864123db517ddc12b9ac891ee03ee63068ae5915ebac6ac"
+    },
+    {
+      "File": "live_1456.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-tracking-nov06\\live-counter-followup\\frame_00001456.png",
+      "SHA256": "1d02dbbc606d5f332d79aa69690d9025e0a9fa0ce6df59cd58ff1b1343ad2c5e"
+    },
+    {
+      "File": "live_1543.png",
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-tracking-nov06\\live-counter-followup\\frame_00001543.png",
+      "SHA256": "02a62bec787e6c305f8b13d685a4b6bfa79b750ddece91d5784cbb4ec07ca561"
+    }
+  ]
+}

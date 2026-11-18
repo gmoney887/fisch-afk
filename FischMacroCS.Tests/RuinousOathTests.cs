@@ -8,6 +8,30 @@ namespace FischMacroCS.Tests;
 public class RuinousOathTests
 {
     [Theory]
+    [InlineData(MinigameTheme.AutoCalibrate, MinigameTheme.Ruinous)]
+    [InlineData(MinigameTheme.Default, MinigameTheme.Default)]
+    public void EquippedNameSelectsRuinousBeforeTheWhiteOpening(MinigameTheme selected, MinigameTheme expected)
+    {
+        using var hotbar = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ruinous_hotbar.png"));
+        Assert.False(hotbar.Empty());
+        var settings = new Settings { SelectedTheme = selected };
+        using var engine = new FishingEngine(settings);
+        Assert.True(engine.ReadRodSlot(hotbar, 1369).IsEquipped);
+        Assert.Equal(expected, engine.ReelTheme);
+        engine.ConfigureReelDynamics(MinigameTheme.Default, 1504, 3440, 1369);
+        Assert.Equal((expected == MinigameTheme.Ruinous ? 680 : 550) * 1504.0 / 1188, engine.EstimatedRodPull, 6);
+        Assert.Equal(selected, settings.SelectedTheme);
+
+        // The next equipped rod occupies the same slot. Keep the selection
+        // outline but replace the name with an unrelated item's lettering.
+        using var other = new Mat(hotbar, new Rect(122, 25, 60, 57));
+        using var first = new Mat(hotbar, new Rect(54, 25, 60, 57));
+        other.CopyTo(first);
+        Assert.True(engine.ReadRodSlot(hotbar, 1369).IsEquipped);
+        Assert.Equal(selected, engine.ReelTheme);
+    }
+
+    [Theory]
     [InlineData(0)]
     [InlineData(30)]
     [InlineData(60)]
@@ -79,6 +103,23 @@ public class RuinousOathTests
     }
 
     [Theory]
+    [InlineData(MinigameTheme.AutoCalibrate, 550)]
+    [InlineData(MinigameTheme.Ruinous, 680)]
+    public void RuinousPullScalesOnWhiteOpeningAndAfterRecognition(MinigameTheme selection, int openingPull)
+    {
+        var settings = new Settings { SelectedTheme = selection };
+        using var engine = new FishingEngine(settings);
+        const double scale = 1504.0 / 1188.0;
+        engine.ConfigureReelDynamics(MinigameTheme.Default, 1504, 3440, 1369);
+        Assert.Equal(openingPull * scale, engine.EstimatedRodPull, 6);
+        engine.ConfigureReelDynamics(MinigameTheme.Ruinous, 1504, 3440, 1369);
+        Assert.Equal(680 * scale, engine.EstimatedRodPull, 6);
+        engine.ConfigureReelDynamics(MinigameTheme.Default, 1504, 3440, 1369);
+        Assert.Equal(680 * scale, engine.EstimatedRodPull, 6);
+        Assert.Equal("Standard", settings.RodProfile);
+    }
+
+    [Theory]
     [InlineData("oath_green_238.png", 1098, 1358, 1835)]
     [InlineData("oath_slash_297.png", 1697, 1961, 1836)]
     [InlineData("oath_red_475.png", 1612, 1823, 1719)]
@@ -122,6 +163,35 @@ public class RuinousOathTests
         Assert.True(resBrown.BarFound, "Must find brown bar in AutoCalibrate");
         Assert.InRange(resBrown.BarLeft, 1010, 1060);
         Assert.InRange(resBrown.BarRight, 1220, 1270);
+    }
+
+    [Fact]
+    public void InlineFishReel_SurvivesSlashSplitGlyphAndLockedOcclusionWithoutPointedProbe()
+    {
+        using var baseFrame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", "oath_green_238.png"));
+        Assert.False(baseFrame.Empty());
+
+        var vision = new VisionProcessor();
+        using var initial = vision.ProcessTrack(baseFrame, 968, 1013, 1369.0 / 1080.0, MinigameTheme.Ruinous, false);
+        Assert.True(initial.HasLiveReel && initial.BarFound && initial.FishFound && initial.ReelProgressFound);
+        Assert.Equal(MinigameTheme.Ruinous, initial.ResolvedTheme);
+
+        // Simulate horizontal dark slash splitting the vertical yellow fish glyph across its middle (20px gap)
+        using var splitGlyph = baseFrame.Clone();
+        int localFishX = initial.FishX - 968;
+        Cv2.Rectangle(splitGlyph, new Rect(Math.Max(0, localFishX - 25), 130, 50, 20), new Scalar(20, 20, 90), -1);
+        using var splitResult = vision.ProcessTrack(splitGlyph, 968, 1013, 1369.0 / 1080.0, MinigameTheme.Ruinous, false);
+        Assert.True(splitResult.HasLiveReel && splitResult.BarFound && splitResult.FishFound && splitResult.ReelProgressFound);
+        Assert.InRange(splitResult.FishX, initial.FishX - 6, initial.FishX + 6);
+        Assert.Equal(0, splitResult.FamilyProbeLatencyMs);
+
+        // Simulate full 1-frame glyph occlusion on a locked Ruinous reel: BarFound + ReelProgressFound must persist with 0ms probe
+        using var occludedGlyph = baseFrame.Clone();
+        Cv2.Rectangle(occludedGlyph, new Rect(Math.Max(0, localFishX - 25), 75, 50, 125), new Scalar(30, 30, 150), -1);
+        using var occludedResult = vision.ProcessTrack(occludedGlyph, 968, 1013, 1369.0 / 1080.0, MinigameTheme.Ruinous, false);
+        Assert.True(occludedResult.BarFound && occludedResult.ReelProgressFound);
+        Assert.InRange(occludedResult.BarLeft, initial.BarLeft - 10, initial.BarLeft + 10);
+        Assert.Equal(0, occludedResult.FamilyProbeLatencyMs);
     }
 
     [Theory]

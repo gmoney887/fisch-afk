@@ -7,6 +7,7 @@ public sealed class FishingViewSafety(IClock clock)
 {
     private long? _suspectedAt;
     private long? _lastLiveReelAt;
+    private long? _lastReelProgressAt;
     private long? _lastConfirmedCatchAt;
     private long _nextCycleBudgetMs;
     private long? _recoveryAttemptAt;
@@ -44,6 +45,8 @@ public sealed class FishingViewSafety(IClock clock)
     }
     public bool IsSuspected => _suspectedAt.HasValue;
     public bool HasLiveReel { get; private set; }
+    public void ConfirmReelProgress() => _lastReelProgressAt = clock.Timestamp;
+    public void EndReel() => _lastReelProgressAt = null;
     public bool HasRecentProgress => _lastConfirmedCatchAt.HasValue &&
         clock.ElapsedMilliseconds(_lastConfirmedCatchAt.Value) < _nextCycleBudgetMs;
 
@@ -61,7 +64,8 @@ public sealed class FishingViewSafety(IClock clock)
         // Give the current catch time to finalize. Do not interrupt its controller
         // with repeated mouse releases or a blocking scene-only polling loop.
         bool recentReel = _lastLiveReelAt.HasValue && clock.ElapsedMilliseconds(_lastLiveReelAt.Value) < 2000;
-        return !HasRecentProgress && !HasRecoveryAttempt && status == FishingViewStatus.Changed && elapsed >= 3000 &&
+        bool advancingReel = _lastReelProgressAt.HasValue && clock.ElapsedMilliseconds(_lastReelProgressAt.Value) <= reelTimeoutMs;
+        return !HasRecentProgress && !HasRecoveryAttempt && !advancingReel && status == FishingViewStatus.Changed && elapsed >= 3000 &&
             (!recentReel || elapsed >= Math.Max(3000, reelTimeoutMs));
     }
 
@@ -83,6 +87,7 @@ public sealed class FishingViewSafety(IClock clock)
     {
         ClearSuspicion();
         _lastConfirmedCatchAt = null;
+        _lastReelProgressAt = null;
         _nextCycleBudgetMs = 0;
         _recoveryAttemptAt = null; _recoveryAttemptUsed = false;
     }

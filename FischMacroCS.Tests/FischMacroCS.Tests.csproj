@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FischMacroCS.csproj" />
+    <ProjectReference Include="RecorderProcessHost\RecorderProcessHost.csproj" ReferenceOutputAssembly="false" />
+    <Compile Remove="RecorderProcessHost\**\*.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,4 +35,10 @@
     </None>
   </ItemGroup>
 
+  <Target Name="CopyRecorderProcessHost" AfterTargets="Build">
+    <ItemGroup>
+      <RecorderHostFiles Include="$(MSBuildProjectDirectory)\RecorderProcessHost\bin\$(Configuration)\net10.0-windows10.0.19041.0\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(RecorderHostFiles)" DestinationFiles="@(RecorderHostFiles->'$(OutDir)RecorderProcessHost\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
 </Project>

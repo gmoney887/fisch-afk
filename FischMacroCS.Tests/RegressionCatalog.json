@@ -1,7 +1,362 @@
 {
   "SchemaVersion": 1,
-  "Scope": "AGY 55e4357 plus diagnostics637 and isolated pointed-layout support638. Controller/pulse/input preserved. Only reviewed fixture ownership below; runtime incidents remain Unreviewed.",
+  "Scope": "Reviewed diagnostics, pointed-layout support, and November 2 reel/catch regressions. Expectations and evidence are scoped per case; recorded replay is not live AFK acceptance.",
   "Cases": [
+    {
+      "Id": "nov08-nates-foreground-opening",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261108_190936_527_f655284f005c44519b73bf21e3b10506",
+      "Evidence": "FischMacroCS.Tests/Fixtures/nates-overlap-nov08/provenance.json",
+      "Fixtures": ["nates-overlap-nov08/frame_00000012.png", "nates-overlap-nov08/frame_00000031.png"],
+      "Tests": [
+        "FischMacroCS.Tests.NatesOverlapTests.ForegroundFailureFixturesRemainOriginalRecorderPixels",
+        "FischMacroCS.Tests.NatesOverlapTests.ForegroundAndMeterSeparationScalesWithTheViewport",
+        "FischMacroCS.Tests.NatesOverlapTests.BrightCompanionBehindTheOpeningGlyphCannotReplaceTheFishAndBar",
+        "FischMacroCS.Tests.NatesOverlapTests.ForegroundEffectCannotReplaceAMissingCurrentReelComponent",
+        "FischMacroCS.Tests.NatesOverlapTests.RecordedAppearanceSequenceCannotLockOntoTheCompanion",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedNateAppearanceKeepsItsRealTargetAndFollowsTheFirstMovement"
+      ],
+      "Expectation": "Use the current gold glyph, physical red body and complete meter despite colored scenery and a bright companion. Strong current reel proof overrides an earlier color hint. Preserve original pixels, 720/1080/2160 scaling and missing-component negatives. The worker must retain the real opening target and follow the recorded next movement within 200ms without false left emergency input; replay is not live perfect-catch acceptance."
+    },
+    {
+      "Id": "nov08-nates-opening-native-latency",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261108_172143_627_d8ad38c43cc14bb59187a79e1a504228; session_20261108_172327_030_96f577dcf3e54025bd4884e05532bf48",
+      "Evidence": "FischMacroCS.Tests/Fixtures/nates-opening-nov08/provenance.json",
+      "Fixtures": ["nates-opening-nov08/frame_00000070.png", "nates-opening-nov08/frame_00000442.png"],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.NativeNatesOpeningMovementPreemptsOldFrameSearches",
+        "FischMacroCS.Tests.FishingEngineReplayTests.NatesOpeningFixturesMatchOriginalRecorderFiles"
+      ],
+      "Expectation": "A bite appearing during an already settled lure's native search must receive directional reel input within350ms using the real monotonic clock, original frames and actual vision work. Fresh reel checks preempt old-frame layout/Shake work; two fresh witnesses still confirm entry. Keep early-bite controls, no-reel shape negatives, and all original Shake thresholds. Controlled scene timing is not live catch acceptance."
+    },
+    {
+      "Id": "nov08-abyssal-rod-recovery-hotbar",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261108_165558_373_00b7db8258694e9499ffaa34c685a731",
+      "Evidence": "FischMacroCS.Tests/Fixtures/rod-recovery-nov08/provenance.json",
+      "Fixtures": [
+        "rod-recovery-nov08/frame_00002546.png",
+        "rod-recovery-nov08/frame_00002550.png",
+        "rod-recovery-nov08/frame_00002559.png",
+        "rod-recovery-nov08/frame_00002641.png",
+        "rod-recovery-nov08/frame_00002646.png",
+        "rod-recovery-nov08/frame_00002654.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedAbyssalRodResetRetainsTheUnselectedHotbar",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedLureTimeoutReequipsRodAndCompletesTheNextCatch",
+        "FischMacroCS.Tests.FishingEngineReplayTests.ThreeAlignedSlotContoursCannotStandInForTheWholeHotbar",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RodRecoveryFixturesPreserveOriginalRecorderPixelsAndBounds"
+      ],
+      "Expectation": "Recognize the actual selected and unselected hotbar through favorite stars and item art that join square contours. Three aligned contour seeds must still verify seven independent slot borders. Both recorded lure timeout scenes must finish deselection, re-equip once, cast once, confirm a catch and stop. Original PNGs and capture bounds remain unchanged; no live outcome is claimed."
+    },
+    {
+      "Id": "nov08-queued-stop-cast-boundary",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261108_163725_043_d944dc7f108047e18705314043d98490; session_20261108_163735_634_13c280ec2265462d82292cad931e7a4c",
+      "Evidence": "artifacts/queued-stop-nov08/stop-evidence-analysis.json",
+      "Fixtures": [
+        "reel_active_recovery_21.png",
+        "reel_catch_live.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.QueuedStopCannotStartACastAndThenAbandonItsCatch"
+      ],
+      "Expectation": "Serialize the queued-stop decision with the physical cast press. A request before the press prevents another cast; a request after the press completes that cycle through catch accounting, including transient focus loss during casting, luring or reeling. Preserve streak, release all inputs and stop without recasting. Eleven deterministic worker replay boundaries use existing reel/catch fixtures; these are not live catch acceptance."
+    },
+    {
+      "Id": "nov07-duskwire-two-meter-shark",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261108_033109_566_8388f3c806044dbf83263ffb69c4bbb6",
+      "Evidence": "artifacts/duskwire-dual-meter-nov07/failure-evidence.json",
+      "Fixtures": [
+        "duskwire-dual-meter-nov07/frame_00000140.png",
+        "duskwire-dual-meter-nov07/frame_00000150.png",
+        "duskwire-dual-meter-nov07/frame_00000286.png",
+        "duskwire-dual-meter-nov07/frame_00000335.png",
+        "duskwire-dual-meter-nov07/frame_00000412.png",
+        "duskwire-dual-meter-nov07/frame_00000442.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DuskwireDualMeterTests.SharkFailureOriginalsMatchTheirPreservedRecording",
+        "FischMacroCS.Tests.DuskwireDualMeterTests.UpperCatchProgressIsMeasuredIndependentlyOfTheSecondBar",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedTwoBarSharkKeepsReelingPastThirtyFiveSecondsUnlessProgressFreezes"
+      ],
+      "Expectation": "Read the real upper black fill despite red tint; exclude lower struggle bar; maintain uninterrupted control beyond35/50s when progress advances; retain frozen-meter recovery. No Apex catch required or claimed."
+    },
+    {
+      "Id": "nov07-duskwire-live-tracking-loss",
+      "Status": "Reviewed",
+      "SourceSession": "Two November 7 sessions; per-frame sources and bounds in provenance.json",
+      "Evidence": "docs/DUSKWIRE-2026-11-06.md",
+      "Fixtures": [
+        "duskwire-live-failures-nov07/frame_00226508.png",
+        "duskwire-live-failures-nov07/frame_00226511.png",
+        "duskwire-live-failures-nov07/frame_00226524.png",
+        "duskwire-live-failures-nov07/frame_00143238.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DuskwireLiveFailureTests.CroppedOutMeterDoesNotDiscardTheCurrentlyVisibleBodyAndNeedle",
+        "FischMacroCS.Tests.DuskwireLiveFailureTests.OriginalFailurePixelsAndCaptureBoundsArePreserved",
+        "FischMacroCS.Tests.FishingEngineReplayTests.OriginalClippedCaptureDoesNotConcludeAnOngoingFight",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedUnresponsiveHoldProducesAReleaseAndNewPressInsteadOfAnotherDownOnly"
+      ],
+      "Expectation": "Keep measuring the current visible body/needle when the capture clips the meter; expand capture without inventing progress. Use measured movement for recovery, emit a bounded up/down edge, respect stop, and preserve disappearance/catch negatives. No live Apex acceptance claimed."
+    },
+    {
+      "Id": "nov06-duskwire-megalodon-pool",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261106_164941_702_ca49fb7d1e8f41c99e499113dced1dac",
+      "Evidence": "docs/DUSKWIRE-2026-11-06.md",
+      "Fixtures": [
+        "duskwire-megalodon-nov06/frame_00001507.png",
+        "duskwire-megalodon-nov06/frame_00001536.png",
+        "duskwire-megalodon-nov06/frame_00001555.png",
+        "duskwire-megalodon-nov06/frame_00001566.png",
+        "duskwire-megalodon-nov06/frame_00001574.png",
+        "duskwire-megalodon-nov06/frame_00001580.png",
+        "duskwire-megalodon-nov06/frame_00001597.png",
+        "duskwire-megalodon-nov06/frame_00001617.png",
+        "duskwire-megalodon-nov06/frame_00001620.png",
+        "duskwire-megalodon-nov06/frame_00001821.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DuskwireMegalodonTests.MegalodonPoolMeasuresTheBodyRatherThanItsBackground",
+        "FischMacroCS.Tests.DuskwireMegalodonTests.MegalodonFixturesPreserveRawPixelsAndActualCaptureOffsets",
+        "FischMacroCS.Tests.DuskwireMegalodonTests.WidePostCatchCaptureStillContainsTheSameLiveMegalodonReel",
+        "FischMacroCS.Tests.DuskwireMegalodonTests.UnavailableGameplayDoesNotInheritTheMegalodonBody",
+        "FischMacroCS.Tests.FishingEngineReplayTests.MegalodonPoolWorkerKeepsControllingTheVisibleReelAcrossBackgroundChanges"
+      ],
+      "Expectation": "Measure independently annotated body boundaries through the opaque tint, ignore pool scenery, keep controlling the visible reel across background changes, and respect actual track/PostCatch capture offsets. Unavailable footage must not inherit a body. Controlled replay timing is not continuous live acceptance."
+    },
+    {
+      "Id": "nov06-duskwire-pool",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261106_163043_380_b7282b2309f042b59f2b63895d55750f",
+      "Evidence": "docs/DUSKWIRE-2026-11-06.md",
+      "Fixtures": [
+        "duskwire-pool-nov06/frame_00000768.png",
+        "duskwire-pool-nov06/frame_00000769.png",
+        "duskwire-pool-nov06/frame_00000770.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DuskwirePoolTests.PoolReelUsesItsActuallyNarrowBody",
+        "FischMacroCS.Tests.DuskwirePoolTests.PoolReelDisappearanceMustNotReuseTheNarrowBody",
+        "FischMacroCS.Tests.DuskwirePoolTests.PoolFixturesRemainTheActualFailurePixels",
+        "FischMacroCS.Tests.FishingEngineReplayTests.PoolDuskwireWorkerEntersReelingInsteadOfWaitingForTheLureDeadline"
+      ],
+      "Expectation": "Measure the recorded70px body and marker, enter Reeling with directional input, reject the disappeared reel, retain wider Duskwire and reject scenery. First pool attempt images expired; identical cause not independently proven."
+    },
+    {
+      "Id": "nov06-duskwire",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261106_152812_841_3f5b95cef5364fa1b6b9cb5516297d7c",
+      "Evidence": "docs/DUSKWIRE-2026-11-06.md",
+      "Fixtures": [
+        "duskwire-nov06/frame_00000001.png",
+        "duskwire-nov06/frame_00000011.png",
+        "duskwire-nov06/frame_00000012.png",
+        "duskwire-nov06/frame_00000020.png",
+        "duskwire-nov06/frame_00000029.png",
+        "duskwire-nov06/frame_00000036.png",
+        "duskwire-nov06/frame_00000044.png",
+        "duskwire-nov06/frame_00000053.png",
+        "duskwire-nov06/frame_00000069.png",
+        "duskwire-nov06/frame_00000080.png",
+        "duskwire-nov06/frame_00000082.png",
+        "duskwire-nov06/frame_00000085.png",
+        "duskwire-nov06/frame_00000094.png",
+        "duskwire-nov06/frame_00000102.png",
+        "duskwire-nov06/frame_00000109.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DuskwireTests.RecordedDuskwireTracksActualDarkBodyAndWhiteMarker",
+        "FischMacroCS.Tests.DuskwireTests.RecordedIdleAndVanishedDuskwireDoNotKeepAReelAlive",
+        "FischMacroCS.Tests.DuskwireTests.MissingCurrentComponentCannotReuseAPreviousDuskwireObservation",
+        "FischMacroCS.Tests.DuskwireTests.DuskwireHintDoesNotHideTheNextOrdinaryRod",
+        "FischMacroCS.Tests.DuskwireTests.ExplicitDuskwireAndColdEntryMeasureTheAnimatedReel",
+        "FischMacroCS.Tests.DuskwireTests.DuskwireFixturesRemainTheReviewedUnmodifiedRecordingPixels",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedDuskwireWorkerMeasuresTheActualBarAndPullsTowardItsWhiteMarker",
+        "FischMacroCS.Tests.DuskwireTests.DuskwireProgressMeasuresTheBlackFillRatherThanTheBrightBackground",
+        "FischMacroCS.Tests.FishingEngineReplayTests.DuskwireWorkerRenewsOnlyTheAdvancingBlackProgressDeadline"
+      ],
+      "Expectation": "Read actual dark body and white capsule independently, handle note overlap and animated entry, reject missing components, release input and retain ordinary-rod tracking. Disabled reader must fail geometric and worker tests. Live gameplay remains a separate acceptance gate. Measure actual black progress: advancing controlled timing must cross35/50s; a frozen meter must still recover."
+    },
+    {
+      "Id": "nov05-active-reel-timeout",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261106_023822_098_e79c439fed794eb68c646b9f137d040a",
+      "Evidence": "docs/REGRESSION-2026-11-05-RECONNECT.md",
+      "Fixtures": [
+        "reel-stall-nov05/frame_00000481.png",
+        "reel-stall-nov05/frame_00000529.png",
+        "reel-stall-nov05/frame_00000577.png",
+        "reel-stall-nov05/frame_00000625.png",
+        "reel-stall-nov05/frame_00000672.png",
+        "reel-stall-nov05/frame_00000682.png",
+        "reel-stall-nov05/frame_00000690.png",
+        "reel-stall-nov05/frame_00000709.png",
+        "reel-stall-nov05/frame_00000728.png",
+        "reel-stall-nov05/frame_00000756.png",
+        "reel-stall-nov05/frame_00000804.png",
+        "reel-stall-nov05/frame_00000852.png",
+        "reel-stall-nov05/frame_00000901.png",
+        "reel-stall-nov05/frame_00000948.png",
+        "reel-stall-nov05/frame_00000982.png",
+        "reel-stall-nov05/frame_00000986.png",
+        "reel-stall-nov05/frame_00000993.png",
+        "reel-stall-nov05/frame_00001012.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedSlowReelOnlyRecoversWhenProgressActuallyStalls",
+        "FischMacroCS.Tests.ReelProgressWatchTests.OnlyConfirmedNewHighWaterExtendsTheStallDeadline",
+        "FischMacroCS.Tests.ReelProgressWatchTests.MissingFrozenOrInvalidMeterNeverRenewsTheDeadline",
+        "FischMacroCS.Tests.ReelProgressWatchTests.IsolatedMeterSpikeCannotRenewTheDeadline",
+        "FischMacroCS.Tests.ReelProgressWatchTests.SceneChangeCannotPreemptAdvancingReelButStillRecoversWithoutProgress",
+        "FischMacroCS.Tests.ReelProgressWatchTests.FinishedReelProgressCannotDelayRecoveryOnTheFollowingCast",
+        "FischMacroCS.Tests.FishingEngineReplayTests.WorkerClearsFinishedReelProgressBeforeRecoveringAnUnavailableNextCast"
+      ],
+      "Expectation": "A recorded advancing slow reel continues beyond35s reel and50s workflow deadlines without false recovery, counts one controlled catch and dispatches next cast. Frozen meter remains bounded; single spikes, invalid meters, oscillation and changed scene cannot mask a real stall. Replay is not live acceptance."
+    },
+    {
+      "Id": "nov05-error279-reconnect",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261105_185004_659_11027b9b414142a7a5fe1f3da301fc32",
+      "Evidence": "docs/REGRESSION-2026-11-05-RECONNECT.md",
+      "Fixtures": [
+        "disconnect-nov05/error279-initial.png",
+        "disconnect-nov05/error279-heldout.png",
+        "disconnect-nov05/roblox-home.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.DisconnectRecordingTests.RecordedFailurePixelsMatchReviewedProvenance",
+        "FischMacroCS.Tests.DisconnectRecordingTests.RecordedConnectionFailureOffersRetryInsideTheActualButton",
+        "FischMacroCS.Tests.DisconnectRecordingTests.RetryRequiresBothRecordedLabelsInTheirDialogGeometry",
+        "FischMacroCS.Tests.DisconnectRecordingTests.RecordedRobloxHomeIsNotReconnectOrReel",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedError279WorkerRetriesThenContinuesAndActuallyFishes"
+      ],
+      "Expectation": "Recorded error279 Retry must be recognized and clicked only after fresh title/action validation; missing, Cancel or stale controls must not be clicked. Real worker must pace retries, respect focus/stop, continue loading, recognize actual reel/catch and dispatch next cast. Replay is not live acceptance."
+    },
+    {
+      "Id": "nov05-overnight-gameplay",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261105_051105_847_8de46ee3cd9646dbb4c1ae614f096225",
+      "Evidence": "docs/REGRESSION-2026-11-05.md",
+      "Fixtures": [
+        "overnight-nov05/frame_00068679.png",
+        "overnight-nov05/frame_00122050.png",
+        "overnight-nov05/frame_00122054.png",
+        "overnight-nov05/frame_00122055.png",
+        "overnight-nov05/frame_00122056.png",
+        "overnight-nov05/frame_00122057.png",
+        "overnight-nov05/frame_00122058.png",
+        "overnight-nov05/frame_00122059.png",
+        "overnight-nov05/frame_00122060.png",
+        "overnight-nov05/frame_00122061.png",
+        "overnight-nov05/frame_00122062.png",
+        "overnight-nov05/frame_00174184.png",
+        "overnight-nov05/frame_00174219.png",
+        "overnight-nov05/frame_00200836.png",
+        "overnight-nov05/frame_00200874.png",
+        "overnight-nov05/frame_00213756.png",
+        "overnight-nov05/frame_00213799.png",
+        "overnight-nov05/frame_00226397.png",
+        "overnight-nov05/frame_00226432.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.OvernightGameplayTests.RecordedNotificationsDoNotBecomeAReelAndPlayerCatchesAreRecognized",
+        "FischMacroCS.Tests.OvernightGameplayTests.StationaryFishStaysAtTheVisibleMarkerThroughRecordedSlashAndBarMovement",
+        "FischMacroCS.Tests.OvernightGameplayTests.OvernightAquariumNavigationIsRecognizedInNightAndDay",
+        "FischMacroCS.Tests.FishingEngineReplayTests.OvernightReelAndCatchSequenceCountsOnceAndActuallyRecasts",
+        "FischMacroCS.Tests.FishingEngineReplayTests.OvernightIdleAndCatchWarningsCannotDeferAquariumAsALiveReel"
+      ],
+      "Expectation": "Real overnight scenes must not cause false reel entry; visible player catches count once and worker recasts; stationary needle stays at its visible position; night navigation and verified reward claim/closure succeed while failed claims stay Unknown. Replay is not live acceptance."
+    },
+    {
+      "Id": "nov04-consistent-reel-clock",
+      "Status": "Reviewed",
+      "SourceSession": "Synthetic clock with deliberately slow native-frame rendering",
+      "Evidence": "docs/REGRESSION-2026-11-02.md#november-4-first-cast-failure",
+      "Fixtures": [
+        "nate_24.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.ReelCadenceUsesTheSameClockAsCaptureAndInput"
+      ],
+      "Expectation": "The actual worker paces its loop using the same injected monotonic clock as capture and input, independent of diagnostic stopwatch cost. No live-gameplay claim."
+    },
+    {
+      "Id": "nov04-idle-stats-block-first-cast",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261105_050025_082_c0c29ec171e5490ba040554162a0a6eb",
+      "Evidence": "docs/REGRESSION-2026-11-02.md#november-4-first-cast-failure",
+      "Fixtures": [
+        "idle_stats_18.png",
+        "idle_stats_84.png",
+        "idle_stats_111.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedIdleStatsTextCannotConfirmAReel",
+        "FischMacroCS.Tests.FishingEngineReplayTests.RecordedIdleSceneDispatchesFirstCastBeforeWaitingForBite"
+      ],
+      "Expectation": "Idle stat lettering must not confirm a progress meter or reel. The actual worker must dispatch the first cast hold/release and reach Luring with dynamic release on or off, without a false reel or catch."
+    },
+    {
+      "Id": "nov04-aquarium-centering-and-companion-shake",
+      "Status": "Reviewed",
+      "SourceSession": "November 5 UTC recordings at 03:32:10 (aquarium), 03:35:02 (reeling), and 03:46:28 (Shake); delayed control plant is synthetic",
+      "Evidence": "docs/REGRESSION-2026-11-02.md#november-4-evening-gameplay-regressions",
+      "Fixtures": [
+        "aquarium_nov04_96.png",
+        "aquarium_nov04_99.png",
+        "shake_companion_18.png",
+        "shake_companion_26.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.AquariumWorkflowTests.RecordedBorderedClaimButtonIsRecognizedWithUnclaimedRewards",
+        "FischMacroCS.Tests.AquariumWorkflowTests.RecordedClaimOutlineWithoutLetteringCannotAuthorizeAClaim",
+        "FischMacroCS.Tests.AquariumWorkflowTests.RecordedBorderedClaimCompletesOnlyAfterBalanceClearsAndPanelCloses",
+        "FischMacroCS.Tests.FishingEngineReplayTests.BaselineProfilesCenterUsingGuardedInputFeedback",
+        "FischMacroCS.Tests.ShakeDetectionTests.CompanionCatchCaptionCannotHideShakeBehindAFalseReel",
+        "FischMacroCS.Tests.FishingEngineReplayTests.CompanionRewardDuringLuringStillClicksTheRecordedShakeButton"
+      ],
+      "Expectation": "Claim must target recorded lettering and verify cleared balance; stationary-target control must meet existing error bounds with 60ms response delay and stronger forces; companion text cannot trigger Reeling or a player catch and the worker must click the recorded Shake button. No live perfect-catch acceptance."
+    },
+    {
+      "Id": "nov04-review-dropped-hold-ownership-and-report-budget",
+      "Status": "Reviewed",
+      "SourceSession": "Synthetic motion, actual recorder subprocesses, and generated temporary recording/export storage",
+      "Evidence": "docs/REGRESSION-2026-11-02.md#november-4-review-follow-up",
+      "Fixtures": [],
+      "Tests": [
+        "FischMacroCS.Tests.CatchFailureTests.DroppedHoldRetriesWhileBarKeepsAcceleratingLeft",
+        "FischMacroCS.Tests.RecordingReplayTests.AnotherRecorderCannotDeleteAnActiveWritersManifest",
+        "FischMacroCS.Tests.RecorderOwnershipTests.RetentionRespectsOtherProcessAndReclaimsEvidenceAfterItExits",
+        "FischMacroCS.Tests.RecordingBudgetTests.AllowedRecordingStorageCanExportSmallSessionAndIncidentReports",
+        "FischMacroCS.Tests.RecordingBudgetTests.IncidentExportsStillConsumeTheSharedReportBudget",
+        "FischMacroCS.Tests.IncidentEvidenceArchiveTests.ExportedReportsDoNotConsumeRawIncidentCapacity"
+      ],
+      "Expectation": "Dropped holds retry within 800ms under continuous leftward acceleration with bounded retries; retention respects live/draining subprocess ownership and reclaims expired evidence after exit/crash; permitted recording storage allows small exports while reports and raw incidents retain separate enforced limits."
+    },
+    {
+      "Id": "nov03-review-velocity-history-and-crash-retention",
+      "Status": "Reviewed",
+      "SourceSession": "Synthetic translation of reviewed reel pixels and generated temporary recording directories",
+      "Evidence": "docs/REGRESSION-2026-11-02.md#november-3-review-follow-up",
+      "Fixtures": [
+        "oath_red_45.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.WorkerDoesNotRetryARespondingHoldWhenLeftwardMotionSlows",
+        "FischMacroCS.Tests.RecordingReplayTests.RestartPreservesCrashEvidenceWithoutACompletionSummary",
+        "FischMacroCS.Tests.RecordingReplayTests.IncompleteSessionsStillObeyRetentionLimits",
+        "FischMacroCS.Tests.RecordingReplayTests.MarkedIncompleteEvidenceDoesNotExpireByAgeAlone",
+        "FischMacroCS.Tests.RecordingReplayTests.RetentionCannotDeleteAnActiveOrDrainingWriter",
+        "FischMacroCS.Tests.RecordingReplayTests.RetentionPolicyExcludesIncidentArchiveAndKeepsRecentIncompleteEvidence"
+      ],
+      "Expectation": "Actual worker preserves pre-update velocity when deciding whether to retry a held input. Restart retains incomplete crash evidence; age/count/byte bounds still apply, marked evidence survives age alone, and live/draining writers are excluded. No live gameplay acceptance."
+    },
     {
       "Id": "625-seraphic-tilt-latency-20261024",
       "Status": "Reviewed",
@@ -73,9 +428,167 @@
         "FischMacroCS.Tests.WebweaverRecordingTests.ErasedPoolNeedleCannotBecomePointedSilhouette"
       ],
       "Expectation": "No pointed-layout observation from pool scenery/erased needle, boat or Styx; no general legacy-detector or hazard acceptance"
+    },
+    {
+      "Id": "20261102-reel-exit-and-catch-cooldown",
+      "Status": "Reviewed",
+      "SourceSession": "session_20261103_021009_646_7b18ee3bfb6141a7832be94b49d453ca; session_20261103_021658_192_5359b16c59ee416faf6145c6312a2393",
+      "Evidence": "Fixtures/PROVENANCE.md#november-2-reel-exit-and-catch-cooldown",
+      "Fixtures": [
+        "nov02/oath_176.png",
+        "nov02/oath_177.png",
+        "nov02/oath_178.png",
+        "nov02/oath_187.png",
+        "nov02/oath_188.png",
+        "nov02/oath_193.png",
+        "nov02/oath_194.png",
+        "nov02/oath_195.png",
+        "nov02/oath_196.png",
+        "nov02/oath_197.png",
+        "nov02/oath_198.png",
+        "nov02/oath_199.png",
+        "nov02/oath_200.png",
+        "nov02/oath_201.png",
+        "nov02/oath_207.png",
+        "nov02/oath_208.png",
+        "nov02/oath_209.png",
+        "nov02/oath_210.png",
+        "nov02/oath_211.png",
+        "nov02/oath_212.png",
+        "nov02/catch_001.png",
+        "nov02/catch_011.png",
+        "nov02/catch_012.png",
+        "nov02/catch_013.png",
+        "nov02/catch_017.png",
+        "nov02/catch_026.png",
+        "nov02/catch_036.png",
+        "nov02/catch_046.png",
+        "nov02/catch_056.png",
+        "nov02/catch_065.png",
+        "nov02/catch_074.png",
+        "nov02/catch_083.png",
+        "nov02/catch_084.png",
+        "nov02/catch_085.png",
+        "nov02/catch_086.png",
+        "nov02/catch_087.png",
+        "nov02/catch_088.png",
+        "nov02/catch_089.png",
+        "nov02/catch_090.png",
+        "nov02/catch_091.png",
+        "nov02/catch_092.png",
+        "nov02/catch_093.png",
+        "nov02/catch_094.png",
+        "nov02/catch_095.png",
+        "nov02/catch_096.png",
+        "nov02/catch_097.png",
+        "nov02/catch_098.png",
+        "nov02/catch_099.png"
+      ],
+      "Tests": [
+        "FischMacroCS.Tests.FishingEngineReplayTests.November02RecordedTintedReelRemainsLiveThroughFalseExit",
+        "FischMacroCS.Tests.FishingEngineReplayTests.November02RecordedClownfishBannerIsRecognizedOnIndependentFrames",
+        "FischMacroCS.Tests.FishingEngineReplayTests.November02RecordedTimelinePreservesLiveReelAndCountsCatch",
+        "FischMacroCS.Tests.FishingEngineReplayTests.November02DelayedCatchDuringSceneChangeFinishesVerificationBeforeRecovery"
+      ],
+      "Expectation": "Recorded timeline independent of engine state: no premature PostCatch/recast during active tinted reel; correct reviewed bar coordinates; one Clownfish catch and resumed casting without scene cooldown; released input on stop. Sparse-frame holds are synthetic, not live acceptance."
     }
   ],
   "Fixtures": [
+    {
+      "Path": "overnight-nov05/frame_00068679.png",
+      "SHA256": "4CDCE0359D8E35CF1F02892B4156105A06B491C26132FF076F44F60092D9017B",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122050.png",
+      "SHA256": "2CF35EEB5CB0C9577AD85B77A59ED6179B26BA2810A8AA6DB529BFFEAE91B1BA",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122054.png",
+      "SHA256": "54220E010570302850D54AC5F9884785E9EF2E7FB1326C9B893746CF928D6366",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122055.png",
+      "SHA256": "57D41FEBA4B40C72EECFCCCB55E065106B64C9A5415CD57DD1678DB2B765210E",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122056.png",
+      "SHA256": "A8E6E538E33DE1701C86EB7C8BE3823440DC95AB1582812B3790830967D7DCE4",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122057.png",
+      "SHA256": "E9A94FEEFEC256C6035FD35A733C6060D1B00BFFD1570C496F8626F505091EAB",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122058.png",
+      "SHA256": "9C241DBB69F62F74AF6E63A64127C7CE2E4979E58B9B308F580362D70C7AF17A",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122059.png",
+      "SHA256": "C0716686D43601AFAFF5DA7B712741362505598F3A9970F01FE96F02C51F22A8",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122060.png",
+      "SHA256": "21A220BB37FD0E352C2810989831AFE08D76C8EDD626C7445CB64944105D1A4D",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122061.png",
+      "SHA256": "BF4263F98B330E7C1F2D1FE07A44D1BF7DCE16BB54D766E9DF64544EF9D50B5A",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00122062.png",
+      "SHA256": "374458F84C855C1F1B8264CE422F43D2D4F8A9C609DEA6AB82FD1D3BC3E9520F",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00174184.png",
+      "SHA256": "3DCB9665846438D28C7414108F70DBF1E470E25FB8B8458EE52D799E77EA8223",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00174219.png",
+      "SHA256": "DB135E17B9D92C80F45E2ACFFDF9FB1F2F3A1F5F966AEAB5D4B6F9F3604776D2",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00200836.png",
+      "SHA256": "ECB6685BBF70E5D1A443AFBEBA33A30C500BEFB7658FE6BE40655CA982E42BFE",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00200874.png",
+      "SHA256": "18D9896D394495E308D90D24C6E13B659585DF3064AFB943ECFABBB2FB53CC0A",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00213756.png",
+      "SHA256": "56C7108E34AF3D8375CF6F164AEDFE53D8F06BED8AB0EEE218A67C6FBE85BE8C",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00213799.png",
+      "SHA256": "667AB41E277412CC9AFF04F38B8472373F287CBD48F55298304CDB32EA1B63E7",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00226397.png",
+      "SHA256": "53ED024DD82328960EEA69BB8890B0AE843F9D55C7F96EDD622198145B12F097",
+      "Required": true
+    },
+    {
+      "Path": "overnight-nov05/frame_00226432.png",
+      "SHA256": "630B7D9B53951D07F335B314C9100976F898D7341B018AF84C9E89AA30675490",
+      "Required": true
+    },
     {
       "Path": "seraphic_625/frame_00000150.png",
       "Required": true,
@@ -130,6 +643,436 @@
       "Path": "styx_6376.png",
       "Required": true,
       "SHA256": "7DCE73DB45857FE620B028680A045B8A6941B9F00BF5808EA5D692137EB58776"
+    },
+    {
+      "Path": "nov02/oath_176.png",
+      "Required": true,
+      "SHA256": "EA7A7046BBA546DC5FB776E0F7305675C72A5BB0D78E07ECDBABDEFE6B362F68"
+    },
+    {
+      "Path": "nov02/oath_177.png",
+      "Required": true,
+      "SHA256": "8528A3395F758CE31566B445ABC9E0C6BCB3CA12778C9A7BBA3B705B5F587C05"
+    },
+    {
+      "Path": "nov02/oath_178.png",
+      "Required": true,
+      "SHA256": "31D0CE2F2B9920674A93F9F85A3B13F9CD0311DA7923FA5A473BFEFA1D9F1092"
+    },
+    {
+      "Path": "nov02/oath_187.png",
+      "Required": true,
+      "SHA256": "569B9A2A03372B2FE2F829A278D6C9AA0BE324CBEA99E9C7193414EACD162A4C"
+    },
+    {
+      "Path": "nov02/oath_188.png",
+      "Required": true,
+      "SHA256": "13B83BFF408EBB1D3B6BB37C74E5E47BC50E09B357A585CA093BBFA1E3ED018A"
+    },
+    {
+      "Path": "nov02/oath_193.png",
+      "Required": true,
+      "SHA256": "E01C2726F1962AE2E7A412F8B410E3BF35001892ED9B43E51DB83B1BEBDE9A6C"
+    },
+    {
+      "Path": "nov02/oath_194.png",
+      "Required": true,
+      "SHA256": "2C337E99813191F0418CA062EE18EB3402F03717D80385BDE507EAF48994F0A9"
+    },
+    {
+      "Path": "nov02/oath_195.png",
+      "Required": true,
+      "SHA256": "C889690DEB47DD315105D30335347DD86F19B30F95D2B19CDDC77B2C33701019"
+    },
+    {
+      "Path": "nov02/oath_196.png",
+      "Required": true,
+      "SHA256": "E23072D4E74E8126476AAE0AE996A5435A08CEB4DEF4731C45018431F7726730"
+    },
+    {
+      "Path": "nov02/oath_197.png",
+      "Required": true,
+      "SHA256": "6897B2AAAD0C7D54266B8AE4B1E43E39EEB627ABD8D9E9EE541877E134B51043"
+    },
+    {
+      "Path": "nov02/oath_198.png",
+      "Required": true,
+      "SHA256": "6F02AEA28375C9E4707703B87A7DFBF129E201017CC9C28B0C99BCCBCA7B5A82"
+    },
+    {
+      "Path": "nov02/oath_199.png",
+      "Required": true,
+      "SHA256": "8515B60BBC0EA618C0CD06BDCAF4D22E2DCC4D0D9E2D3422F4C248240F142910"
+    },
+    {
+      "Path": "nov02/oath_200.png",
+      "Required": true,
+      "SHA256": "A792F45FC9D77C1EFB6F0F1BAC6FF098E8C790B03BAAB58ECBCD824FEB25BCA0"
+    },
+    {
+      "Path": "nov02/oath_201.png",
+      "Required": true,
+      "SHA256": "940CD82E4A166FBD86E7464EAD797E2DC73933B7447450AA6348EBDC65732CA8"
+    },
+    {
+      "Path": "nov02/oath_207.png",
+      "Required": true,
+      "SHA256": "9321D7FE0C16F5565CEBF8DF94C17F497A7E844F74E5A6A1580DC28633627DA7"
+    },
+    {
+      "Path": "nov02/oath_208.png",
+      "Required": true,
+      "SHA256": "1A0F070354A97E3F3F64BF72E055860FA9590C89237CB261B406E6625F480877"
+    },
+    {
+      "Path": "nov02/oath_209.png",
+      "Required": true,
+      "SHA256": "F34D01371117FDA5948980DB2473981D6F71F12A5EC6955B4DAE00694DFDC3D7"
+    },
+    {
+      "Path": "nov02/oath_210.png",
+      "Required": true,
+      "SHA256": "C8E2ACFB95F6AADDC1F3F5BC017A1A04C0E273A5431C80CF8A2C329E7136B883"
+    },
+    {
+      "Path": "nov02/oath_211.png",
+      "Required": true,
+      "SHA256": "34B48B054283EE56961A62A9306012309949AF6C450FCE7638989EBC6D641420"
+    },
+    {
+      "Path": "nov02/oath_212.png",
+      "Required": true,
+      "SHA256": "D09FC357A934F857812C71593207A995283C7B8728378F40733D6BCBC366D241"
+    },
+    {
+      "Path": "nov02/catch_001.png",
+      "Required": true,
+      "SHA256": "9C17AF478700886BAE8152C9D6A85B3AD99A5F600A5788BBC24045F8D7A6DE64"
+    },
+    {
+      "Path": "nov02/catch_013.png",
+      "Required": true,
+      "SHA256": "87C71FAE840DFE02EC6E59826D3A0D2796672EB1434358DEDEA8FEAF0323A1B3"
+    },
+    {
+      "Path": "nov02/catch_017.png",
+      "Required": true,
+      "SHA256": "0BD64D9518B45232C2015758DE0EA8C3D2C938B8CAEB420308DDF66B00579787"
+    },
+    {
+      "Path": "nov02/catch_026.png",
+      "Required": true,
+      "SHA256": "9A639FFE73022D9CF6DAFF3B2DCAA23E5BCAFECBA2D07F451264696F0A2C5040"
+    },
+    {
+      "Path": "nov02/catch_036.png",
+      "Required": true,
+      "SHA256": "ADC52D32CFD09C05850AC221DA6E89C2DE36FE20EC4D84210EC33B8C586937D4"
+    },
+    {
+      "Path": "nov02/catch_046.png",
+      "Required": true,
+      "SHA256": "3DEE817A6031F2C1B709B9C7FB048F257079A0B9E3A2168DBEF9A6442DCA7463"
+    },
+    {
+      "Path": "nov02/catch_056.png",
+      "Required": true,
+      "SHA256": "9DEC32C817AEE0CDB01217EB64F4C8FAAED3E89077029CB4150A2B6D6A736411"
+    },
+    {
+      "Path": "nov02/catch_065.png",
+      "Required": true,
+      "SHA256": "B038356AD23B453FA80814358207401B503A358C6070B2DBC4C13E5E701A083C"
+    },
+    {
+      "Path": "nov02/catch_074.png",
+      "Required": true,
+      "SHA256": "9253C093BF95AB763E9BF2B44B5FCD502E8918DA5ECD924B4267B4F148701706"
+    },
+    {
+      "Path": "nov02/catch_083.png",
+      "Required": true,
+      "SHA256": "E54B5C45E4BC98EC97D6EBF1F7D94C02ADC9B86ECFAEFDB98CDC62DE56954C3F"
+    },
+    {
+      "Path": "nov02/catch_084.png",
+      "Required": true,
+      "SHA256": "1881505AE28FBDFBA93D036EFF07E0EF151262CF0B9AAE0E6301B19F812B268C"
+    },
+    {
+      "Path": "nov02/catch_085.png",
+      "Required": true,
+      "SHA256": "577607F69A2301ABA236B4D2B958EF08CC341C2C662C56D5FE78C442002EA9BE"
+    },
+    {
+      "Path": "nov02/catch_086.png",
+      "Required": true,
+      "SHA256": "8BA77A059B25264F7917C579D1576BC9E8098520B8BF563281B8C51D391ADF87"
+    },
+    {
+      "Path": "nov02/catch_087.png",
+      "Required": true,
+      "SHA256": "07487E6EE4BEA634CA64D6B2D85B2D3866B9F1D831D62EE00E78F23773CBAB36"
+    },
+    {
+      "Path": "nov02/catch_088.png",
+      "Required": true,
+      "SHA256": "50BD4FF9F2DE195082A3934BA60687BBF87EBBB5CCAFE76C58B1E0472319C360"
+    },
+    {
+      "Path": "nov02/catch_089.png",
+      "Required": true,
+      "SHA256": "B2BC6AB3EBAEBCDA9C7F0ABEAB1C62FB1D7B946BCD8CF445146550D5232241A8"
+    },
+    {
+      "Path": "nov02/catch_090.png",
+      "Required": true,
+      "SHA256": "C7FB72658B9049A7457F0B82107B082F1AD41C0CBAED3286108D57D1C09A762F"
+    },
+    {
+      "Path": "nov02/catch_091.png",
+      "Required": true,
+      "SHA256": "EFFB328E21DFFFB06D6FE8EBA4FEF73D8E4A53BF9783FD98C8987A1300131C40"
+    },
+    {
+      "Path": "nov02/catch_092.png",
+      "Required": true,
+      "SHA256": "05306342334EC1AEFF15A522FCE3261C4E99C53087A78CEF002391AAC0337C11"
+    },
+    {
+      "Path": "nov02/catch_093.png",
+      "Required": true,
+      "SHA256": "2F90A63C87E580ADBE46F8CB623C64BF04414E43451B2D9824DD938E2BE85758"
+    },
+    {
+      "Path": "nov02/catch_094.png",
+      "Required": true,
+      "SHA256": "6708635862213742CC7A93960216DE0D52186C5C3F8E3A5C16F9F89E8493376F"
+    },
+    {
+      "Path": "nov02/catch_095.png",
+      "Required": true,
+      "SHA256": "C5A5DED77866762C1FCEFE7687DBF1E95BCF44D97A622BF302F14C6FA919CFB1"
+    },
+    {
+      "Path": "nov02/catch_096.png",
+      "Required": true,
+      "SHA256": "8915F6E8283247D6570862EDC609626D6E21F29593BEE36476403FC471338715"
+    },
+    {
+      "Path": "nov02/catch_097.png",
+      "Required": true,
+      "SHA256": "1E1E1B4E55DA6B285F4EA89FEA2A1ECA98D4353E9C375CA42CF9554DC03184CD"
+    },
+    {
+      "Path": "nov02/catch_098.png",
+      "Required": true,
+      "SHA256": "3AE91B70B0B0DC4E1B9B472431C63934F0DA94DF7C8D094052177BC13E816A49"
+    },
+    {
+      "Path": "nov02/catch_099.png",
+      "Required": true,
+      "SHA256": "2F9C780202D0CB24616374346C70877951ED4A59A61BAF3DD8C4EB64318C8D9C"
+    },
+    {
+      "Path": "nov02/catch_011.png",
+      "Required": true,
+      "SHA256": "4E690EF48797C4FFE84A2E7C46732687541D70791E0B1A158E31CC7C7E3025E6"
+    },
+    {
+      "Path": "nov02/catch_012.png",
+      "Required": true,
+      "SHA256": "FC712E6DFDD30A45684CF986348B1718D5D1496CCFB801973ED0BB9CE3EDE8DD"
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000001.png",
+      "SHA256": "79DDA697DDCF67C7FD040BD08805F972DEEE666EE65F52B1D7AF687A8CB4BE61",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000011.png",
+      "SHA256": "A402331FFC2F2399DA7CB2B2CBBF0407F0FBDBF4EAEC158DDAFC25070E04DF03",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000012.png",
+      "SHA256": "3078232DB4839E78DD57872C00C235C66D9E0CCA99B90EED485E4D1DDF80AD93",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000020.png",
+      "SHA256": "5C6C284D3AF23E01860E90357C35EA6023D581738B121A8BAF9AA971547AD6A7",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000029.png",
+      "SHA256": "FE8B62EA88154513EFE0B78C95D9BC15FAD04A5F33E5C28296B5FD6986D863B4",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000036.png",
+      "SHA256": "A5589F79C3653169D077C4398B80961C8C86045AFA5A4B9BADBC9F698A422B5E",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000044.png",
+      "SHA256": "856FFD6137224D58CD0557D96BA2EF7AEAFBCC6E7A26A113F70344200A40F130",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000053.png",
+      "SHA256": "80716BC6C47A9A8FDA4FB098B3F09B39F3DE80BB658A793BE72ACA41CA167698",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000069.png",
+      "SHA256": "10BC4996FD796256F6AAEF726C6230D538D515FC76E7580A1C8DB3BA2A09CCFC",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000080.png",
+      "SHA256": "766D071437F2C27583342C7BC36CB5BA02C6DBB2EE9AACC1952A391DDD176267",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000082.png",
+      "SHA256": "DF3ADF9564FA758F505D2B8FC509C64CDD81210108B281AB467D6A4A08B827D7",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000085.png",
+      "SHA256": "10DD528955F4B2A4225D2E962F5880FC26ED6E278D78C3E1994F0DAFA8B51FB0",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000094.png",
+      "SHA256": "22855127EA7FA1D0948C3713A5A4043C2822BF603536BCCA39CF169DE1C17EC2",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000102.png",
+      "SHA256": "44A0891DDF4F97870B51ED3559F66C6AF2F248D368D5CACAC34168367871B328",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-nov06/frame_00000109.png",
+      "SHA256": "DBC7A44B43909175FA560FD3248017885598F9E1B35225777B7C818EE8BEBB27",
+      "Required": true
+    },
+    {
+      "Path": "duskwire-pool-nov06/frame_00000768.png",
+      "Required": true,
+      "SHA256": "CF10A6EDD3A72824D772CB4C62D726626E963689B08713DAC63472E8D2FEDB5C"
+    },
+    {
+      "Path": "duskwire-pool-nov06/frame_00000769.png",
+      "Required": true,
+      "SHA256": "A91A0403DF3E96CB7EF9E58E2F9D689FEB24BDA43AD5F79838169EBC18E76537"
+    },
+    {
+      "Path": "duskwire-pool-nov06/frame_00000770.png",
+      "Required": true,
+      "SHA256": "373A7DE8790C53149E44394261B4ABAACC7C964E892ABC05B0BB67FBAFB39EAE"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001507.png",
+      "Required": true,
+      "SHA256": "82648145767113DA47713BB88AE26CE28B662F479BA4F6E625639AD701C9DC39"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001536.png",
+      "Required": true,
+      "SHA256": "7E3F8837DE24009648452C08D6AD8755969C9412482C5ECDACBDBB4623992D7C"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001555.png",
+      "Required": true,
+      "SHA256": "AB15DDAE46AD0CF39781CAD60933200AC66A40510765384AD39C43473A0239AD"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001566.png",
+      "Required": true,
+      "SHA256": "BB9A82C5D5E46B1B4019913196CA7DF7BF7B7092BA8E5F46B5261C51F5B7FC1A"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001574.png",
+      "Required": true,
+      "SHA256": "E86326BEA8AF7E196B4545E9C4B8C38352FD0660BA14F92C61E9CC4888CA0F9C"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001580.png",
+      "Required": true,
+      "SHA256": "990AA2C39A4C533E805FA1C8AB9CF74943ED6D16A8A580AA73742C498CC29342"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001597.png",
+      "Required": true,
+      "SHA256": "BE419D1573194B0E53F5D4372A40B886CF49B4171A5B815CAD43926F88A1C8D6"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001617.png",
+      "Required": true,
+      "SHA256": "AD6F72B98048197C3AE494420846049C04D7D0F9DE720FAC3A428A21E6061B8B"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001620.png",
+      "Required": true,
+      "SHA256": "5AF5EB7EC3BBF761C33A76415E7743F7BCD3408DE229803FF3EF85E2F531C5E0"
+    },
+    {
+      "Path": "duskwire-megalodon-nov06/frame_00001821.png",
+      "Required": true,
+      "SHA256": "92ECA19615EED0AF1D13E51D05133DD8510B84A7A799A7A7CE472E7AE8F5F470"
+    },
+    {
+      "Path": "duskwire-live-failures-nov07/frame_00226508.png",
+      "Required": true,
+      "SHA256": "48F7A9CF4BA6B4B9DE6399AEA11947B2C559D93E787B5877CCCDF78AA9E269BD"
+    },
+    {
+      "Path": "duskwire-live-failures-nov07/frame_00226511.png",
+      "Required": true,
+      "SHA256": "02E16B7D90511B27ABC489C9507800D1B924775A78344628B0977257C16A11BB"
+    },
+    {
+      "Path": "duskwire-live-failures-nov07/frame_00226524.png",
+      "Required": true,
+      "SHA256": "26F9281DDC28F84F75A80E393562A6E31502F35C923A00F5DCB31F1A1F8F31E0"
+    },
+    {
+      "Path": "duskwire-live-failures-nov07/frame_00143238.png",
+      "Required": true,
+      "SHA256": "A82D9DDF277C04D460D828A8AAA89B76A949DF3FCF5995252DD8897AE4F30140"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000140.png",
+      "Required": true,
+      "SHA256": "536B01954050CEAFAF71584A44B940B9480ECF50C8D377FBDE9E5FA41D103C4D"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000150.png",
+      "Required": true,
+      "SHA256": "23008C06F2EED26A4B6E5CB8E51B971D359888674E0975D5A680C0604F931CAC"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000286.png",
+      "Required": true,
+      "SHA256": "C31F8D41DF6CCC0507B6B7DB56CE666FE902DA0A29243CB3C5875677321DCD9B"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000335.png",
+      "Required": true,
+      "SHA256": "CCF01BE91F597B704BEA99BE6DBADEA451696687C7C1518EF96341C280A30C28"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000412.png",
+      "Required": true,
+      "SHA256": "71DA2AE11E6DA376C515AEA6E1E7E6FA6DEE9D298D8AED36074531797607AC49"
+    },
+    {
+      "Path": "duskwire-dual-meter-nov07/frame_00000442.png",
+      "Required": true,
+      "SHA256": "EE82CEEF8F12E5802E7FF3E2797C15B8DB5C988137938E457FB5DE5D4A46EC09"
     }
   ],
   "ReferenceAssets": [
@@ -156,6 +1099,10 @@
     {
       "Path": "Assets/ReelShapes/pointed.png",
       "SHA256": "AB8BB1CA09EC684C47F0A6EFE8935907B4B4F55B52C590F4E69E5955CA8B2FC2"
+    },
+    {
+      "Path": "Assets/catch_prefix_sand.png",
+      "SHA256": "E0EA750D9DAA9BD8DC6C7A1D9388DF287D28213F1C49F6C0443CF85837745317"
     }
   ]
 }

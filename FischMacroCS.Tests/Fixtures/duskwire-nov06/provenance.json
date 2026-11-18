@@ -1,0 +1,487 @@
+{
+  "session": "session_20261106_152812_841_3f5b95cef5364fa1b6b9cb5516297d7c",
+  "build": "1.0.30-nov05reelrecovery+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "userConfirmedRod": "Duskwire",
+  "frames": [
+    {
+      "file": "frame_00000001.png",
+      "frame": 1,
+      "timestamp": 868440448661,
+      "sha256": "79dda697ddcf67c7fd040bd08805f972deee666ee65f52b1d7af687a8cb4be61",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000011.png",
+      "frame": 11,
+      "timestamp": 868452828052,
+      "sha256": "a402331ffc2f2399da7cb2b2cbbf0407f0fbdbf4eaec158ddafc25070e04df03",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000012.png",
+      "frame": 12,
+      "timestamp": 868468698938,
+      "sha256": "3078232db4839e78dd57872c00c235c66d9e0cca99b90eed485e4d1ddf80ad93",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000020.png",
+      "frame": 20,
+      "timestamp": 868478798466,
+      "sha256": "5c6c284d3af23e01860e90357c35ea6023d581738b121a8baf9aa971547ad6a7",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000029.png",
+      "frame": 29,
+      "timestamp": 868488898096,
+      "sha256": "fe8b62ea88154513efe0b78c95d9bc15fad04a5f33e5c28296b5fd6986d863b4",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000036.png",
+      "frame": 36,
+      "timestamp": 868499401697,
+      "sha256": "a5589f79c3653169d077c4398b80961c8c86045afa5a4b9badbc9f698a422b5e",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000044.png",
+      "frame": 44,
+      "timestamp": 868509587552,
+      "sha256": "856ffd6137224d58cd0557d96ba2ef7aeafbcc6e7a26a113f70344200a40f130",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000053.png",
+      "frame": 53,
+      "timestamp": 868520403883,
+      "sha256": "80716bc6c47a9a8fda4fb098b3f09b39f3de80bb658a793be72aca41ca167698",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000069.png",
+      "frame": 69,
+      "timestamp": 868538042963,
+      "sha256": "10bc4996fd796256f6aaef726c6230d538d515fc76e7580a1c8db3ba2a09ccfc",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000080.png",
+      "frame": 80,
+      "timestamp": 868551315070,
+      "sha256": "766d071437f2c27583342c7bc36cb5ba02c6dbb2ee9aacc1952a391ddd176267",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000082.png",
+      "frame": 82,
+      "timestamp": 868564703234,
+      "sha256": "df3adf9564fa758f505d2b8fc509c64cdd81210108b281ab467d6a4a08b827d7",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000085.png",
+      "frame": 85,
+      "timestamp": 868575089065,
+      "sha256": "10dd528955f4b2a4225d2e962f5880fc26ed6e278d78c3e1994f0dafa8b51fb0",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000094.png",
+      "frame": 94,
+      "timestamp": 868585498894,
+      "sha256": "22855127ea7fa1d0948c3713a5a4043c2822bf603536bcca39cf169de1c17ec2",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000102.png",
+      "frame": 102,
+      "timestamp": 868595896640,
+      "sha256": "44a0891ddf4f97870b51ed3559f66c6af2f248d368d5cacac34168367871b328",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    },
+    {
+      "file": "frame_00000109.png",
+      "frame": 109,
+      "timestamp": 868606395102,
+      "sha256": "dbc7a44b43909175fa560fd3248017885598f9e1b35225777b7c818ee8bebb27",
+      "region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      }
+    }
+  ]
+}

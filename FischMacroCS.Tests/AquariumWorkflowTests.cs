@@ -5,6 +5,68 @@ namespace FischMacroCS.Tests;
 
 public class AquariumWorkflowTests
 {
+    private static Mat NovemberClaimFrame(int number) => Cv2.ImRead(System.IO.Path.Combine(
+        AppContext.BaseDirectory, "Fixtures", $"aquarium_nov04_{number}.png"));
+
+    [Theory]
+    [InlineData(96)]
+    [InlineData(99)]
+    public void RecordedBorderedClaimButtonIsRecognizedWithUnclaimedRewards(int number)
+    {
+        using var vision = Vision();
+        using var frame = NovemberClaimFrame(number);
+        Assert.False(frame.Empty());
+        var claim = vision.Find(frame, AquariumWorkflow.Claim);
+        Assert.True(claim.Found, $"Claim confidence {claim.Confidence}");
+        Assert.True(new Rect(1343, 710, 175, 57).Contains(claim.Center), $"Click {claim.Center}");
+        Assert.False(vision.Find(frame, AquariumWorkflow.EmptyBalance).Found);
+        Assert.True(vision.Find(frame, AquariumWorkflow.Close).Found);
+    }
+
+    [Fact]
+    public void RecordedClaimOutlineWithoutLetteringCannotAuthorizeAClaim()
+    {
+        using var vision = Vision();
+        using var frame = NovemberClaimFrame(96);
+        using (var lettering = new Mat(frame, new Rect(1375, 720, 110, 38)))
+            lettering.SetTo(new Scalar(8, 9, 10));
+        Assert.False(vision.Find(frame, AquariumWorkflow.Claim).Found);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RecordedBorderedClaimCompletesOnlyAfterBalanceClearsAndPanelCloses(bool claimFails)
+    {
+        using var vision = Vision();
+        var clock = new Clock();
+        bool claimed = false, closed = false;
+        int captureCount = 0;
+        var clicks = new List<string>();
+        Mat Capture() => closed ? new Mat(1369, 3440, MatType.CV_8UC3, Scalar.Black)
+            : claimed && !claimFails ? AnimatedClaimFrame(8)
+            : NovemberClaimFrame(captureCount++ % 2 == 0 ? 96 : 99);
+        void Click(Point point)
+        {
+            if (point.Y > 250)
+            {
+                Assert.True(new Rect(1343, 710, 175, 57).Contains(point), $"Expected claim, got {point}");
+                clicks.Add("claim");
+                claimed = true;
+            }
+            else
+            {
+                Assert.InRange(point.Y, 140, 190);
+                clicks.Add("close");
+                closed = true;
+            }
+        }
+        var result = AquariumWorkflow.Run(clock, vision, Capture, ms => clock.Delay(ms, default), Click, default);
+        Assert.Equal(claimFails ? new[] { "claim", "claim", "close" } : new[] { "claim", "close" }, clicks);
+        Assert.Equal(claimFails ? ActionOutcome.Unknown : ActionOutcome.ConfirmedSuccess, result.Outcome);
+        Assert.Equal(!claimFails, result.RewardClaimed);
+    }
+
     private static Mat AnimatedClaimFrame(int number) => Cv2.ImRead(System.IO.Path.Combine(
         AppContext.BaseDirectory, "Fixtures", $"aquarium_claim_animation_{number}.png"));
 

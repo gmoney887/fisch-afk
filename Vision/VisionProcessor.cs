@@ -30,6 +30,7 @@ public class DetectionResult : IDisposable
 
 public class ShakeDetectionResult
 {
+    public bool Interrupted { get; set; }
     public bool Found { get; set; }
     public Point Center { get; set; }
     public Rect BoundingBox { get; set; }
@@ -75,13 +76,15 @@ public class VisionProcessor
 {
     private bool _webweaverHint;
     private bool _ordinaryLayoutHint;
+    private bool _duskwireHint;
     private Rect? _pointedCaptureHint;
     private Rect? _pointedMeterHint;
     private Size _pointedViewport;
     public Rect GetReelCaptureRegion(Rect ordinary,Size viewport)
     {
-        if(_pointedViewport!=viewport){_pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=false;_pointedViewport=viewport;}
-        return _pointedCaptureHint is Rect hint?(ordinary|hint)&new Rect(0,0,viewport.Width,viewport.Height):ordinary;
+        if(_pointedViewport!=viewport){_pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=_duskwireHint=false;_pointedViewport=viewport;}
+        var region=_pointedCaptureHint is Rect hint?(ordinary|hint)&new Rect(0,0,viewport.Width,viewport.Height):ordinary;
+        return _duskwireHint ? new Rect(region.X,region.Y,region.Width,viewport.Height-region.Y) : region;
     }
 
     public DetectionResult? TryAcquirePointedLayout(Mat pixels,int x=0,int y=0,bool debug=false)
@@ -99,6 +102,8 @@ public class VisionProcessor
         int half=Math.Min(frame.Width/2,(int)(frame.Height*.55));
         int left=frame.Width/2-half,top=(int)(frame.Height*.74),bottom=(int)(frame.Height*.94);
         var region=GetReelCaptureRegion(new Rect(left,top,half*2,bottom-top),frame.Size());
+        using var duskwireCrop=new Mat(frame,new Rect(left,top,half*2,frame.Height-top));
+        if(ReadDuskwire(duskwireCrop,left,top,frame.Height,theme,false,true) is {} duskwire)return duskwire;
         using var roi=new Mat(frame,region);
         var result=ProcessTrack(roi,region.X,region.Y,frame.Height/1080.0,theme,false);
         if(!result.HasLiveReel&&theme is MinigameTheme.Default or MinigameTheme.AutoCalibrate)
@@ -133,7 +138,7 @@ public class VisionProcessor
     private MinigameTheme? _lockedTheme;
     private MinigameTheme? _candidateTheme;
     private int _themeMatches;
-    public void ResetReelTheme() { _pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=false; _lockedTheme = _candidateTheme = null; _themeMatches = 0; }
+    public void ResetReelTheme() { _pointedCaptureHint=_pointedMeterHint=null;_webweaverHint=_ordinaryLayoutHint=_duskwireHint=false; _lockedTheme = _candidateTheme = null; _themeMatches = 0; }
     private static void MaskBar(Mat hsv, Mat output, MinigameTheme theme)
     {
         switch (theme)
@@ -172,23 +177,104 @@ public class VisionProcessor
                 Cv2.InRange(hsv, new Scalar(0, 0, 201), new Scalar(179, 55, 255), output); break;
         }
     }
+    private DetectionResult? ReadDuskwire(Mat crop,int x,int y,double height,MinigameTheme theme,bool debug,bool acquireShifted=false)
+    {
+        long started=System.Diagnostics.Stopwatch.GetTimestamp();
+        if(theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default or MinigameTheme.Duskwire
+            && DuskwireReelDetector.Find(crop,y,height,acquireShifted||_duskwireHint||y+crop.Height<height*.96) is {} duskwire)
+        {
+            int shift=(int)Math.Round(y+duskwire.Needle.Y+duskwire.Needle.Height/2.0-height*.851);
+            // The black fill can have no paired bright edges against dark water.
+            // Its opaque rectangle at the measured meter origin is independent
+            // current-frame evidence, including vertically animated reel UI.
+            bool meter=DetectStructuralReelMeter(crop,y-shift,height) ||
+                MeasureBlackReelFill(crop,y-shift,height,50) is not null;
+            // During entry/layout animation the original short capture can end
+            // above the meter. The independently measured opaque body and capsule
+            // are still current evidence; expand the next capture instead of
+            // discarding them and falling back to unrelated scenery. A missing
+            // meter inside a complete context remains a failed observation.
+            if(!meter && y+crop.Height>=height*.94+shift)return null;
+            _duskwireHint=true;
+            return new DetectionResult {DetectorPath="Duskwire",ResolvedTheme=MinigameTheme.Duskwire,
+                BarFound=true,FishFound=true,ReelProgressFound=meter,
+                BarLeft=x+duskwire.Body.Left,BarRight=x+duskwire.Body.Right,
+                BarWidth=duskwire.Body.Width,BarCenter=x+duskwire.Body.X+duskwire.Body.Width/2.0,
+                DetectionLatencyMs=System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds,
+                FishX=x+duskwire.Needle.X+duskwire.Needle.Width/2,AnnotatedFrame=debug?crop.Clone():null};
+        }
+        return null;
+    }
+
     public DetectionResult ProcessTrack(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme = MinigameTheme.Default, bool generateDebug = true)
     {
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        if (crop is null || crop.Empty()) return new DetectionResult();
-        double familyMs=0;
-        DetectionResult? Pointed()
+        if(crop is null || crop.Empty())return new DetectionResult();
+        if (theme is MinigameTheme.Hammyshork or MinigameTheme.AutoCalibrate or MinigameTheme.Default)
         {
-            if(crop is null||crop.Empty())return null;
-            long probe=System.Diagnostics.Stopwatch.GetTimestamp();
-            var reading=ReadPointed(crop,absOffsetX,absOffsetY,generateDebug);
-            familyMs+=System.Diagnostics.Stopwatch.GetElapsedTime(probe).TotalMilliseconds;
+            var shark = HammyshorkReelDetector.Find(crop, absOffsetY, scaleFactor * 1080);
+            if (shark.HasValue || theme == MinigameTheme.Hammyshork)
+            {
+                var reading = new DetectionResult { DetectorPath = "Hammyshork", ResolvedTheme = MinigameTheme.Hammyshork };
+                if (shark is { } observed)
+                {
+                    reading.FishFound = true;
+                    if (observed.Body is Rect body)
+                    {
+                        reading.BarFound = true;
+                        reading.BarLeft = absOffsetX + body.Left;
+                        reading.BarRight = absOffsetX + body.Right;
+                        reading.BarWidth = body.Width;
+                        reading.BarCenter = reading.BarLeft + body.Width / 2.0;
+                    }
+                    reading.FishX = absOffsetX + observed.Marker.X + observed.Marker.Width / 2;
+                    reading.ReelProgressFound = DetectReelProgress(crop, absOffsetY, scaleFactor * 1080);
+                    if (generateDebug)
+                    {
+                        reading.AnnotatedFrame = crop.Clone();
+                        if (observed.Body is Rect visibleBody)
+                            Cv2.Rectangle(reading.AnnotatedFrame, visibleBody, Scalar.LimeGreen, 2);
+                        Cv2.Rectangle(reading.AnnotatedFrame, observed.Marker, Scalar.Yellow, 2);
+                    }
+                }
+                reading.DetectionLatencyMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                return reading;
+            }
+        }
+        // Re-prove the acquired pointed layout before scanning other families.
+        // A miss still probes Duskwire and ordinary rods on this same frame.
+        double familyMs = 0;
+        DetectionResult? ProbePointed()
+        {
+            long probe = System.Diagnostics.Stopwatch.GetTimestamp();
+            var reading = ReadPointed(crop, absOffsetX, absOffsetY, generateDebug);
+            familyMs += System.Diagnostics.Stopwatch.GetElapsedTime(probe).TotalMilliseconds;
             return reading;
         }
-        // A hint changes search order only; every component is re-proved now.
-        // A miss immediately runs the unchanged AGY reader, including ordinary bars.
-        DetectionResult? result=_webweaverHint?Pointed():null;
+
         bool automaticFamily = theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default;
+        bool probedPointed = _webweaverHint && automaticFamily;
+        DetectionResult? result = null;
+        if (probedPointed)
+        {
+            Rect? previousMeter = _pointedMeterHint;
+            result = ProbePointed();
+            if (result?.HasLiveReel == true)
+            {
+                _duskwireHint = _ordinaryLayoutHint = false;
+                result.FamilyProbeLatencyMs = familyMs;
+                result.DetectionLatencyMs = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                return result;
+            }
+            // A rejected hinted meter clears its location. A fresh, unhinted
+            // search can then acquire a different meter on this same frame.
+            if (previousMeter.HasValue && !_pointedMeterHint.HasValue)
+            {
+                result?.Dispose();
+                result = null;
+                probedPointed = false;
+            }
+        }
         if (automaticFamily || theme == MinigameTheme.RandomRod)
         {
             double height = scaleFactor * 1080;
@@ -199,7 +285,7 @@ public class VisionProcessor
                 var reading = new DetectionResult { DetectorPath = "RandomRod", ResolvedTheme = MinigameTheme.RandomRod };
                 if (observed is { } reel)
                 {
-                    _webweaverHint = _ordinaryLayoutHint = false;
+                    _webweaverHint = _duskwireHint = _ordinaryLayoutHint = false;
                     _pointedCaptureHint = _pointedMeterHint = null;
                     reading.BarFound = reading.FishFound = true;
                     reading.BarLeft = absOffsetX + reel.Body.Left;
@@ -220,18 +306,34 @@ public class VisionProcessor
                 return reading;
             }
         }
+        var duskwire=ReadDuskwire(crop,absOffsetX,absOffsetY,scaleFactor*1080,theme,generateDebug);
+        if(duskwire is not null || theme==MinigameTheme.Duskwire)
+        {
+            result?.Dispose();
+            var reading=duskwire??new DetectionResult {DetectorPath="Duskwire",ResolvedTheme=MinigameTheme.Duskwire};
+            reading.DetectionLatencyMs=System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            return reading;
+        }
+        // A hint changes search order only; every component is re-proved now.
+        if (_webweaverHint && !probedPointed)
+        {
+            result = ProbePointed();
+            probedPointed = true;
+        }
         if(result is null)
         {
             _webweaverHint=false;
             _pointedCaptureHint=_pointedMeterHint=null;
             result=ProcessTrackLegacy(crop,absOffsetX,absOffsetY,scaleFactor,theme,generateDebug);
             bool ordinaryBarOnly=_ordinaryLayoutHint&&result.BarFound&&result.ReelProgressFound;
-            if(!result.HasLiveReel&&!ordinaryBarOnly&&familyMs==0&&theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default)
+            if (!result.HasLiveReel && !ordinaryBarOnly && !probedPointed && automaticFamily)
             {
-                var special=Pointed();if(special is not null){result.Dispose();result=special;}
+                var special=ProbePointed();if(special is not null){result.Dispose();result=special;}
             }
         }
         _webweaverHint=result.DetectorPath=="PointedFlared";
+        if(_duskwireHint && !result.BarFound)result.FishFound=false;
+        if(result.BarFound && result.FishFound)_duskwireHint=false;
         _ordinaryLayoutHint=!_webweaverHint&&result.BarFound&&result.ReelProgressFound
             &&(_ordinaryLayoutHint||result.FishFound);
         result.FamilyProbeLatencyMs=familyMs;
@@ -252,29 +354,57 @@ public class VisionProcessor
         if (theme == MinigameTheme.Glorp || theme == MinigameTheme.AutoCalibrate)
         {
             var glorp = ProcessGlorp(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
-            if (glorp.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Glorp;
-            // Brief Glorp effects must not switch tracking to unrelated scenery
-            // that happens to satisfy another rod's color thresholds.
-            if (theme == MinigameTheme.Glorp || glorp.HasLiveReel || _lockedTheme == MinigameTheme.Glorp) return glorp;
+            if (glorp.HasLiveReel)
+            {
+                if (theme == MinigameTheme.AutoCalibrate)
+                {
+                    _themeMatches = _candidateTheme == MinigameTheme.Glorp ? _themeMatches + 1 : 1;
+                    _candidateTheme = MinigameTheme.Glorp;
+                    if (_themeMatches >= 2) _lockedTheme = MinigameTheme.Glorp;
+                }
+                return glorp;
+            }
+            if (theme == MinigameTheme.Glorp || _lockedTheme == MinigameTheme.Glorp) return glorp;
             glorp.Dispose();
         }
         if (theme == MinigameTheme.Doomsekkar || theme == MinigameTheme.AutoCalibrate)
         {
             var doom = ProcessDoomsekkar(crop, absOffsetX, absOffsetY, viewportHeight, generateDebug);
-            if (doom.BarFound && doom.HasLiveReel && theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Doomsekkar;
-            if (theme == MinigameTheme.Doomsekkar || (doom.BarFound && doom.HasLiveReel) || _lockedTheme == MinigameTheme.Doomsekkar) return doom;
+            if (doom.HasLiveReel && doom.BarFound)
+            {
+                if (theme == MinigameTheme.AutoCalibrate)
+                {
+                    _themeMatches = _candidateTheme == MinigameTheme.Doomsekkar ? _themeMatches + 1 : 1;
+                    _candidateTheme = MinigameTheme.Doomsekkar;
+                    if (_themeMatches >= 2) _lockedTheme = MinigameTheme.Doomsekkar;
+                }
+                return doom;
+            }
+            if (theme == MinigameTheme.Doomsekkar || _lockedTheme == MinigameTheme.Doomsekkar) return doom;
             doom.Dispose();
         }
-        var result = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor,
+        using var trackHsv = new Mat();
+        var result = ProcessTrackCore(track, trackHsv, absOffsetX, absOffsetY, scaleFactor,
             theme == MinigameTheme.AutoCalibrate ? _lockedTheme ?? MinigameTheme.Default : theme, generateDebug);
         result.ReelProgressFound = DetectReelProgress(crop, absOffsetY, viewportHeight);
+        bool ordinaryTheme = theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default or MinigameTheme.Ruinous;
+        Rect? glyph = ordinaryTheme || !result.HasLiveReel ? DetectInlineReelFish(crop, absOffsetY, viewportHeight) : null;
+        bool? structuralMeter = null;
+        bool HasStructuralMeter() => structuralMeter ??= DetectStructuralReelMeter(crop, absOffsetY, viewportHeight)
+            || glyph.HasValue && DetectColoredReelMeter(crop, absOffsetY, viewportHeight);
+        // Bright scenery can join the white progress fill into a non-rectangular
+        // color component. A current fish marker plus the meter's paired edges
+        // is independent evidence and allows geometric bar recovery below.
+        if (!result.ReelProgressFound && result.FishFound
+            && theme is MinigameTheme.AutoCalibrate or MinigameTheme.Default or MinigameTheme.Ruinous)
+            result.ReelProgressFound = HasStructuralMeter();
         if (theme == MinigameTheme.AutoCalibrate && (!result.BarFound || !_lockedTheme.HasValue))
         {
             // Evaluate colors separately: a union mask would merge a white bar
             // into bright green scenery and destroy its rectangular boundary.
             foreach (var candidate in new[] { MinigameTheme.Feline, MinigameTheme.Trident, MinigameTheme.Golden })
             {
-                var alternative = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor, candidate, generateDebug);
+                var alternative = ProcessTrackCore(track, trackHsv, absOffsetX, absOffsetY, scaleFactor, candidate, generateDebug, requireBarAndFish: true);
                 alternative.ReelProgressFound = result.ReelProgressFound;
                 if (alternative.BarFound && alternative.FishFound)
                 {
@@ -288,7 +418,7 @@ public class VisionProcessor
         }
         if ((theme == MinigameTheme.Ruinous || _lockedTheme == MinigameTheme.Ruinous) && !result.BarFound)
         {
-            var whiteAlt = ProcessTrackCore(track, absOffsetX, absOffsetY, scaleFactor, MinigameTheme.Default, generateDebug);
+            var whiteAlt = ProcessTrackCore(track, trackHsv, absOffsetX, absOffsetY, scaleFactor, MinigameTheme.Default, generateDebug, requireBarAndFish: true);
             whiteAlt.ReelProgressFound = result.ReelProgressFound;
             if (whiteAlt.BarFound && whiteAlt.FishFound)
             {
@@ -301,17 +431,47 @@ public class VisionProcessor
                 whiteAlt.Dispose();
             }
         }
-        // Inline fish glyphs use a different silhouette from the default needle.
-        // Confirm all three independent shapes before accepting an unfamiliar palette.
-        if (!result.HasLiveReel && DetectInlineReelFish(crop, absOffsetY, viewportHeight) is Rect inlineFish
-            && DetectStructuralReelMeter(crop, absOffsetY, viewportHeight)
-            && DetectInlineReelBar(track, absOffsetY, viewportHeight) is Rect inlineBar)
+        bool verifyOutline = ordinaryTheme && (result.ResolvedTheme == MinigameTheme.Ruinous || !result.BarFound || !result.FishFound);
+        Rect? solidBar = (verifyOutline || glyph.HasValue) && HasStructuralMeter()
+            ? DetectSolidReelBar(track, absOffsetY, viewportHeight) : null;
+        // The gold glyph, body and meter together identify Nate's layout even
+        // when the generic needle search also finds a vertical line in scenery.
+        if (glyph is Rect inlineFish && HasStructuralMeter()
+            && (solidBar ?? DetectInlineReelBar(track, absOffsetY, viewportHeight)) is Rect inlineBar)
         {
             result.FishFound = result.BarFound = result.ReelProgressFound = true;
             result.FishX = absOffsetX + inlineFish.X + inlineFish.Width / 2;
             result.BarLeft = absOffsetX + inlineBar.Left;
             result.BarRight = absOffsetX + inlineBar.Right;
             result.BarWidth = inlineBar.Width;
+            result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
+            result.ResolvedTheme = MinigameTheme.Ruinous;
+            // A current glyph, body and meter outweigh a color hint acquired
+            // from a bright companion before the reel finished appearing.
+            if (theme == MinigameTheme.AutoCalibrate) _lockedTheme = MinigameTheme.Ruinous;
+        }
+        else if (verifyOutline && HasStructuralMeter()
+            && (solidBar ?? DetectGeometricReelBar(track, absOffsetY, viewportHeight)) is Rect outlinedBar)
+        {
+            var outlined = ProcessTrackCore(track, trackHsv, absOffsetX, absOffsetY, scaleFactor,
+                MinigameTheme.Default, generateDebug, outlinedBar);
+            if (outlined.FishFound)
+            {
+                result.Dispose();
+                result = outlined;
+                result.ReelProgressFound = true;
+                result.ResolvedTheme = MinigameTheme.Ruinous;
+            }
+            else outlined.Dispose();
+        }
+        if (!result.HasLiveReel && (theme == MinigameTheme.Ruinous || _lockedTheme == MinigameTheme.Ruinous)
+            && HasStructuralMeter()
+            && DetectInlineReelBar(track, absOffsetY, viewportHeight) is Rect ruinousInlineBar)
+        {
+            result.BarFound = result.ReelProgressFound = true;
+            result.BarLeft = absOffsetX + ruinousInlineBar.Left;
+            result.BarRight = absOffsetX + ruinousInlineBar.Right;
+            result.BarWidth = ruinousInlineBar.Width;
             result.BarCenter = (result.BarLeft + result.BarRight) / 2.0;
             result.ResolvedTheme = MinigameTheme.Ruinous;
         }
@@ -352,8 +512,8 @@ public class VisionProcessor
         // banner without a progress meter must end that false reel.
         if (result.BarFound && !result.ReelProgressFound)
         {
-            result.CatchNotificationFound = DetectCatchNotification(crop, (int)viewportHeight);
-            if (result.CatchNotificationFound == true)
+            result.CatchNotificationFound = DetectCatchNotification(crop, (int)viewportHeight, out bool hasLettering);
+            if (result.CatchNotificationFound == true || hasLettering && DetectCompanionCatchNotification(crop, viewportHeight))
             {
                 result.BarFound = result.FishFound = false;
                 result.BarLeft = result.BarRight = result.BarWidth = result.FishX = 0;
@@ -565,7 +725,7 @@ public class VisionProcessor
             if (rx >= 0 && rx < crop.Width) maxRightRail = Math.Max(maxRightRail, limeColSum.At<float>(0, rx));
         }
 
-        if (maxLeftRail < 10 && maxRightRail < 10)
+        if (maxLeftRail < 10 || maxRightRail < 10)
         {
             return result;
         }
@@ -777,7 +937,7 @@ public class VisionProcessor
                     }
                 }
 
-                if (bestBar is Rect bar)
+                if (bestBar is Rect bar && (result.FishFound || result.ReelProgressFound))
                 {
                     double left = bar.Left;
                     double right = bar.Right;
@@ -843,8 +1003,8 @@ public class VisionProcessor
     public static double? MeasureReelProgressFill(Mat crop, int offsetY, double viewportHeight, MinigameTheme theme=MinigameTheme.Default)
     {
         if(crop.Empty() || viewportHeight<200) return null;
-        if(theme == MinigameTheme.RandomRod)
-            return MeasureBlackReelFill(crop, offsetY, viewportHeight, 8);
+        if(theme is MinigameTheme.Duskwire or MinigameTheme.RandomRod)
+            return MeasureBlackReelFill(crop, offsetY, viewportHeight, theme == MinigameTheme.RandomRod ? 8 : 50);
         var fill=FindReelProgress(crop,offsetY,viewportHeight,false,true)
             ?? FindReelProgress(crop,offsetY,viewportHeight,true,true);
         return fill?.Width/viewportHeight;
@@ -852,7 +1012,8 @@ public class VisionProcessor
 
     private static double? MeasureBlackReelFill(Mat crop, int offsetY, double height, int maxValue)
     {
-        // Random Rod keeps the fill nearly pure black even against dark water.
+        // Duskwire can tint the fill red. Random Rod keeps it nearly pure black
+        // against dark water. Both fills grow from the same measured meter origin.
         int top=Math.Max(0,(int)(height*.90)-offsetY),bottom=Math.Min(crop.Height,(int)(height*.94)-offsetY);
         if(bottom<=top)return null;
         using var strip=new Mat(crop,new Rect(0,top,crop.Width,bottom-top));
@@ -951,6 +1112,25 @@ public class VisionProcessor
             if (candidate.HasValue) return null;
             candidate = new Rect(box.X, top + box.Y, box.Width, box.Height);
         }
+        if (!candidate.HasValue)
+        {
+            using var vBridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(3, Math.Max(3, (int)Math.Round(height * .022))));
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, vBridge);
+            Cv2.FindContours(mask, out contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            foreach (var contour in contours)
+            {
+                var box = Cv2.BoundingRect(contour);
+                double centerY = offsetY + top + box.Y + box.Height / 2.0;
+                double solidity = Cv2.ContourArea(contour) / Math.Max(1, box.Width * box.Height);
+                if (box.Width < height * .022 || box.Width > height * .04
+                    || box.Height < height * .075 || box.Height > height * .09
+                    || centerY < height * .835 || centerY > height * .85
+                    || solidity < .55 || solidity > .8
+                    || Math.Abs(box.X + box.Width / 2.0 - crop.Width / 2.0) > height * .5) continue;
+                if (candidate.HasValue) return null;
+                candidate = new Rect(box.X, top + box.Y, box.Width, box.Height);
+            }
+        }
         return candidate;
     }
 
@@ -972,7 +1152,16 @@ public class VisionProcessor
         Cv2.ExtractChannel(hsv, value, 2);
         Cv2.GaussianBlur(value, value, new Size(3, 3), .7);
         Cv2.Canny(value, edges, 20, 50);
-        var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180, (int)(height * .12), height * .20, height * .04)
+        // Hough's gap allowance can join rows of idle rod-stat lettering into
+        // paired "meter" edges. Require real horizontal edge runs before
+        // bridging short occlusions in a progress meter.
+        // Allow one pixel of vertical rasterization/tilt without joining gaps
+        // horizontally between separate letters.
+        using var verticalTolerance = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(1, 3));
+        Cv2.Dilate(edges, edges, verticalTolerance);
+        using var horizontal = Cv2.GetStructuringElement(MorphShapes.Rect, new Size((int)(height * .06), 1));
+        Cv2.MorphologyEx(edges, edges, MorphTypes.Open, horizontal);
+        var lines = Cv2.HoughLinesP(edges, 1, Math.PI / 180, (int)(height * .09), height * .16, height * .04)
             .Where(line => Math.Abs(line.P1.Y - line.P2.Y) <= height * .002).ToArray();
         foreach (var a in lines)
         foreach (var b in lines)
@@ -981,10 +1170,103 @@ public class VisionProcessor
             int left = Math.Max(Math.Min(a.P1.X, a.P2.X), Math.Min(b.P1.X, b.P2.X));
             int right = Math.Min(Math.Max(a.P1.X, a.P2.X), Math.Max(b.P1.X, b.P2.X));
             if (separation >= height * .009 && separation <= height * .018
-                && right - left >= height * .20)
+                && right - left >= height * .16)
                 return true;
         }
         return false;
+    }
+
+    private static bool DetectColoredReelMeter(Mat crop, int offsetY, double height)
+    {
+        int top = Math.Max(0, (int)(height * .90) - offsetY);
+        int bottom = Math.Min(crop.Height, (int)(height * .94) - offsetY);
+        if (bottom <= top) return false;
+        using var strip = new Mat(crop, new Rect(0, top, crop.Width, bottom - top));
+        using var hsv = new Mat(); using var mask = new Mat(); using var wrapped = new Mat();
+        Cv2.CvtColor(strip, hsv, ColorConversionCodes.BGR2HSV);
+        // Every hue band below requires these saturation/value bounds. Empty
+        // support cannot contain a colored meter, so avoid all band searches.
+        Cv2.InRange(hsv, new Scalar(0, 60, 20), new Scalar(179, 255, 255), mask);
+        if (Cv2.CountNonZero(mask) == 0) return false;
+        using var corridor = Cv2.GetStructuringElement(MorphShapes.Rect,
+            new Size(Math.Max(3, (int)(height * .06)), Math.Max(2, (int)(height * .003))));
+        // A dim colored meter may have the same value as the scenery behind
+        // it. Separate hue bands instead of requiring a luminance edge there.
+        for (int hue = 0; hue < 180; hue += 12)
+        for (int saturation = 60; saturation <= 180; saturation += 60)
+        {
+            Cv2.InRange(hsv, new Scalar(Math.Max(0, hue - 8), saturation, 20), new Scalar(Math.Min(179, hue + 8), 255, 255), mask);
+            if (hue == 0)
+            {
+                Cv2.InRange(hsv, new Scalar(172, saturation, 20), new Scalar(179, 255, 255), wrapped);
+                Cv2.BitwiseOr(mask, wrapped, mask);
+            }
+            // Remove thin ornaments joining the meter to the scenery without
+            // bridging any missing horizontal part of the meter itself.
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Open, corridor);
+            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            foreach (var contour in contours)
+            {
+                var box = Cv2.BoundingRect(contour);
+                // Require the complete centered, thin, solid meter corridor.
+                // Separate letters or a short fill cannot establish this box.
+                if (box.Width < height * .52 || box.Width > height * .57
+                    || box.Height < height * .006 || box.Height > height * .018
+                    || Math.Abs(box.X + box.Width / 2.0 - crop.Width / 2.0) > height * .012
+                    || box.Top == 0 || box.Bottom >= strip.Height) continue;
+                // Ignore the anti-aliased perimeter, then require current
+                // color support across the full length of the interior.
+                int inset = Math.Min(box.Height / 4, Math.Max(1, (int)(height * .0015)));
+                using var interior = new Mat(mask, new Rect(box.X + inset, box.Y + inset,
+                    box.Width - 2 * inset, box.Height - 2 * inset));
+                if (Cv2.CountNonZero(interior) < interior.Total() * .90) continue;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Sample the fill from the current image. A solid body survives the arrow,
+    // needle and slash effects as a rectangle of the same color on both sides.
+    private static Rect? DetectSolidReelBar(Mat track, int offsetY, double height)
+    {
+        int center = (int)Math.Round(height * .853) - offsetY;
+        int radius = (int)Math.Round(height * .045);
+        if (radius < 2 || center - radius < 0 || center + radius >= track.Height) return null;
+        using var band = new Mat(track, new Rect(0, center - radius, track.Width, 2 * radius));
+        var counts = new Dictionary<Vec3b, int>();
+        int step = Math.Max(1, (int)(height * .008));
+        int width = band.Width;
+        for (int x = 0; x < width; x += step)
+        {
+            var color = band.At<Vec3b>(radius, x);
+            if (Math.Max(color.Item0, Math.Max(color.Item1, color.Item2)) < 64) continue;
+            counts[color] = counts.GetValueOrDefault(color) + 1;
+        }
+        using var mask = new Mat();
+        using var bridge = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(2 * (int)(height * .022) + 1, 1));
+        Rect? body = null;
+        foreach (var (color, count) in counts)
+        {
+            if (count * step < height * .06) continue;
+            Cv2.InRange(band, new Scalar(color.Item0 - 8, color.Item1 - 8, color.Item2 - 8),
+                new Scalar(color.Item0 + 8, color.Item1 + 8, color.Item2 + 8), mask);
+            Cv2.MorphologyEx(mask, mask, MorphTypes.Close, bridge);
+            Cv2.FindContours(mask, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            foreach (var contour in contours)
+            {
+                var box = Cv2.BoundingRect(contour);
+                if (box.Width < height * .10 || box.Width > height * .90 ||
+                    box.Height < height * .046 || box.Height > height * .062 ||
+                    Math.Abs(box.Y + box.Height / 2.0 - radius) > height * .008 ||
+                    box.Left == 0 || box.Right == band.Width ||
+                    Cv2.ContourArea(contour) < .90 * box.Width * box.Height) continue;
+                var candidate = new Rect(box.X, center - radius + box.Y, box.Width, box.Height);
+                if (body.HasValue && body.Value != candidate) return null;
+                body = candidate;
+            }
+        }
+        return body;
     }
 
     private static Rect? DetectInlineReelBar(Mat track, int offsetY, double height)
@@ -1110,17 +1392,10 @@ public class VisionProcessor
         return candidate;
     }
 
-    private DetectionResult ProcessTrackCore(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor, MinigameTheme theme, bool generateDebug)
+    private static Rect? FindTrackBar(Mat hsv, int absOffsetY, double scaleFactor, MinigameTheme theme)
     {
-        DetectionResult result = new DetectionResult();
-        if (crop == null || crop.Empty()) return result;
-
-        try
-        {
-            int cropH = crop.Height;
-            int cropW = crop.Width;
-        using var hsv = new Mat();
-        Cv2.CvtColor(crop, hsv, ColorConversionCodes.BGR2HSV);
+        int cropW = hsv.Width;
+        int cropH = hsv.Height;
         using var barMask = new Mat();
         MaskBar(hsv, barMask, theme);
         // Morphological CLOSE with horizontal structuring element:
@@ -1148,6 +1423,15 @@ public class VisionProcessor
             // A clipped shape cannot establish a complete control bar: bright
             // scenery at the capture edge otherwise keeps re-entering Reeling.
             if (rect.Left <= 0 || rect.Top <= 0 || rect.Right >= cropW)
+                continue;
+            if (theme == MinigameTheme.Ruinous &&
+                (rect.Height < scaleFactor * 1080 * .046 || rect.Height > scaleFactor * 1080 * .062
+                || Math.Abs(absOffsetY + rect.Y + rect.Height / 2.0 - scaleFactor * 1080 * .853) > scaleFactor * 1080 * .01))
+                continue;
+            // Color alone cannot turn a companion effect above the track into
+            // a control bar. These ordinary colored themes share its UI band.
+            if (theme is MinigameTheme.Feline or MinigameTheme.Trident or MinigameTheme.Golden
+                && Math.Abs(absOffsetY + rect.Y + rect.Height / 2.0 - scaleFactor * 1080 * .853) > scaleFactor * 1080 * .035)
                 continue;
 
             RotatedRect minRect = Cv2.MinAreaRect(cnt);
@@ -1184,6 +1468,20 @@ public class VisionProcessor
             }
         }
 
+        return bestBar;
+    }
+
+    private DetectionResult ProcessTrackCore(Mat crop, Mat hsv, int absOffsetX, int absOffsetY,
+        double scaleFactor, MinigameTheme theme, bool generateDebug, Rect? verifiedBar = null, bool requireBarAndFish = false)
+    {
+        var result = new DetectionResult();
+        try
+        {
+        int cropH = crop.Height;
+        int cropW = crop.Width;
+        if (hsv.Empty()) Cv2.CvtColor(crop, hsv, ColorConversionCodes.BGR2HSV);
+        Rect? bestBar = verifiedBar ?? FindTrackBar(hsv, absOffsetY, scaleFactor, theme);
+        if (requireBarAndFish && !bestBar.HasValue) return result;
         Rect localBar = default;
         if (bestBar.HasValue)
         {
@@ -1216,6 +1514,12 @@ public class VisionProcessor
             ? Math.Min(cropW - 25, localBar.Right + (int)(localBar.Width * 1.7)) 
             : cropW - (int)Math.Max(45, Math.Round(50 * scaleFactor));
 
+        // The reel's end arrows and outline are outside the needle travel area.
+        // They otherwise beat an occluded marker during Ruinous Oath's slash.
+        int travelRadius = (int)Math.Round(scaleFactor * 1080 * .49);
+        trackSearchX1 = Math.Max(trackSearchX1, cropW / 2 - travelRadius);
+        trackSearchX2 = Math.Min(trackSearchX2, cropW / 2 + travelRadius);
+
         int[] colHist = new int[cropW];
 
         int searchW = trackSearchX2 - trackSearchX1 + 1;
@@ -1223,11 +1527,8 @@ public class VisionProcessor
         if (searchW > 0 && searchH > 0 && trackSearchX1 >= 0 && trackSearchX1 + searchW <= cropW && searchY1 >= 0 && searchY1 + searchH <= cropH)
         {
             Rect needleSearchRoi = new Rect(trackSearchX1, searchY1, searchW, searchH);
-            using var searchZone = new Mat(crop, needleSearchRoi);
             using var needleMask = new Mat();
-
-            using var needleHsv = new Mat();
-            Cv2.CvtColor(searchZone, needleHsv, ColorConversionCodes.BGR2HSV);
+            using var needleHsv = new Mat(hsv, needleSearchRoi);
             if (theme == MinigameTheme.Feline || theme == MinigameTheme.Golden)
                 Cv2.InRange(needleHsv, new Scalar(0, 0, 200), new Scalar(179, 55, 255), needleMask);
             else if (theme == MinigameTheme.Trident)
@@ -1238,11 +1539,9 @@ public class VisionProcessor
             using var colScores = new Mat();
             Cv2.Reduce(needleMask, colScores, ReduceDimension.Row, ReduceTypes.Sum, MatType.CV_32S);
 
-            int nCols = colScores.Cols;
-            for (int i = 0; i < nCols; i++)
-            {
-                colHist[trackSearchX1 + i] = colScores.At<int>(0, i) / 255;
-            }
+            System.Runtime.InteropServices.Marshal.Copy(colScores.Data, colHist, trackSearchX1, searchW);
+            for (int x = trackSearchX1; x <= trackSearchX2; x++)
+                colHist[x] /= 255;
         }
 
         // Peak Prominence & Narrow Width Isolation:
@@ -1336,7 +1635,7 @@ public class VisionProcessor
         }
 
         // 4. Annotated Debug Frame (for live preview and flight recorder)
-        if (generateDebug)
+        if (generateDebug && (!requireBarAndFish || result.FishFound))
         {
             Mat debug = crop.Clone();
 
@@ -1425,10 +1724,26 @@ public class VisionProcessor
         return _shakeTemplateMat;
     }
 
-    public ShakeDetectionResult DetectShakeIcon(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor = 1.0, bool generateDebug = true)
+    internal static IEnumerable<int> TileOrigins(int extent, int tileSize, int overlap)
+    {
+        int last = extent - tileSize;
+        int step = Math.Max(1, tileSize - overlap);
+        for (int start = 0; start < last; start += step)
+            yield return start;
+        yield return last;
+    }
+
+    public ShakeDetectionResult DetectShakeIcon(Mat crop, int absOffsetX, int absOffsetY, double scaleFactor = 1.0, bool generateDebug = true,
+        Func<bool>? shouldInterrupt = null)
     {
         var result = new ShakeDetectionResult();
         if (crop == null || crop.Empty()) return result;
+        bool Interrupted()
+        {
+            if (shouldInterrupt?.Invoke() != true) return false;
+            result.Interrupted = true;
+            return true;
+        }
 
         int cropW = crop.Width;
         int cropH = crop.Height;
@@ -1452,6 +1767,7 @@ public class VisionProcessor
                     double baseScale = cropH / 1369.0;
                     foreach (double scale in new[] { baseScale, baseScale * .88, baseScale * 1.14 })
                     {
+                        if (Interrupted()) return;
                         int width = (int)Math.Round(glyphs.Width * scale);
                         int height = (int)Math.Round(glyphs.Height * scale);
                         if (width < 18 || height < 10 || width >= cropW || height >= cropH) continue;
@@ -1471,6 +1787,7 @@ public class VisionProcessor
                                 Math.Min(320, coarseWidth - tileX), Math.Min(240, coarseHeight - tileY)));
                             for (int candidate = 0; candidate < 3; candidate++)
                             {
+                                if (Interrupted()) return;
                                 Cv2.MinMaxLoc(tile, out _, out double score, out _, out Point location);
                                 if (!double.IsFinite(score) || score < .42) break;
                                 location.X += tileX;
@@ -1501,6 +1818,7 @@ public class VisionProcessor
                     }
                 }
                 Search(crop, template, .58);
+                if (result.Interrupted) return result;
                 if (!bestRect.HasValue)
                 {
                     // Isolate the white lettering so colored companions and scenery
@@ -1512,16 +1830,17 @@ public class VisionProcessor
                     Cv2.InRange(hsv, new Scalar(0, 0, 160), new Scalar(180, 75, 255), letters);
                     Cv2.InRange(templateHsv, new Scalar(0, 0, 160), new Scalar(180, 75, 255), templateLetters);
                     Search(letters, templateLetters, .72);
+                    if (result.Interrupted) return result;
                 }
                 if (!bestRect.HasValue)
                 {
                     // Recognize measured lettering at independent UI scales over scenery.
                     // Overlap tiles so targets at their boundaries remain fully visible.
                     int tileWidth = Math.Min(640, cropW), tileHeight = Math.Min(480, cropH);
-                    for (int y = 0; y < cropH; y += Math.Max(1, tileHeight - 128))
-                    for (int x = 0; x < cropW; x += Math.Max(1, tileWidth - 256))
+                    foreach (int top in TileOrigins(cropH, tileHeight, 128))
+                    foreach (int left in TileOrigins(cropW, tileWidth, 256))
                     {
-                        int left = Math.Min(x, cropW - tileWidth), top = Math.Min(y, cropH - tileHeight);
+                        if (Interrupted()) return result;
                         using var tile = new Mat(crop, new Rect(left, top, tileWidth, tileHeight));
                         var match = ObservedGlyphMatcher.Find(tile, template, ObservedGlyphMatcher.Ink.Shake, .94);
                         if (!match.Found || match.Ambiguous || match.Confidence <= bestConfidence) continue;
@@ -1578,6 +1897,9 @@ public class VisionProcessor
 
             return result;
         }
+        catch (GameplayInterruptedException) { throw; }
+        catch (FishingSafetyException) { throw; }
+        catch (OperationCanceledException) { throw; }
         catch
         {
             return result;
@@ -1649,9 +1971,9 @@ public class VisionProcessor
             double scale = fullClientH > 0 ? (fullClientH / 1080.0) : (roiH / 540.0);
             scale = Math.Clamp(scale, 0.35, 3.5);
 
-            int minCapW = Math.Max(6, (int)Math.Round(6 * scale));
+            int minCapW = 5;
             int maxCapW = Math.Max(40, (int)Math.Round(65 * scale));
-            int minCapH = Math.Max(2, (int)Math.Round(2 * scale));
+            int minCapH = 2;
             int maxCapH = Math.Max(20, (int)Math.Round(35 * scale));
 
             Rect? bestCap = null;
@@ -1666,7 +1988,7 @@ public class VisionProcessor
                 Rect r = Cv2.BoundingRect(c);
                 if (r.Width >= minCapW && r.Width <= maxCapW && r.Height >= minCapH && r.Height <= maxCapH && 
                     r.Width >= r.Height * 0.45 && (r.Width * r.Height) >= 20 &&
-                    Cv2.ContourArea(c) >= r.Width * r.Height * 0.30)
+                    (Cv2.ContourArea(c) >= r.Width * r.Height * 0.30 || (r.Width <= 10 && r.Height <= 10 && Cv2.ContourArea(c) >= 6.0)))
                 {
                     // A meter cap has a compact filled shape. Thin scenery arcs (for
                     // example a spawn shield above a white boat edge) are not caps.
@@ -1964,7 +2286,10 @@ public class VisionProcessor
                     Math.Abs(b.Y - seed.Y) <= 2 && Math.Abs(b.Width - seed.Width) <= 2)) matched++;
             // A single square or scenery is insufficient: require most of the
             // centered, equally spaced nine-slot row in this fresh frame.
-            if (matched < 4) continue;
+            // Favorite stars and item art can join a slot's contour, so a real
+            // nine-slot row need not contain four isolated square contours.
+            // Three aligned seeds still need seven independently bordered slots.
+            if (matched < 3) continue;
             int bordered = 0;
             for (int i = 0; i < 9; i++)
             {
@@ -2341,14 +2666,77 @@ public class VisionProcessor
     /// appearing above the minigame track area at the conclusion of a successful catch.
     /// Returns true if a catch banner is confirmed, false if the fish escaped or no catch occurred.
     /// </summary>
-    private static readonly Lazy<Mat> CatchPrefix = new(() => LoadCatchPrefix("catch_prefix.png"));
-    private static readonly Lazy<Mat> LiveCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_live.png"));
-    private static readonly Lazy<Mat> MaximizedCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_maximized.png"));
-    private static readonly Lazy<Mat> WindowedCatchPrefix = new(() => LoadCatchPrefix("catch_prefix_1009.png"));
-    private static Mat LoadCatchPrefix(string name)
+    private static readonly Lazy<Mat> CatchPrefix = new(() => LoadGrayTemplate("catch_prefix.png"));
+    private static readonly Lazy<Mat> LiveCatchPrefix = new(() => LoadGrayTemplate("catch_prefix_live.png"));
+    private static readonly Lazy<Mat> MaximizedCatchPrefix = new(() => LoadGrayTemplate("catch_prefix_maximized.png"));
+    private static readonly Lazy<Mat> WindowedCatchPrefix = new(() => LoadGrayTemplate("catch_prefix_1009.png"));
+    private static readonly Lazy<Mat> SandCatchPrefix = new(() => LoadGrayTemplate("catch_prefix_sand.png"));
+    private static readonly Lazy<Mat> CompanionCatchPrefix = new(() => LoadGrayTemplate("companion_catch_prefix.png"));
+
+    private static bool DetectCompanionCatchNotification(Mat track, double viewportHeight)
+    {
+        // Companion rewards can overlap luring. Their lettering must never
+        // become a control bar or count as a player catch.
+        int bottom = Math.Min(track.Height, (int)(viewportHeight * .11));
+        int halfWidth = Math.Min(track.Width / 2, (int)(viewportHeight * .55));
+        if (bottom <= 0 || halfWidth <= 0) return false;
+        using var roi = new Mat(track, new Rect(track.Width / 2 - halfWidth, 0, halfWidth * 2, bottom));
+        if (!HasNotificationLettering(roi, viewportHeight)) return false;
+        using var gray = new Mat();
+        Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
+        using var scaled = new Mat();
+        using var scores = new Mat();
+        var template = CompanionCatchPrefix.Value;
+        foreach (double scale in new[] { 1.0, viewportHeight / 1369.0 }.Distinct())
+        {
+            Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale)),
+                Math.Max(1, (int)Math.Round(template.Height * scale))));
+            if (scaled.Width > gray.Width || scaled.Height > gray.Height) continue;
+            Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(scores, out _, out double confidence);
+            if (double.IsFinite(confidence) && confidence >= .85) return true;
+        }
+        return false;
+    }
+
+    private static bool HasNotificationLettering(Mat roi, double height)
+    {
+        using var hsv = new Mat();
+        using var mask = new Mat();
+        Cv2.CvtColor(roi, hsv, ColorConversionCodes.BGR2HSV);
+        Cv2.InRange(hsv, new Scalar(0, 0, 160), new Scalar(179, 85, 255), mask);
+        Cv2.FindContours(mask, out Point[][] letters, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        int count = 0;
+        foreach (var letter in letters)
+        {
+            var box = Cv2.BoundingRect(letter);
+            if (box.Height >= height * .006 && box.Height <= height * .04 &&
+                box.Width >= height * .001 && box.Width <= height * .04 && box.Width < box.Height * 3)
+                count++;
+            if (count >= 3) return true;
+        }
+        return false;
+    }
+    private static readonly Lazy<Mat> RuinousHotbarLabel = new(() => LoadGrayTemplate("ruinous_hotbar_label.png"));
+
+    internal static bool ShowsEquippedRuinousOath(Mat frame, RodDetectionResult rod)
+    {
+        if (!rod.IsEquipped || !rod.GeometryConfirmed || rod.SlotBounds.Width < 8 || rod.SlotBounds.Height < 8)
+            return false;
+        var slot = rod.SlotBounds & new Rect(0, 0, frame.Width, frame.Height);
+        if (slot != rod.SlotBounds) return false;
+        // Exclude the bright selection outline so the word is its own component.
+        int inset = Math.Max(2, slot.Width / 24);
+        if (slot.Height <= 2 * inset) return false;
+        using var label = new Mat(frame, new Rect(slot.X + inset, slot.Y + inset,
+            slot.Width - 2 * inset, slot.Height - 2 * inset));
+        return ObservedGlyphMatcher.Find(label, RuinousHotbarLabel.Value, ObservedGlyphMatcher.Ink.White, .93).Found;
+    }
+
+    private static Mat LoadGrayTemplate(string name)
     {
         using var stream = typeof(VisionProcessor).Assembly.GetManifestResourceStream("FischMacroCS.Assets." + name)
-            ?? throw new InvalidOperationException("Missing reviewed catch template");
+            ?? throw new InvalidOperationException($"Missing vision template {name}");
         using var bytes = new System.IO.MemoryStream(); stream.CopyTo(bytes);
         using var color = Cv2.ImDecode(bytes.ToArray(), ImreadModes.Color);
         var gray = new Mat(); Cv2.CvtColor(color, gray, ColorConversionCodes.BGR2GRAY);
@@ -2356,7 +2744,11 @@ public class VisionProcessor
     }
 
     public bool DetectCatchNotification(Mat frame, int viewportHeight = 0)
+        => DetectCatchNotification(frame, viewportHeight, out _);
+
+    private bool DetectCatchNotification(Mat frame, int viewportHeight, out bool hasLettering)
     {
+        hasLettering = false;
         if (frame == null || frame.Empty() || frame.Width < 50 || frame.Height < 40) return false;
         double height = viewportHeight > 0 ? viewportHeight : frame.Height / .17;
         // Companion fish and bait rewards push the player banner to the
@@ -2369,21 +2761,8 @@ public class VisionProcessor
         // A player catch prefix has several small white letter components.
         // Reject an ordinary solid reel bar before running the larger template
         // searches; some live reels legitimately have no visible progress meter.
-        using var textHsv = new Mat();
-        using var textMask = new Mat();
-        Cv2.CvtColor(roi, textHsv, ColorConversionCodes.BGR2HSV);
-        Cv2.InRange(textHsv, new Scalar(0, 0, 160), new Scalar(179, 85, 255), textMask);
-        Cv2.FindContours(textMask, out Point[][] letters, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-        int letterCount = 0;
-        foreach (var letter in letters)
-        {
-            var box = Cv2.BoundingRect(letter);
-            if (box.Height >= height * .006 && box.Height <= height * .04 &&
-                box.Width >= height * .001 && box.Width <= height * .04 && box.Width < box.Height * 3)
-                letterCount++;
-            if (letterCount >= 3) break;
-        }
-        if (letterCount < 3) return false;
+        hasLettering = HasNotificationLettering(roi, height);
+        if (!hasLettering) return false;
         using var gray = new Mat(); Cv2.CvtColor(roi, gray, ColorConversionCodes.BGR2GRAY);
         using var scaled = new Mat();
         // Match the actual player catch phrase; arbitrary bright contours
@@ -2391,24 +2770,70 @@ public class VisionProcessor
         using var scores = new Mat();
         // The notification animates its font size; use reviewed settled and
         // enlarged and maximized variants at their original viewport heights.
-        foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0), (WindowedCatchPrefix.Value, 1009.0) })
+        using var nominatedPattern = new Mat();
+        double nomination = 0;
+        Point nominatedAt = default;
+        void Nominate(Mat pattern,double confidence,Point at)
         {
+            if(!double.IsFinite(confidence) || confidence<.65 || confidence<=nomination)return;
+            nomination=confidence;nominatedAt=at;pattern.CopyTo(nominatedPattern);
+        }
+        bool MatchStrokes()
+        {
+            // Bright water changes the background behind the translucent text.
+            // Correlation nominates a location; independently compare the local
+            // bright letter strokes there, preserving the player phrase identity.
+            if(nomination<.65)return false;
+            using var candidate=new Mat(gray,new Rect(nominatedAt,nominatedPattern.Size()));
+            using var contrast=new Mat();using var strokes=new Mat();using var contrastScores=new Mat();
+            using var contrastKernel=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(5,5));
+            Cv2.MorphologyEx(candidate,contrast,MorphTypes.TopHat,contrastKernel);
+            Cv2.MorphologyEx(nominatedPattern,strokes,MorphTypes.TopHat,contrastKernel);
+            Cv2.MatchTemplate(contrast,strokes,contrastScores,TemplateMatchModes.CCoeffNormed);
+            Cv2.MinMaxLoc(contrastScores,out _,out double confidence);
+            return double.IsFinite(confidence) && confidence>=.86;
+        }
+        foreach (var (template, referenceHeight) in new[] { (LiveCatchPrefix.Value, 1353.0), (CatchPrefix.Value, 1353.0), (MaximizedCatchPrefix.Value, 1369.0), (WindowedCatchPrefix.Value, 1009.0), (SandCatchPrefix.Value, 1369.0) })
+        {
+            bool strokeTemplate=ReferenceEquals(template,MaximizedCatchPrefix.Value);
             // Roblox quantizes glyph sizes: changing viewport height by 16 pixels
             // can leave the text unchanged. Resampling that exact glyph destroys
             // correlation, so also compare the reviewed native-size template.
-            if (template.Width <= gray.Width && template.Height <= gray.Height)
+            bool nativeCompared=template.Width <= gray.Width && template.Height <= gray.Height;
+            if (nativeCompared)
             {
                 Cv2.MatchTemplate(gray, template, scores, TemplateMatchModes.CCoeffNormed);
-                Cv2.MinMaxLoc(scores, out _, out double nativeMatch);
+                Cv2.MinMaxLoc(scores, out _, out double nativeMatch,out _,out var nativeAt);
                 if (double.IsFinite(nativeMatch) && nativeMatch >= .78) return true;
+                if(strokeTemplate)Nominate(template,nativeMatch,nativeAt);
             }
             double scale = height / referenceHeight;
             Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale)),
                 Math.Max(1, (int)Math.Round(template.Height * scale))));
             if (scaled.Width > gray.Width || scaled.Height > gray.Height) continue;
-            Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
-            Cv2.MinMaxLoc(scores, out _, out double match);
-            if (double.IsFinite(match) && match >= .78) return true;
+            // Resizing to the native dimensions is an exact copy; the same
+            // pixels and confidence were already checked immediately above.
+            if(!nativeCompared || scaled.Size()!=template.Size())
+            {
+                Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(scores, out _, out double match,out _,out var at);
+                if (double.IsFinite(match) && match >= .78) return true;
+                if(strokeTemplate)Nominate(scaled,match,at);
+            }
+            // The banner animation settles between the reviewed pixel sizes.
+            // A 1% width change spans several glyph pixels across this phrase;
+            // match nearby sizes with a stricter identity threshold.
+            foreach (double adjustment in new[] { .99, 1.01, .98, 1.02 })
+            {
+                Cv2.Resize(template, scaled, new Size(Math.Max(1, (int)Math.Round(template.Width * scale * adjustment)),
+                    Math.Max(1, (int)Math.Round(template.Height * scale * adjustment))));
+                if (scaled.Width > gray.Width || scaled.Height > gray.Height) continue;
+                Cv2.MatchTemplate(gray, scaled, scores, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(scores, out _, out double adjustedMatch,out _,out var adjustedAt);
+                if (double.IsFinite(adjustedMatch) && adjustedMatch >= .85) return true;
+                if(strokeTemplate)Nominate(scaled,adjustedMatch,adjustedAt);
+            }
+            if(strokeTemplate && MatchStrokes())return true;
         }
         return false;
     }

@@ -450,6 +450,7 @@
 
                                         <Button x:Name="BtnOpenCrates" Click="BtnOpenCrates_Click" Content="Open crates" Margin="0,0,0,0" ToolTip="Requires NOT Fishing: Unequips rod, opens inventory ('g'), searches 'crate', unpacks all crates, and re-equips rod">
                                         </Button>
+                                        <Button x:Name="BtnAppraise" Click="BtnAppraise_Click" Content="Appraise…" Margin="4,0,0,0" ToolTip="Appraise the equipped item until it has your chosen mutation"/>
                                     </WrapPanel>
                                 </DockPanel>
                             </Border>
@@ -829,6 +830,8 @@
                                         <ComboBoxItem Tag="{x:Static core:MinigameTheme.Glorp}" Content="Blade of Glorp"/>
                                         <ComboBoxItem Tag="{x:Static core:MinigameTheme.Ruinous}" Content="Ruinous (Red)"/>
                                         <ComboBoxItem Tag="{x:Static core:MinigameTheme.Doomsekkar}" Content="Doomsekkar (Spooky)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Duskwire}" Content="Duskwire (Black / white)"/>
+                                        <ComboBoxItem Tag="{x:Static core:MinigameTheme.Hammyshork}" Content="Hammyshork"/>
                                         <ComboBoxItem Tag="{x:Static core:MinigameTheme.RandomRod}" Content="Random Rod (Black / white)"/>
                                     </ComboBox>
                                 </StackPanel>

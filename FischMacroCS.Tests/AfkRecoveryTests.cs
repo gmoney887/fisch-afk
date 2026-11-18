@@ -68,7 +68,7 @@ public class AfkRecoveryTests
     [Fact]
     public void ReconnectPolicyThrottlesAttemptsAndStillRequiresGameplay()
     {
-        // Policy contract only: production has no validated Reconnect visual detector yet.
+        // Policy contract; recorded dialogs and real worker inputs are covered separately.
         var clock = new Clock(); var recovery = new AfkRecovery(clock); int clicks = 0;
         bool Poll(RecoveryView view) => recovery.Poll(() => true, () => { }, () => view, () => clicks++, CancellationToken.None);
         Assert.False(Poll(RecoveryView.Unknown)); Assert.Equal(0, clicks);

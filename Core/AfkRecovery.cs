@@ -41,7 +41,7 @@ public sealed class AfkRecovery(IClock clock)
         Status = view switch
         {
             RecoveryView.Loading => "Gameplay unavailable: waiting for recognizable controls",
-            RecoveryView.Reconnect => "Disconnected: retrying Reconnect",
+            RecoveryView.Reconnect => "Disconnected: retrying Reconnect/Retry",
             RecoveryView.Continue => "Continuing from Fisch loading screen",
             RecoveryView.Death => "Character died: waiting for gameplay; return to a fishing spot after respawning",
             _ => "Waiting for recognizable gameplay or reconnect controls"

@@ -11,6 +11,8 @@ public sealed class ReelActuationPlan
     private double _bar, _velocity, _fish, _fishVelocity, _fishAcceleration, _pull, _fall, _at, _until;
     private double _minimumBar, _maximumBar, _minimumFish, _maximumFish;
     private double _decisionAt;
+    private bool? _edgeInput;
+    private double _edgeUntil;
     private double _centerNoise;
     private double _disturbance;
     public bool Active => _ready;
@@ -27,6 +29,8 @@ public sealed class ReelActuationPlan
         _fishAcceleration = fishAcceleration;
         _disturbance = disturbanceAcceleration;
         _decisionAt = nowMs;
+        _edgeInput = null;
+        _edgeUntil = nowMs + 32; // At most two 16 ms pulses, superseded by each observation.
         _centerNoise = Math.Clamp(barHalfWidth * .006, .5, 2);
         // Include the independently current positions even if an imperfect
         // measured rail is slightly short. Clamp only subsequent predictions.
@@ -41,26 +45,32 @@ public sealed class ReelActuationPlan
         _down = held;
     }
 
+    public void KeepEdgeInput(bool held) => _edgeInput = held;
+
     public bool TryDuty(double nowMs, out double duty)
     {
         duty = 0;
         if (!_ready || !double.IsFinite(nowMs) || nowMs < _at || nowMs > _until) { Reset(); return false; }
         double period = Math.Clamp((nowMs - _decisionAt) / 1000, .016, .05); _decisionAt = nowMs;
         Advance(nowMs);
+        if (_edgeInput is bool held && nowMs <= _edgeUntil)
+        {
+            duty = held ? 1 : 0;
+            return true;
+        }
         double error = _fish - _bar, relativeVelocity = _velocity - _fishVelocity;
         double brake = error >= 0 ? Math.Max(_fall * .5, _fall + _fishAcceleration - _disturbance)
             : Math.Max(_pull * .5, _pull - _fishAcceleration + _disturbance);
-        double remaining = Math.Max(0, Math.Abs(error) - Math.Abs(relativeVelocity) * period - _centerNoise);
+        double remaining = Math.Abs(error);
         // Linear PD alone can demand more velocity than bounded release/pull
         // can stop. Keep its desired relative velocity inside the CURRENT
-        // stopping-distance envelope, including the next actuator interval.
-        const double positionGain = 10, velocityGain = 4 * positionGain;
-        double relativeTarget = Math.Sign(error) * Math.Min(positionGain * Math.Abs(error), Math.Sqrt(2 * brake * remaining));
-        double desiredVelocity = Math.Clamp(_fishVelocity + relativeTarget, -850, 850);
-        // Critical damping: Kv=4*Kp, natural frequency2*Kp. Current input/force
-        // and stopping limits bound every command; observation history fixes
-        // must not change the shared response, fractional hover or evidence
-        // lease to conceal an inaccurate target trajectory.
+        // stopping-distance envelope, smoothly tapering to exact 0.0px lock.
+        const double positionGain = 1, velocityGain = 4;
+        double maxSpeed = Math.Sqrt(2.0 * brake * remaining);
+        double relativeTarget = Math.Sign(error) * Math.Min(positionGain * remaining, maxSpeed);
+        double desiredVelocity = Math.Clamp(_fishVelocity + relativeTarget, -1400, 1400);
+        // Damped tracking with margin for delayed input response. Current
+        // input/force and stopping limits bound every command.
         duty = Math.Clamp((_fall + _fishAcceleration - _disturbance + velocityGain * (desiredVelocity - _velocity)) / (_pull + _fall), 0, 1);
         return true;
     }

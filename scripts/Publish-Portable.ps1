@@ -26,6 +26,18 @@ foreach ($target in @($stage, $current, $rollback)) {
     }
 }
 
+# A successful compile does not validate fishing behavior. Keep the current
+# executable in place unless the full worker/vision regression suite passes.
+$validation = Join-Path $projectRoot "artifacts/portable-validation-$stamp"
+& $dotnetExe build (Join-Path $projectRoot 'FischMacroCS.slnx') -c Release `
+    --no-incremental -p:UseSharedCompilation=false
+if ($LASTEXITCODE -ne 0) { throw 'Validation build failed. The previous portable build is untouched.' }
+& $dotnetExe test (Join-Path $projectRoot 'FischMacroCS.slnx') -c Release --no-build --no-restore `
+    --settings (Join-Path $PSScriptRoot 'native-serial.runsettings') `
+    -p:UseSharedCompilation=false --results-directory $validation `
+    --logger 'trx;LogFileName=portable-validation.trx'
+if ($LASTEXITCODE -ne 0) { throw 'Regression tests failed. The previous portable build is untouched.' }
+
 $publishArgs = @('publish', (Join-Path $projectRoot 'FischMacroCS.csproj'), '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '-p:PublishSingleFile=true', '-p:IncludeNativeLibrariesForSelfExtract=true', '-o', $stage)
 if (-not [string]::IsNullOrWhiteSpace($Version)) {
     $publishArgs += @("-p:Version=$Version", "-p:InformationalVersion=$Version")
@@ -44,8 +56,12 @@ if (Test-Path -LiteralPath $current) {
         } else {
             Join-Path $projectRoot "publish-singlefile-latest"
         }
+        $versionFolder = [IO.Path]::GetFullPath($versionFolder)
+        if (-not $versionFolder.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw 'Fallback publish target escaped the project directory.'
+        }
         if (Test-Path -LiteralPath $versionFolder) {
-            Remove-Item -LiteralPath $versionFolder -Recurse -Force -ErrorAction SilentlyContinue
+            $versionFolder = "$versionFolder-$stamp"
         }
         Move-Item -LiteralPath $stage -Destination $versionFolder
         Write-Output "Portable build: $versionFolder"

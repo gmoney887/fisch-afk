@@ -11,8 +11,14 @@ public partial class FishingEngineReplayTests
     [Theory]
     [InlineData("oath_red_45.png")]
     [InlineData("nate_24.png")]
+    [InlineData("nov04-reel/blade_57.png")]
+    [InlineData("nov04-reel/oath_236.png")]
     [InlineData("random-rod/frame_00000045.png")]
-    public async Task GeometryWorkerEntersReelingAndPullsTowardFish(string fixture)
+    [InlineData("hammyshork-nov09/frame_00000215.png")]
+    [InlineData("hammyshork-bite/frame_00000076.png", false)]
+    [InlineData("hammyshork-empyrean/frame_00000504.png", false)]
+    [InlineData("hammyshork-empyrean/frame_00000508.png")]
+    public async Task GeometryWorkerEntersReelingAndPullsTowardFish(string fixture, bool fishToRight = true)
     {
         var clock = new Clock(); var input = new Input(clock);
         using var source = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", fixture));
@@ -40,8 +46,8 @@ public partial class FishingEngineReplayTests
         try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(20)); }
         finally { engine.Stop(); }
         Assert.NotNull(action);
-        Assert.Contains("RIGHT", action);
-        Assert.True(held);
+        Assert.Contains(fishToRight ? "RIGHT" : "LEFT", action);
+        Assert.Equal(fishToRight, held);
         Assert.False(input.Held);
     }
 
@@ -166,27 +172,35 @@ public partial class FishingEngineReplayTests
         FishingEngine? engine = null;
         bool resumed = false;
         long? firstCatchAt = null;
+        using var cachedFrame = new Mat();
+        (bool Changed, Mat? Strip)? cachedScene = null;
         Mat Render()
         {
-            var frame = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.All(20));
-            var area = new Rect(0, (int)(Desktop.Height * .44), Desktop.Width, (int)(Desktop.Height * .29));
             if (engine!.TotalCatches > 0) firstCatchAt ??= clock.Timestamp;
             bool changed = changeAfterCatch ? firstCatchAt.HasValue : clock.Timestamp >= 5000;
+            bool nextReel = changeAfterCatch && firstCatchAt.HasValue &&
+                clock.Timestamp - firstCatchAt.Value >= 6000 && clock.Timestamp - firstCatchAt.Value < 10000;
+            Mat? strip = clock.Timestamp < 10000 || nextReel ? reel :
+                engine.CurrentState == MacroState.PostCatch ? caught : null;
+            if (cachedScene == (changed, strip))
+                return cachedFrame.RowRange(0, cachedFrame.Rows);
+
+            using var frame = new Mat(Desktop.Height, Desktop.Width, MatType.CV_8UC3, Scalar.All(20));
+            var area = new Rect(0, (int)(Desktop.Height * .44), Desktop.Width, (int)(Desktop.Height * .29));
             using var source = new Mat(changed ? other : texture, area);
             using var destination = new Mat(frame, area);
             Cv2.CvtColor(source, destination, ColorConversionCodes.GRAY2BGR);
-            bool nextReel = changeAfterCatch && firstCatchAt.HasValue &&
-                clock.Timestamp - firstCatchAt.Value >= 6000 && clock.Timestamp - firstCatchAt.Value < 10000;
-            if (clock.Timestamp < 10000 || nextReel || engine.CurrentState == MacroState.PostCatch)
+            if (strip is not null)
             {
-                var strip = clock.Timestamp < 10000 || nextReel ? reel : caught;
                 using var target = new Mat(frame, new Rect((frame.Width - strip.Width) / 2, 1015, strip.Width, strip.Height));
                 strip.CopyTo(target);
             }
             int left = Desktop.Width / 2 - (69 * 8 + 68) / 2;
             for (int i = 0; i < 9; i++)
                 Cv2.Rectangle(frame, new Rect(left + i * 69, Desktop.Height - 70, 68, 68), i == 0 ? Scalar.White : Scalar.All(60), 1);
-            return frame;
+            frame.AssignTo(cachedFrame);
+            cachedScene = (changed, strip);
+            return cachedFrame.RowRange(0, cachedFrame.Rows);
         }
         using var frames = new Frames(Render, clock);
         using var running = engine = new FishingEngine(new Settings { EnableRecording = false,
@@ -331,12 +345,13 @@ public partial class FishingEngineReplayTests
     {
         public long Timestamp { get; private set; } = 1;
         public Action? Tick;
+        public Action<long>? OnElapsed;
         public int CaptureMs = 5;
         public int RecoveryPollMs = 200;
         public bool WaitForCancellation;
         public TaskCompletionSource Waiting = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public void CaptureElapsed() => Timestamp += CaptureMs;
-        public double ElapsedMilliseconds(long since) => Timestamp - since;
+        public double ElapsedMilliseconds(long since) { OnElapsed?.Invoke(since); return Timestamp - since; }
         public void Delay(int milliseconds, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
@@ -745,7 +760,7 @@ public partial class FishingEngineReplayTests
             clock.CaptureMs = scenario == "slow-reel" && state == MacroState.Reeling && !recoveredStall ? 120 : 5;
             if (retryScenario) clock.CaptureMs = 30;
             if ((shakeScenario || scenario == "missed-meter-delayed-bite") && state == MacroState.Luring) clock.CaptureMs = 20;
-            if (!stopQueued && run == 1 && state == queueState && scenario != "queued-postcatch-late" && (queuedCycle || scenario is "queued-force" or "queued-timeout"))
+            if (!stopQueued && run == 1 && state == queueState && scenario is not ("queued-postcatch-late" or "queued-cast") && (queuedCycle || scenario is "queued-force" or "queued-timeout"))
             {
                 stopQueued = engine.TryQueueStopAfterCycle();
                 if (scenario == "queued-force" && !engine.TryQueueStopAfterCycle()) StopAtBoundary();
@@ -913,6 +928,10 @@ public partial class FishingEngineReplayTests
                 t.Dispose();
             };
             input.AfterDown = (x,y) => {
+                // Queue this case during an actual held cast, after its press.
+                // Requests before the press now stop without starting a cycle.
+                if (scenario == "queued-cast" && run == 1 && !stopQueued && engine.CurrentState == MacroState.Casting)
+                    stopQueued = engine.TryQueueStopAfterCycle();
                 if (scenario == "cyan-reel" && engine.CurrentState == MacroState.Reeling) cyanReelPresses++;
                 if (engine.CurrentState == MacroState.Casting && !sawReel) castPresses++;
                 if (reconnectScenario && clock.Timestamp < unavailableUntil)
@@ -1023,7 +1042,11 @@ public partial class FishingEngineReplayTests
             var firstWorker = engine.Completion;
             engine.Start();
             Assert.Same(firstWorker, engine.Completion); // Repeated Start cannot schedule a competing worker.
-            try { await engine.Completion.WaitAsync(TimeSpan.FromSeconds(30)); }
+            // The stuck-panel case intentionally advances two minutes of virtual
+            // time. This wall-clock limit is only a host hang guard; the virtual
+            // deadline and all input/outcome assertions below remain unchanged.
+            var hostWait = TimeSpan.FromSeconds(scenario == "aquarium-stuck" ? 90 : 30);
+            try { await engine.Completion.WaitAsync(hostWait); }
             finally { engine.Stop(); }
             // Assert outside callbacks: worker recovery intentionally catches callback exceptions.
             Assert.Empty(inputViolations);

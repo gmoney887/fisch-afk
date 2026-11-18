@@ -5,7 +5,7 @@ namespace FischMacroCS.Vision;
 /// <summary>Recognize reviewed glyph identity at a size measured from the current frame.</summary>
 public static class ObservedGlyphMatcher
 {
-    public enum Ink { Blue, Red, Balance, Claim, White, Shake }
+    public enum Ink { Blue, Red, Balance, Claim, White, Shake, BlueContrast }
     public readonly record struct Match(bool Found, Rect Bounds, double Confidence, bool Ambiguous = false);
 
     public static Mat Mask(Mat image, Ink ink)
@@ -26,6 +26,20 @@ public static class ObservedGlyphMatcher
                 Cv2.InRange(hsv,new Scalar(0,0,180),new Scalar(179,65,255),mask); break;
             case Ink.Blue:
                 Cv2.InRange(hsv, new Scalar(85, 45, 95), new Scalar(125, 255, 255), mask); break;
+            case Ink.BlueContrast:
+                Cv2.InRange(hsv, new Scalar(85, 25, 0), new Scalar(125, 255, 255), mask);
+                // Measure strokes against their local background. An absolute
+                // brightness threshold loses dim descenders at night and admits
+                // the surrounding blue sky, joining the word to the viewport.
+                using (var value = new Mat())
+                using (var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5)))
+                {
+                    Cv2.ExtractChannel(hsv, value, 2);
+                    Cv2.MorphologyEx(value, value, MorphTypes.TopHat, kernel);
+                    Cv2.Threshold(value, value, 20, 255, ThresholdTypes.Binary);
+                    Cv2.BitwiseAnd(mask, value, mask);
+                }
+                break;
             case Ink.Red:
                 using (var second = new Mat())
                 {
@@ -50,14 +64,40 @@ public static class ObservedGlyphMatcher
 
     public static Match Find(Mat region, Mat reference, Ink ink, double minimumConfidence)
     {
+        var primary = FindInk(region, reference, ink, minimumConfidence);
+        if (ink != Ink.Blue || primary.Found || primary.Ambiguous) return primary;
+        var contrasted = FindInk(region, reference, Ink.BlueContrast, minimumConfidence);
+        return contrasted.Ambiguous || contrasted.Confidence > primary.Confidence ? contrasted : primary;
+    }
+
+    private static Match FindInk(Mat region, Mat reference, Ink ink, double minimumConfidence)
+    {
         using var scene = Mask(region, ink);
         using var template = Mask(reference, ink);
         if (Cv2.CountNonZero(template) < 5) return default;
+        if (ink == Ink.BlueContrast)
+        {
+            // Remove connected blue scenery before joining letters into words.
+            // Otherwise horizontal closing joins the navigation glyph to the
+            // surrounding sky through the narrow dark button margins.
+            void ClearEdge(int x, int y)
+            {
+                if (scene.At<byte>(y, x) != 0) Cv2.FloodFill(scene, new Point(x, y), Scalar.Black);
+            }
+            int width = scene.Width, height = scene.Height;
+            for (int x = 0; x < width; x++) { ClearEdge(x, 0); ClearEdge(x, height - 1); }
+            for (int y = 0; y < height; y++) { ClearEdge(0, y); ClearEdge(width - 1, y); }
+        }
         var referenceBounds = Cv2.BoundingRect(template);
         using var referenceInk = new Mat(template, referenceBounds);
-        Cv2.FindContours(scene, out Point[][] contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+        // Claim lettering can sit inside a same-color outline. Blue navigation
+        // lettering can similarly be enclosed by blue night scenery outside its
+        // dark button. Preserve islands inside those enclosing components.
+        var retrieval = ink is Ink.Claim or Ink.BlueContrast ? RetrievalModes.CComp : RetrievalModes.External;
+        Cv2.FindContours(scene, out Point[][] contours, out var hierarchy, retrieval, ContourApproximationModes.ApproxSimple);
         // Component heights supply observed scale. No list of screen resolutions or DPI assumptions.
-        var heights = contours.Select(Cv2.BoundingRect).Where(r => r.Height >= 3 && r.Height <= region.Height / 2)
+        var heights = contours.Where((_, index) => hierarchy[index].Parent < 0)
+            .Select(Cv2.BoundingRect).Where(r => r.Height >= 3 && r.Height <= region.Height / 2)
             .Select(r => r.Height).Distinct().Order().Take(32).ToArray();
         var candidates = new HashSet<Rect>();
         foreach (int height in heights)
@@ -65,8 +105,8 @@ public static class ObservedGlyphMatcher
             using var joined = new Mat();
             using var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(Math.Max(1, height), 1));
             Cv2.MorphologyEx(scene, joined, MorphTypes.Close, kernel);
-            Cv2.FindContours(joined, out Point[][] words, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
-            foreach (var word in words)
+            Cv2.FindContours(joined, out Point[][] words, out var wordHierarchy, retrieval, ContourApproximationModes.ApproxSimple);
+            foreach (var word in words.Where((_, index) => wordHierarchy[index].Parent < 0))
             {
                 var rect = Cv2.BoundingRect(word);
                 if (rect.Left == 0 || rect.Top == 0 || rect.Right >= scene.Width || rect.Bottom >= scene.Height) continue;

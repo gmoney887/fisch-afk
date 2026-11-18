@@ -1,11 +1,41 @@
 using System.IO;
 using FischMacroCS.Vision;
+using FischMacroCS.Core;
 using OpenCvSharp;
 
 namespace FischMacroCS.Tests;
 
 public class ShakeDetectionTests
 {
+    [Theory]
+    [InlineData(1080, 480, 128, new int[] { 0, 352, 600 })]
+    [InlineData(832, 480, 128, new int[] { 0, 352 })]
+    [InlineData(120, 120, 128, new int[] { 0 })]
+    public void ShakeFallbackVisitsEachTileOriginOnce(int extent, int tile, int overlap, int[] expected)
+    {
+        Assert.Equal(expected, VisionProcessor.TileOrigins(extent, tile, overlap));
+    }
+
+    [Theory]
+    [InlineData(18)]
+    [InlineData(26)]
+    public void CompanionCatchCaptionCannotHideShakeBehindAFalseReel(int number)
+    {
+        using var frame = Cv2.ImRead(Path.Combine(AppContext.BaseDirectory, "Fixtures", $"shake_companion_{number}.png"));
+        Assert.False(frame.Empty());
+        var vision = new VisionProcessor();
+        using var track = new Mat(frame, new Rect(968, 1013, 1504, 273));
+        using var result = vision.ProcessTrack(track, 968, 1013, 1369.0 / 1080, MinigameTheme.AutoCalibrate, false);
+        Assert.False(result.HasLiveReel);
+        Assert.False(vision.DetectCatchNotification(track, 1369));
+        using var context = vision.ProcessReelContext(frame, MinigameTheme.AutoCalibrate);
+        Assert.False(context.HasLiveReel);
+        var shake = vision.DetectShakeIcon(frame, 0, 0, 1369.0 / 1080, false);
+        Assert.True(shake.Found);
+        Assert.InRange(shake.Center.X, 2590, 2640);
+        Assert.InRange(shake.Center.Y, 450, 500);
+    }
+
     [Theory]
     [InlineData(.5)]
     [InlineData(1.5)]

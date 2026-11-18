@@ -28,7 +28,7 @@ public static class CatchFailureDetector
         using var region = new Mat(track, new Rect(0, 0, track.Width,
             Math.Min(track.Height, Math.Max(1, (int)(viewportHeight * .11)))));
         using var mask = Gold(region);
-        Point? Match(Mat source)
+        Point? Match(Mat source,double threshold)
         {
             using var resized = new Mat();
             Cv2.Resize(source, resized, new Size(Math.Max(1, (int)Math.Round(source.Width * viewportHeight / 1369.0)),
@@ -38,12 +38,14 @@ public static class CatchFailureDetector
             using var scores = new Mat();
             Cv2.MatchTemplate(mask, template, scores, TemplateMatchModes.CCoeffNormed);
             Cv2.MinMaxLoc(scores, out _, out double confidence, out _, out var location);
-            return double.IsFinite(confidence) && confidence >= .85 ? location : null;
+            return double.IsFinite(confidence) && confidence >= threshold ? location : null;
         }
-        var prefix = Match(Prefix.Value); var suffix = Match(Suffix.Value);
+        // Antialiasing over bright water weakens the prefix slightly. Still
+        // require the separate suffix and their measured phrase spacing.
+        if (Match(Prefix.Value, .82) is not Point prefix) return false;
+        if (Match(Suffix.Value, .85) is not Point suffix) return false;
         double scale = viewportHeight / 1369.0;
-        return prefix.HasValue && suffix.HasValue &&
-            Math.Abs(prefix.Value.Y - suffix.Value.Y) <= Math.Max(2, 4 * scale) &&
-            suffix.Value.X - prefix.Value.X >= 330 * scale && suffix.Value.X - prefix.Value.X <= 700 * scale;
+        return Math.Abs(prefix.Y - suffix.Y) <= Math.Max(2, 4 * scale) &&
+            suffix.X - prefix.X >= 330 * scale && suffix.X - prefix.X <= 700 * scale;
     }
 }

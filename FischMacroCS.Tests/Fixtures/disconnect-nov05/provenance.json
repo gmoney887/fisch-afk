@@ -1,0 +1,26 @@
+{
+  "Session": "session_20261105_185004_659_11027b9b414142a7a5fe1f3da301fc32",
+  "Build": "1.0.30-nov05overnight+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "Width": 3440,
+  "Height": 1369,
+  "Frames": [
+    {
+      "FrameId": 24840,
+      "File": "error279-initial.png",
+      "SHA256": "DB4C0675D122E67729D57A3CBA94F328F22815AA8C0BD732E920EDCE8CE8615D",
+      "Source": "artifacts/overnight-fixes/live-20261105-134926/frame_00024840.png"
+    },
+    {
+      "FrameId": 99040,
+      "File": "error279-heldout.png",
+      "SHA256": "DB4C0675D122E67729D57A3CBA94F328F22815AA8C0BD732E920EDCE8CE8615D",
+      "Source": "artifacts/overnight-fixes/live-20261105-170918/frame_00099040.png"
+    },
+    {
+      "FrameId": 135450,
+      "File": "roblox-home.png",
+      "SHA256": "AC81E864F59930AB667D1913D4138C0DA763B24A60FC6A775108EFF100B3EC6E",
+      "Source": "artifacts/overnight-fixes/live-20261105-185028/frame_00135450.png"
+    }
+  ]
+}

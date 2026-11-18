@@ -269,4 +269,131 @@ public class RecordingReplayTests : IDisposable
         Assert.Equal(package.ZipPath, retry.ZipPath);
         Assert.Equal(original, File.ReadAllBytes(retry.ZipPath));
     }
+
+    [Fact]
+    public void RetentionPolicyExcludesIncidentArchiveAndKeepsRecentIncompleteEvidence()
+    {
+        string completed = Path.Combine(_root, "session_20261101_010000_000_completed");
+        Directory.CreateDirectory(completed);
+        File.WriteAllText(Path.Combine(completed, "summary.txt"), "Completed session");
+
+        string staleOrphan = Path.Combine(_root, "session_20261027_015346_564_orphan");
+        Directory.CreateDirectory(staleOrphan);
+        File.WriteAllText(Path.Combine(staleOrphan, "events.jsonl"), "{}");
+        Directory.SetLastWriteTimeUtc(staleOrphan, DateTime.UtcNow.AddHours(-2));
+
+        string archiveClip = Path.Combine(_root, "incident-archive", "incident_20261101_clip");
+        Directory.CreateDirectory(archiveClip);
+        using (var fs = new FileStream(Path.Combine(archiveClip, "payload.bin"), FileMode.Create, FileAccess.Write))
+        {
+            fs.SetLength(450L * 1024 * 1024);
+        }
+
+        using var recorder = new FlightRecorder(_root, maxRecordings: 25);
+        recorder.EnforceRetentionPolicy(reserveBytes: 600L * 1024 * 1024);
+
+        Assert.True(Directory.Exists(completed));
+        Assert.True(Directory.Exists(staleOrphan));
+        Assert.True(Directory.Exists(archiveClip));
+    }
+
+    [Fact]
+    public void RestartPreservesCrashEvidenceWithoutACompletionSummary()
+    {
+        string crashed = Path.Combine(_root, "session_crashed");
+        Directory.CreateDirectory(crashed);
+        string events = Path.Combine(crashed, "events.jsonl");
+        File.WriteAllText(events, "{\"Kind\":\"last-observation-before-crash\"}");
+        Directory.SetCreationTimeUtc(crashed, DateTime.UtcNow.AddHours(-2));
+        Directory.SetLastWriteTimeUtc(crashed, DateTime.UtcNow.AddHours(-2));
+        using (var recorder = new FlightRecorder(_root))
+        {
+            recorder.StartSession(100, 80);
+            Assert.True(recorder.IsRecording, recorder.LastError);
+        }
+        Assert.True(File.Exists(events), "Restart must retain the unfinished session for diagnosis.");
+        Assert.Contains("last-observation-before-crash", File.ReadAllText(events));
+        Assert.False(File.Exists(Path.Combine(crashed, "summary.txt")));
+    }
+
+    [Theory]
+    [InlineData("age")]
+    [InlineData("count")]
+    [InlineData("bytes")]
+    public void IncompleteSessionsStillObeyRetentionLimits(string limit)
+    {
+        string old = Path.Combine(_root, "session_old_incomplete");
+        Directory.CreateDirectory(old);
+        File.WriteAllText(Path.Combine(old, "events.jsonl"), "old evidence");
+        Directory.SetCreationTimeUtc(old, DateTime.UtcNow.AddDays(limit == "age" ? -8 : -1));
+        Directory.SetLastWriteTimeUtc(old, DateTime.UtcNow.AddHours(-2));
+        string recent = Path.Combine(_root, "session_recent_incomplete");
+        Directory.CreateDirectory(recent);
+        File.WriteAllText(Path.Combine(recent, "events.jsonl"), "new evidence");
+        // Force the byte limit with a reservation rather than a large disk allocation.
+        using var recorder = new FlightRecorder(_root, maxRecordings: limit == "count" ? 1 : 25);
+        recorder.EnforceRetentionPolicy(limit == "bytes" ? 1024L * 1024 * 1024 - 12 : 0);
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(recent));
+    }
+
+    [Fact]
+    public void MarkedIncompleteEvidenceDoesNotExpireByAgeAlone()
+    {
+        string marked = Path.Combine(_root, "session_marked_incomplete");
+        Directory.CreateDirectory(marked);
+        File.WriteAllText(Path.Combine(marked, "events.jsonl"), "preserved evidence");
+        File.WriteAllText(Path.Combine(marked, "preserve.marker"), "review pending");
+        Directory.SetCreationTimeUtc(marked, DateTime.UtcNow.AddDays(-8));
+        Directory.SetLastWriteTimeUtc(marked, DateTime.UtcNow.AddDays(-8));
+        using var recorder = new FlightRecorder(_root);
+        recorder.EnforceRetentionPolicy();
+        Assert.True(File.Exists(Path.Combine(marked, "events.jsonl")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void RetentionCannotDeleteAnActiveOrDrainingWriter(bool draining)
+    {
+        using var evidence = new BlockedEvidence();
+        using var recorder = new FlightRecorder(_root);
+        recorder.StartSession(100, 80);
+        recorder.RecordEvent("blocked-writer", evidence);
+        try
+        {
+            Assert.True(evidence.Entered.Wait(TimeSpan.FromSeconds(5)));
+            string active = recorder.CurrentSessionDirectory!;
+            if (draining) recorder.StopSession();
+            Directory.SetCreationTimeUtc(active, DateTime.UtcNow.AddDays(-8));
+            Directory.SetLastWriteTimeUtc(active, DateTime.UtcNow.AddDays(-8));
+            recorder.EnforceRetentionPolicy(reserveBytes: 1024L * 1024 * 1024);
+            Assert.True(File.Exists(Path.Combine(active, "manifest.json")));
+        }
+        finally { evidence.Release.Set(); }
+    }
+
+    [Fact]
+    public void AnotherRecorderCannotDeleteAnActiveWritersManifest()
+    {
+        using var evidence = new BlockedEvidence();
+        using var owner = new FlightRecorder(_root);
+        owner.StartSession(100, 80);
+        owner.RecordEvent("blocked-writer", evidence);
+        try
+        {
+            Assert.True(evidence.Entered.Wait(TimeSpan.FromSeconds(5)));
+            string active = owner.CurrentSessionDirectory!;
+            Directory.SetCreationTimeUtc(active, DateTime.UtcNow.AddDays(-8));
+            string closed = Path.Combine(_root, "session_closed");
+            Directory.CreateDirectory(closed);
+            File.WriteAllText(Path.Combine(closed, "summary.txt"), "completed");
+            using var other = new FlightRecorder(_root, maxRecordings: 1);
+            other.EnforceRetentionPolicy();
+            Assert.True(File.Exists(Path.Combine(active, "manifest.json")));
+            Assert.Null(other.LastError);
+            Assert.False(Directory.Exists(closed));
+        }
+        finally { evidence.Release.Set(); }
+    }
 }

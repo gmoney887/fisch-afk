@@ -19,12 +19,21 @@ public partial class FishingEngineReplayTests
 
     [Theory]
     [MemberData(nameof(BaselineProfilesAndCadences))]
-    public async Task BaselineProfilesCenterUsingGuardedInputFeedback(string profile,int cadence,int width)
+    [InlineData("Standard", 20, 528)]
+    [InlineData("Standard", 20, 528, 3.0)]
+    [InlineData("Standard", 20, 528, 2.5, 60)]
+    [InlineData("Standard", 10, 528, 2.5, 60)]
+    [InlineData("Standard", 30, 528, 2.5, 60)]
+    [InlineData("Standard", 40, 528, 2.5, 60)]
+    public async Task BaselineProfilesCenterUsingGuardedInputFeedback(string profile,int cadence,int width,double forceScale = 1,int responseDelayMs = 0)
     {
         // Independent constant-acceleration plant. Actual guarded input edges
         // move the generated body. Synthetic capture times; native image cost
         // is measured separately. The plant starts at live entry; this trial
         // measures centering after entry, not acquisition. No Perfect acceptance.
+        // The Nov 4 stationary-fish log suggests roughly 60ms response delay
+        // and forces above the baseline. These are synthetic robustness cases,
+        // scored continuously between actual delayed input edges.
         const int target=1127, railWidth=1374;
         (double pull,double fall)=profile switch {
             "Seraphic"=>(650,410),"Destiny / Mythic"=>(720,440),"Rod of the Depths"=>(620,390),
@@ -36,9 +45,10 @@ public partial class FishingEngineReplayTests
         var errors=new List<double>();var trace=new List<string>();var invalid=new List<string>();int observations=0,readback=0;
         FishingEngine? running=null;bool primary=false;
         double captured=position;
-        void Advance(){
-            double now=clock.Timestamp, dt=(now-last)/1000;
-            double acceleration=(held?pull:-fall)*railWidth/1188.0;
+        var pending = new Queue<(double At, bool Held)>();
+        void Integrate(double now){
+            double dt=(now-last)/1000;
+            double acceleration=(held?pull:-fall)*railWidth/1188.0*forceScale;
             if(active){
                 for(double at=Math.Floor(last)+1;at<=now;at++)
                     if(started.HasValue&&at-started.Value>=2000&&at-started.Value<=12000){
@@ -50,8 +60,14 @@ public partial class FishingEngineReplayTests
             }
             last=now;
         }
-        input.AfterDown=(_,_)=>{Advance();held=true;};
-        input.AfterUp=()=>{Advance();held=false;};
+        void Advance(){
+            while(pending.Count>0 && pending.Peek().At<=clock.Timestamp){
+                var edge=pending.Dequeue();Integrate(edge.At);held=edge.Held;
+            }
+            Integrate(clock.Timestamp);
+        }
+        input.AfterDown=(_,_)=>{Advance();pending.Enqueue((clock.Timestamp+responseDelayMs,true));};
+        input.AfterUp=()=>{Advance();pending.Enqueue((clock.Timestamp+responseDelayMs,false));};
         using var frames=new Frames(()=>{
             Advance();if(primary)captured=position;
             var image=new Mat(Desktop.Height,Desktop.Width,MatType.CV_8UC3,Scalar.All(20));
@@ -92,7 +108,7 @@ public partial class FishingEngineReplayTests
         engine.Start();
         try{await engine.Completion.WaitAsync(TimeSpan.FromSeconds(20));}
         finally{engine.Stop();}
-        string path=Path.Combine(Path.GetTempPath(),$"baseline126-centering-{string.Concat(profile.Where(char.IsLetterOrDigit))}-{cadence}-w{width}-{Guid.NewGuid():N}.csv");
+        string path=Path.Combine(Path.GetTempPath(),$"baseline126-centering-{string.Concat(profile.Where(char.IsLetterOrDigit))}-{cadence}-w{width}-force{forceScale}-delay{responseDelayMs}-{Guid.NewGuid():N}.csv");
         File.WriteAllLines(path,trace);
         _baselineOutput.WriteLine($"Synthetic fixed-target feedback: {observations} observations; errors={errors.Count}; trace={path}");
         Assert.Empty(invalid);

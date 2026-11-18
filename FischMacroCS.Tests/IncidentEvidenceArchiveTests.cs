@@ -36,6 +36,20 @@ public sealed class IncidentEvidenceArchiveTests : IDisposable
     private string Clip() => Assert.Single(Directory.GetDirectories(Archive, "incident_*"));
 
     [Fact]
+    public void ExportedReportsDoNotConsumeRawIncidentCapacity()
+    {
+        string exports = Path.Combine(Archive, "exports");
+        Directory.CreateDirectory(exports);
+        using (var report = File.Create(Path.Combine(exports, "previous.zip"))) report.SetLength(2L * 1024 * 1024);
+        using (var archive = Create(new IncidentArchiveLimits(ArchiveBytes: 2L * 1024 * 1024, IncidentBytes: 1024 * 1024)))
+        {
+            Event(archive, 1000, "outcome");
+            Assert.Null(archive.LastError);
+        }
+        Assert.True(File.Exists(Path.Combine(Clip(), "incident.json")));
+    }
+
+    [Fact]
     public void FreezesBoundedBeforeAndAfterWithIdentityCoordinatesInputsAndHashes()
     {
         using (var archive = Create())

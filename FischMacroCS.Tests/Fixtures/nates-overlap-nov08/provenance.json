@@ -1,0 +1,217 @@
+{
+  "SourceSession": "session_20261108_190936_527_f655284f005c44519b73bf21e3b10506",
+  "RecordedBuild": "1.0.30-nov08reelentry+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "Viewport": {
+    "Width": 3440,
+    "Height": 1369
+  },
+  "Frames": [
+    {
+      "File": "frame_00000006.png",
+      "FrameId": 6,
+      "Timestamp": 2729295895663,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "A0260278B67F001E4FEAC9D9B657992A61D39A873C7DAE0ABF58899893E7B6CE"
+    },
+    {
+      "File": "frame_00000008.png",
+      "FrameId": 8,
+      "Timestamp": 2729304493038,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "840A502D636BD4B77B41C6ACF9C84F1DD2CA3604C9B62A4F95916C46C4FE687F"
+    },
+    {
+      "File": "frame_00000009.png",
+      "FrameId": 9,
+      "Timestamp": 2729306200437,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "7B0EEC692B455BB5F1CDFD332F7C46965F2A75885E1B2CAC4DE7AED4C378695F"
+    },
+    {
+      "File": "frame_00000011.png",
+      "FrameId": 11,
+      "Timestamp": 2729312194977,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "32203F2BD45839D5EF2E5E46F29F2D9B43C68EF2FF38E91799393E5CE2B25948"
+    },
+    {
+      "File": "frame_00000012.png",
+      "FrameId": 12,
+      "Timestamp": 2729313389326,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "69B61BC1A3819BAC02896278B32DC22999A2E04D50B697C695D480537C770E47"
+    },
+    {
+      "File": "frame_00000014.png",
+      "FrameId": 14,
+      "Timestamp": 2729315911961,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "04BFC2DE0A7E38A50ECE1395A3933250FF22F4902FFF666C8535EC26C6C2A401"
+    },
+    {
+      "File": "frame_00000016.png",
+      "FrameId": 16,
+      "Timestamp": 2729317745397,
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "CBD8BB095EF0F3ACEF3C2B5A6532685777FEEAD44C63D13639B07492CDF0E5B8"
+    },
+    {
+      "File": "frame_00000020.png",
+      "FrameId": 20,
+      "Timestamp": 2729321702230,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "9CF7A8C6E32C8BE9E0D080B2A0407913DDCB2B91F4889219F44A802E600A6CFE"
+    },
+    {
+      "File": "frame_00000024.png",
+      "FrameId": 24,
+      "Timestamp": 2729325989265,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "140F41241FAD8559DEA0FA66E403D22B74888A174586C730AADD26C321148161"
+    },
+    {
+      "File": "frame_00000031.png",
+      "FrameId": 31,
+      "Timestamp": 2729333685014,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "29502198E029EC6533288A2A8A9FABA09B264B1937ABFC5348E79817CA8D355F"
+    },
+    {
+      "File": "frame_00000094.png",
+      "FrameId": 94,
+      "Timestamp": 2729431278324,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "3E74B002BA6E5F4C64BF5B9FA7DEF2B1CA849227AE80BA4BAD8B99E9D7E74049"
+    },
+    {
+      "File": "frame_00000095.png",
+      "FrameId": 95,
+      "Timestamp": 2729432682715,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "1B85EBC753E98A48A4EDA25302E0382C2A347F25C2E1A9156D177AEAA1F2B439"
+    },
+    {
+      "File": "frame_00000096.png",
+      "FrameId": 96,
+      "Timestamp": 2729433752781,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "10503E3334B1CFA2284396297AEA27AC095FCE1B6E8C2D5D79F5BE89B0F37AA2"
+    },
+    {
+      "File": "frame_00000097.png",
+      "FrameId": 97,
+      "Timestamp": 2729434758958,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "750839087CDA90A36B3D6A25E8634172EB48F672D4520FDCAADD1D7FA09021C6"
+    },
+    {
+      "File": "frame_00000098.png",
+      "FrameId": 98,
+      "Timestamp": 2729436428567,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "AB4D045700B49A1AD0AA6D5F56C5AB1F00E4673C7C93712CDF16419CF9F28769"
+    },
+    {
+      "File": "frame_00000099.png",
+      "FrameId": 99,
+      "Timestamp": 2729437653552,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "3EFD234EC591F27ADCD1F5F877BDDAEDC4D8E4DF5596C6E63491C84380352C3A"
+    },
+    {
+      "File": "frame_00000100.png",
+      "FrameId": 100,
+      "Timestamp": 2729438685833,
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "417AEE5940CC658D20CEF8C6EE6ED52B63DEA605B1DD5D8928E703639DDBBC0C"
+    }
+  ],
+  "Pixels": "Original PNG files copied byte-for-byte; full-context and track capture coordinates remain distinct.",
+  "RootCause": "The current yellow glyph and red body are visible, but a luminance-only structural meter proof fails against the orange/brown ground. AutoCalibrate then follows the bright green foreground effect as a Trident bar and a false marker. Complete current meter color/shape support and ordinary-bar vertical placement must reject that substitution.",
+  "WorkerReplay": "Original frame12 and frame31 track pixels are placed into original full frame16 on a controlled350ms schedule. Input is faked; the trace asserts measured coordinates and directional response rather than catch counters."
+}

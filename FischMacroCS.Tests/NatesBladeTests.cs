@@ -96,4 +96,31 @@ public class NatesBladeTests
         using var result = Detect(frame);
         Assert.False(result.HasLiveReel);
     }
+
+    [Fact]
+    public void InlineFishReel_SurvivesSlashSplitGlyphAndLockedOcclusionWithoutPointedProbe()
+    {
+        using var baseFrame = Load(24);
+        var vision = new VisionProcessor();
+        using var initial = vision.ProcessTrack(baseFrame, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+        Assert.True(initial.HasLiveReel && initial.BarFound && initial.FishFound && initial.ReelProgressFound);
+        Assert.Equal(MinigameTheme.Ruinous, initial.ResolvedTheme);
+
+        // Simulate horizontal dark slash splitting the vertical yellow fish glyph across its middle (20px gap)
+        using var splitGlyph = baseFrame.Clone();
+        int localFishX = initial.FishX - 968;
+        Cv2.Rectangle(splitGlyph, new Rect(Math.Max(0, localFishX - 25), 130, 50, 20), new Scalar(20, 20, 90), -1);
+        using var splitResult = vision.ProcessTrack(splitGlyph, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+        Assert.True(splitResult.HasLiveReel && splitResult.BarFound && splitResult.FishFound && splitResult.ReelProgressFound);
+        Assert.InRange(splitResult.FishX, initial.FishX - 6, initial.FishX + 6);
+        Assert.Equal(0, splitResult.FamilyProbeLatencyMs);
+
+        // Simulate full 1-frame glyph occlusion on a locked Ruinous reel: BarFound + ReelProgressFound must persist with 0ms probe
+        using var occludedGlyph = baseFrame.Clone();
+        Cv2.Rectangle(occludedGlyph, new Rect(Math.Max(0, localFishX - 25), 75, 50, 135), Scalar.Black, -1);
+        using var occludedResult = vision.ProcessTrack(occludedGlyph, 968, 1013, 1369.0 / 1080.0, MinigameTheme.AutoCalibrate, false);
+        Assert.True(occludedResult.BarFound && occludedResult.ReelProgressFound);
+        Assert.InRange(occludedResult.BarLeft, initial.BarLeft - 10, initial.BarLeft + 10);
+        Assert.Equal(0, occludedResult.FamilyProbeLatencyMs);
+    }
 }

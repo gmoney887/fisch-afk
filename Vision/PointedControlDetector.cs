@@ -29,7 +29,8 @@ internal static class PointedControlDetector
         Cv2.CvtColor(image, gray, ColorConversionCodes.BGR2GRAY);
         // Most non-reel frames have no candidate meter. Reject those before
         // edge extraction; a warmed hint still goes straight to current proof.
-        if(meterHint is null&&!HasPotentialMeter(gray))return null;
+        using var flatRows = new Mat();
+        if(meterHint is null&&!HasPotentialMeter(gray, flatRows))return null;
         Cv2.Canny(gray, edges, 5, 15);
         var edge = edges.GetUnsafeGenericIndexer<byte>(); var tones = gray.GetUnsafeGenericIndexer<byte>();
         bool Hit(int x, int y)
@@ -271,7 +272,7 @@ internal static class PointedControlDetector
             var warmed=Read(new[]{(Meter:hint,Observed:true)});
             if(warmed.HasValue)return warmed;
         }
-        if(meterHint is not null&&!HasPotentialMeter(gray))return null;
+        if(meterHint is not null&&!HasPotentialMeter(gray, flatRows))return null;
         using var ridges = new Mat(); using var dark = new Mat(); using var light = new Mat();
         using var ridgeKernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(1, 5));
         Cv2.MorphologyEx(gray, dark, MorphTypes.BlackHat, ridgeKernel); Cv2.MorphologyEx(gray, light, MorphTypes.TopHat, ridgeKernel);
@@ -307,16 +308,12 @@ internal static class PointedControlDetector
         foreach(var ridge in ridgeLines)if(!lines.Contains(ridge))lines.Add(ridge);
         trace?.Invoke("pointed independent ridge rows="+string.Join(';',ridgeLines.Select(r=>$"{r.X},{r.Y},{r.Width}")));
         var panelHeights=new Dictionary<Rect,HashSet<int>>();
-        using(var range=new Mat())using(var flat=new Mat())using(var opened=new Mat())
-        using(var vertical=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(1,3)))
         {
             // Group complete CURRENT flat row corridors, rather than a
             // contour bbox that can include an unrelated vertical filament.
             // Their endpoints and height are nominations only. In particular,
             // a flat erasure cannot substitute for an original outlined cap.
-            Cv2.MorphologyEx(gray,range,MorphTypes.Gradient,vertical);Cv2.Compare(range,Scalar.All(3),flat,CmpTypes.LE);
-            Cv2.MorphologyEx(flat,opened,MorphTypes.Open,kernel);
-            var p=opened.GetUnsafeGenericIndexer<byte>();
+            var p=flatRows.GetUnsafeGenericIndexer<byte>();
             var groups=new List<(double Left,double Right,int Top,int Bottom,int Count)>();
             var panels=new List<(double Left,double Right,int Top,int Bottom,int Count)>();
             void KeepPanel((double Left,double Right,int Top,int Bottom,int Count) g)
@@ -445,11 +442,11 @@ internal static class PointedControlDetector
             .Concat(panelHints.OrderByDescending(m=>m.Width).Take(4).Select(m=>(Meter:m,Observed:false))));
     }
 
-    private static bool HasPotentialMeter(Mat gray)
+    private static bool HasPotentialMeter(Mat gray, Mat flat)
     {
         // Only a proposal gate: every accepted meter still passes the original
         // wall, corner and shoulder proofs. No hue or desktop scale is used.
-        using var gradient=new Mat();using var flat=new Mat();
+        using var gradient=new Mat();
         using var vertical=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(1,3));
         using var horizontal=Cv2.GetStructuringElement(MorphShapes.Rect,new Size(31,1));
         Cv2.MorphologyEx(gray,gradient,MorphTypes.Gradient,vertical);

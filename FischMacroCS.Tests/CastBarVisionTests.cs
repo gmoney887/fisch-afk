@@ -203,4 +203,19 @@ public class CastBarVisionTests
         }
         else Assert.Equal(0,result.FillPercent);
     }
+
+    [Fact]
+    public void DetectCastBarROI_ZoomedOutSixPixelCapAt1369p_DetectsBar()
+    {
+        using var roi = new Mat(684, 766, MatType.CV_8UC3, new Scalar(30, 25, 20));
+        // 6x6 zoomed-out green cap (6x3 top bar + 1px side legs) above a 3px-wide 84px white column at 1369p
+        Cv2.Rectangle(roi, new Rect(447, 262, 6, 3), new Scalar(120, 235, 95), -1);
+        Cv2.Rectangle(roi, new Rect(447, 265, 1, 3), new Scalar(120, 235, 95), -1);
+        Cv2.Rectangle(roi, new Rect(452, 265, 1, 3), new Scalar(120, 235, 95), -1);
+        Cv2.Rectangle(roi, new Rect(449, 294, 3, 84), new Scalar(245, 245, 245), -1);
+
+        var result = _vision.DetectCastBarROI(roi, fullClientH: 1369, generateDebug: false);
+        Assert.True(result.Found);
+        Assert.InRange(result.FillPercent, 65.0, 85.0);
+    }
 }

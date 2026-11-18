@@ -1,0 +1,48 @@
+{
+  "Frames": [
+    {
+      "File": "frame_00000070.png",
+      "SourceSession": "session_20261108_172143_627_d8ad38c43cc14bb59187a79e1a504228",
+      "BuildVersion": "1.0.30-nov07dualmeter+4914a79d1b3715aab323f5859ba098d0265ccae2",
+      "FrameId": 70,
+      "Timestamp": 2664670017144,
+      "TimestampFrequency": 10000000,
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "0D8BBC0E72215EA65F69CC104650E779055407172C498888982C8DC62191C03D",
+      "Annotation": "Partial reel entrance; no complete live reel in the ordinary crop"
+    },
+    {
+      "File": "frame_00000442.png",
+      "SourceSession": "session_20261108_172327_030_96f577dcf3e54025bd4884e05532bf48",
+      "BuildVersion": "1.0.30-nov07dualmeter+4914a79d1b3715aab323f5859ba098d0265ccae2",
+      "FrameId": 442,
+      "Timestamp": 2666365322731,
+      "TimestampFrequency": 10000000,
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "8D8073B6A4746FE51565C3148EBD13BAF1FCFDDF6CC8B583A99BDED22FBC843D",
+      "Annotation": "First retained confirmed reel; fish already right of the measured control body"
+    }
+  ],
+  "Pixels": "Original PNGs copied byte-for-byte.",
+  "NativeReplay": "Real MonotonicClock and actual native vision; original partial entrance frame becomes the original confirmed reel at a scheduled time. Only the casting stage composites an existing selected hotbar so fake hardware can dispatch its initial cast. Early arrivals are controls; settled-search arrivals reproduce the reported opening failure.",
+  "BaselineResponseMs": [
+    737.6199,
+    653.1268
+  ],
+  "FocusedFixedSettledResponseMs": [
+    95.553,
+    126.825
+  ],
+  "LatencyGateMs": 350,
+  "LiveInputs": "None; fake desktop and hardware; no live acceptance claimed."
+}

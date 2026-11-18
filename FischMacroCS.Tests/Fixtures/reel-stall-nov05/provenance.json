@@ -1,0 +1,117 @@
+{
+  "Session": "session_20261106_023822_098_e79c439fed794eb68c646b9f137d040a",
+  "Viewport": {
+    "Width": 3440,
+    "Height": 1369
+  },
+  "Frames": [
+    {
+      "File": "frame_00000481.png",
+      "FrameId": 481,
+      "Timestamp": 407311267364,
+      "SHA256": "BBF3B172686496D88604B92B4E7B754E285EE197AB03136CE081F13C29F7FE3F"
+    },
+    {
+      "File": "frame_00000529.png",
+      "FrameId": 529,
+      "Timestamp": 407362074560,
+      "SHA256": "6F7B1A0239F24BD427D6DF679B62E6F650D811C9686CC690A8FDB863AC47F7CF"
+    },
+    {
+      "File": "frame_00000577.png",
+      "FrameId": 577,
+      "Timestamp": 407412887468,
+      "SHA256": "9B245AE22315672A2ABF7E221330FC213559D1EED09E352A3CC9BD69D47F6366"
+    },
+    {
+      "File": "frame_00000625.png",
+      "FrameId": 625,
+      "Timestamp": 407463653696,
+      "SHA256": "8A7F12C57DBC9A9FB83A6AA78D89A1FC12837DCD9FC2E169C2C9572DCDE5A7DA"
+    },
+    {
+      "File": "frame_00000672.png",
+      "FrameId": 672,
+      "Timestamp": 407514540883,
+      "SHA256": "277621F575EFFF380642F40644EC6EEEDD36293B96E7801DFFB9949E9E0D14D4"
+    },
+    {
+      "File": "frame_00000682.png",
+      "FrameId": 682,
+      "Timestamp": 407524644222,
+      "SHA256": "89BB0A6FAF72D5EB64452BF0E532A7890CC115F01010F7571B4655CCCCF1FD06"
+    },
+    {
+      "File": "frame_00000690.png",
+      "FrameId": 690,
+      "Timestamp": 407543796975,
+      "SHA256": "A9C2B4A9C1D56E6D7271FD0240712F286C2782E58B9F9FBD113A0449E6A3C099"
+    },
+    {
+      "File": "frame_00000709.png",
+      "FrameId": 709,
+      "Timestamp": 407566442889,
+      "SHA256": "59BB393C0EB7969068D483286C5B29CC378BF1CD9F69331CA310B95545A7DD62"
+    },
+    {
+      "File": "frame_00000728.png",
+      "FrameId": 728,
+      "Timestamp": 407586550584,
+      "SHA256": "8A00E19B0771C1E13878A4714AF0F998277EB421BF0EF30D78190C0394EAFA5C"
+    },
+    {
+      "File": "frame_00000756.png",
+      "FrameId": 756,
+      "Timestamp": 407616970031,
+      "SHA256": "B523FFE52E2B5B07BEF3CF95C9C6EBB0ADB41D184F8482AEFE0AB2BB2634B59D"
+    },
+    {
+      "File": "frame_00000804.png",
+      "FrameId": 804,
+      "Timestamp": 407667773927,
+      "SHA256": "FB0034185F98BDC5CBF02BD4410F089682285DCFE9B12EFF1FAA0D566DC552E1"
+    },
+    {
+      "File": "frame_00000852.png",
+      "FrameId": 852,
+      "Timestamp": 407718384990,
+      "SHA256": "52FA5EA0184D560B2A46ED2630C60F6BD1FEF330A3F8BF92D86F003B1CFAE22F"
+    },
+    {
+      "File": "frame_00000901.png",
+      "FrameId": 901,
+      "Timestamp": 407769604302,
+      "SHA256": "35378F70AAA73212960EBF1C79872EF8AE5F0A9DD7C6251BA5D714FFAE6C4E72"
+    },
+    {
+      "File": "frame_00000948.png",
+      "FrameId": 948,
+      "Timestamp": 407820481263,
+      "SHA256": "312468CCECCC00D27C4AE0FAF13307A1DD007EDD73680EBF6E4E3946187E0FBF"
+    },
+    {
+      "File": "frame_00000982.png",
+      "FrameId": 982,
+      "Timestamp": 407872714370,
+      "SHA256": "C6F478B96BB0C02F70E6951130803AFFB65B5D3599E7A8F31B9FCD54F585DECE"
+    },
+    {
+      "File": "frame_00000986.png",
+      "FrameId": 986,
+      "Timestamp": 407926991742,
+      "SHA256": "8561759AD9850DF8B1A3E12239BF8067942D16DF184ACA3741AFB5866F2EC0DD"
+    },
+    {
+      "File": "frame_00000993.png",
+      "FrameId": 993,
+      "Timestamp": 407937007935,
+      "SHA256": "41AFE21A8149F8CA6BD46421F06E71448DFBF0E319B105ECAE36E74DA5E036F7"
+    },
+    {
+      "File": "frame_00001012.png",
+      "FrameId": 1012,
+      "Timestamp": 407957210608,
+      "SHA256": "6478A0E344A19871E4B810F52D5348D54235BABC7C608CC9A14760137609ED91"
+    }
+  ]
+}

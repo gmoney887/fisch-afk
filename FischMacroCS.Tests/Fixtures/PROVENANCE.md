@@ -1,5 +1,21 @@
 # Reviewed regression fixtures
 
+`reel-stall-nov05`: unchanged full frames481..1012 from session
+`session_20261106_023822_098_e79c439fed794eb68c646b9f137d040a`, viewport3440x1369,
+preserved in `artifacts/overnight-fixes/live-20261105-203945`. They show a slow
+active reel crossing the original35s timeout and its later Megalodon banner.
+Source timestamps and hashes are in `reel-stall-nov05/provenance.json`. Worker
+tests replay the first52seconds, then use a separately reviewed catch result;
+the frozen-frame case deliberately holds the first frame. Full frames may include
+player/chat content; inspect before sharing. No candidate live-acceptance claim.
+
+`disconnect-nov05`: unchanged full recorder frames for the November 5 error-279
+outage and subsequent Roblox Home screen. Source session, paths and SHA256 are
+in that directory's `provenance.json`; detailed review and template crop geometry
+are in `docs/REGRESSION-2026-11-05-RECONNECT.md`. The held-out frame is later in the
+same outage, not a separate PC. Resized test variants and worker sequencing are
+controlled derivatives, not live recovery acceptance.
+
 `Assets/catch_prefix.png` is the main catch phrase cropped from the existing `reel_catch_banner.png` fixture at (434,93,257,29), reference viewport height 1353. It excludes the companion's separate "Extra!" reward line. Scale tests derive from this same source and do not constitute independent captures at each resolution.
 
 `reel_catch_live.png` is frame 699 from the local smoke test `session_20260919_190312_364_cb9ee378d290456cbb0747f63f881768`, viewport 2254 x 1353. It retains the central 1488 x 270 game ROI, excluding desktop, chat, usernames and inventory. The settled "You just caught a" phrase is smaller and brighter than the enlarged/fading earlier fixture. `Assets/catch_prefix_live.png` retains only (398,101,214,31) from this ROI. This fixture prevents the initial single-template implementation from marking every live catch unknown.
@@ -179,6 +195,162 @@ not known gameplay. This is a synthetic geometry/reacquisition test, not a new
 attempt or measured acceleration. The original failing crop849..1286 and red TRX
 remain in returning-marker-red; no coordinate or timing expectation was loosened.
 
+## November 2 reel exit and catch cooldown
+
+`nov02/sequence.json` records original source session, frame ID, monotonic timestamp
+(10,000,000 ticks/second), viewport, crop coordinates, and SHA256 for every PNG.
+The renamed PNGs are byte-identical to the local recordings. They are required
+fixtures: missing files or changed hashes fail the tests. These gameplay fixtures
+are test inputs only and are excluded from the application package.
+
+The `oath` sequence is from `session_20261103_021009_646_7b18ee3bfb6141a7832be94b49d453ca`
+(November 2, 8:10 PM Central). Frame 176 shows the reel entrance animation with its
+meter below the normal capture band. Frames 177–212 show the continuing reel;
+the live app incorrectly transitioned to PostCatch at 198 and recorded Unknown
+at 212. Frame 194 has a pink body at approximately 1509–1937 and marker 1720;
+frame 208 has an olive body at approximately 1056–1588 and marker 1720. Tests allow
+10px boundary tolerance and 4px marker tolerance. Frame 201 has a dark effect
+crossing the marker and meter and a low-contrast control boundary; current
+fish+meter evidence must preserve the reel even when body geometry is unavailable.
+
+The `catch` sequence is from `session_20261103_021658_192_5359b16c59ee416faf6145c6312a2393`
+(November 2, 8:16 PM Central). Full context includes the camera change that
+triggered scene recovery during catch verification. Frame 99 visibly shows a
+Clownfish player catch although the recorded summary reported zero catches.
+`Assets/catch_prefix_sand.png` is the unscaled 246x32 prefix at full-frame
+coordinate 1414,1113 in frame 99. The caption test excludes 99 and requires two
+consecutive other recorded frames to match; active-reel frames must not match.
+The existing 0.78 matching threshold remains unchanged.
+
+The worker replay advances by original timestamps, independent of worker state.
+All recorded full-context frames from the catch session are included, including
+frames 11 and 12 during camera-baseline learning.
+It holds sparse saved pixels until the next recording and retains the previous
+full context outside subsequent ROIs. Those holds are synthetic; no missing
+intermediate gameplay or closed-loop physics is claimed. The catch is replayed
+at 20ms and 70ms capture costs and must count exactly once, return to Casting,
+and stop with all inputs released. The active-reel sequence must never enter
+PostCatch or recast after entering Reeling. This is regression evidence, not a
+replacement for live validation.
+
+`November02DelayedCatchDuringSceneChangeFinishesVerificationBeforeRecovery`
+separately tests the timing boundary: full recorded frames 74 and 99 supply the
+reel and catch pixels, synthetic landmark textures change at 5s, the reel
+disappears at 10s, and the caption appears at 11.2s. The 1.2s empty transition
+and scene textures are explicitly synthetic. Removing only the PostCatch scene
+guard makes this worker test report zero catches; restoring it must count one
+and resume Casting. The unmodified-timeline tests alone did not expose removal
+of that guard after the detector fixes, so this boundary test is required too.
+
+The `nov04-reel` fixtures are unmodified 1504 × 273 track crops from the
+November 4 evening run of `1.0.30-nov04fix`. The `blade` frames came from
+the 00:39:18 UTC session on November 5 and the `oath` frames from 00:39:57
+UTC. The filename suffix is the recorder frame ID. The sequence tests check
+the visible fish and both bar ends against annotated absolute coordinates
+with the original capture offset (968, 1013). The worker tests also check the
+actual held input on the misleading scenery and slash frames.
+
+`aquarium_nov04_96.png` and `aquarium_nov04_99.png` are unmodified
+3440 × 1369 frames from
+`session_20261105_033210_179_4f1b81e3291440b59f709e8a17c2a960`.
+The Claim lettering is enclosed by a border of the same color. Both frames
+show an unclaimed 545.2K C$ and 30.5K XP balance. Tests require the click
+to land inside the visible Claim button and reject the uncleared balance.
+The workflow test switches to the existing independent cleared-balance
+capture only after a claim click, then removes the panel only after a
+close click. Its failure variant retains the original unclaimed balance.
+The empty-outline negative masks only the lettering in the recorded image.
+
+`shake_companion_18.png` and `shake_companion_26.png` are unmodified
+3440 × 1369 frames from
+`session_20261105_034628_686_6131ee49851544d2badbfeb03549cba3`.
+They show a Shake button near (2616, 475) while a companion reward caption
+was incorrectly classified as a reel. The reviewed prefix template
+`Assets/companion_catch_prefix.png` is the rectangle (1265, 1113, 168, 31)
+from frame 1 of the later 03:46:36 UTC session. Neither test image supplied
+the template. The worker test supplies a synthetic equipped hotbar while
+retaining the recorded game view and verifies the actual Shake click.
+
+`idle_stats_18.png`, `idle_stats_84.png`, and `idle_stats_111.png` are
+unmodified 3440 × 1369 full frames from
+`session_20261105_050025_082_c0c29ec171e5490ba040554162a0a6eb`.
+The user reported the first cast never happened. Rod-stat lettering below the
+idle avatar supplied false paired meter edges while water supplied a false
+needle. Tests require both full-context and track detection to reject a reel.
+The worker replays frame 18 unchanged, including its equipped hotbar, and must
+dispatch an actual 721ms cast hold/release then reach Luring, with dynamic
+release both enabled and disabled. No live game response is simulated.
+
+## November 5 overnight acceptance regressions
+
+`overnight-nov05/frame_*.png` are unmodified copies from session
+`session_20261105_051105_847_8de46ee3cd9646dbb4c1ae614f096225`, running
+`1.0.30-nov04stability`. Frames68679,122050,122060,174184,174219,200836,
+200874,213756,213799,226397,226432 are full3440x1369 context captures;
+122054-122059 and122061-122062 are1504x273 track captures at(968,1013).
+The corresponding timestamped logs and process/build manifests are preserved
+under artifacts/overnight-nov04. The stationary needle annotation is1720 +/-8px
+across122050-122062; this is independent of the recorded detector output.
+Player banners213756,226397,226432,174219 are positive catches;200836 is a
+companion-only banner and213799 is idle. Navigation68679 is an earlier held-out
+night capture. See docs/REGRESSION-2026-11-05.md for sequence construction,
+red/green evidence, and limits. No fixture alone establishes live acceptance.
+
+## November 6 Duskwire
+
+`duskwire-nov06/frame_*.png` are fifteen unmodified3440x1369 full frames from
+`session_20261106_152812_841_3f5b95cef5364fa1b6b9cb5516297d7c`, build
+`1.0.30-nov05reelrecovery`. The user explicitly identified this9:28AM recording
+as Duskwire. `provenance.json` records source frame IDs, timestamps and SHA256.
+Ten frames show its black/gradient body and white capsule;1/11/53/69/80 are
+idle or vanished-reel negatives. Pixel annotations are independent of recorded
+telemetry.720/1080 variants are generated scaling checks, not separate captures.
+Component-removal tests copy idle pixels over one control in memory; they are
+explicit controlled negatives. No recorded player catch succeeded in this clip.
+
+## November 6 Duskwire pool failure
+
+Three unmodified3440x1369 frames768/769/770 from session
+`session_20261106_163043_380_b7282b2309f042b59f2b63895d55750f`
+are saved in `duskwire-pool-nov06`. Frames768/769 show a70px body while
+the installed macro remained Luring;770 shows the reel gone. Hashes and
+timestamps are in provenance.json. Earlier pool attempt reel images expired,
+so its identical cause is not independently proven. Tests check measured
+geometry, disappearance and real worker entry/input. Scaled variants are
+synthetic resolution checks.
+
+## November 6 Megalodon pool
+
+`duskwire-megalodon-nov06` contains ten unchanged frames from session
+`session_20261106_164941_702_ca49fb7d1e8f41c99e499113dced1dac`, running
+the original Duskwire build. It shows an ongoing reel at a Megalodon pool,
+while the macro repeatedly concluded and re-entered it.1507/1536/1555/1580/
+1597/1617 are full3440x1369.1566/1620 are1504px active track captures at
+(968,1013);1574 is3440x342 at(0,1027), captured during PostCatch.1821 is
+unavailable gameplay. Dimensions, actual offsets, timestamps and SHA256 are
+in provenance.json. Eight geometry cases use manual pixel annotations;
+the worker sequence uses these full frames at controlled700ms intervals,
+not a continuous live clip or proof of a completed Megalodon catch.
+
+`duskwire-live-failures-nov07`: four unchanged November 7 failure originals.
+Frame 226511 preserves the short capture that cuts off the meter while retaining
+the bar/marker; 226508 has no reel, 226524 includes the shifted meter, and 143238
+shows a bar far left of the fish before loss. Exact sessions, SHA256, regions
+and independently reviewed coordinates are in its provenance.json. Worker
+replay positions a two-second clipped interval at entry and after twenty seconds,
+and repeats an unresponsive image to test recovery. These controlled scenarios
+do not establish delivered live input or an Apex catch.
+
+`duskwire-dual-meter-nov07`: six unchanged full frames from the reported Greater
+White Shark failure on November7. At35.0062188seconds, no accepted progress
+had been recorded and the macro released input for recovery. Independent RGB
+annotations locate the upper fill at x1346 and row1265, growing170..444px.
+The saturated dark red left end was excluded by the old low-saturation mask.
+The replay uses original timestamps and a deliberate1.6x slow playback to
+exercise64seconds of continued progress; a frozen original still times out.
+All sources, regions and hashes are in provenance.json. This is controlled
+replay evidence, not a reconstructed continuous catch or Apex acceptance.
+
 `random-rod`: reel-region crops at (968, 1013) on a 3440×1369 viewport.
 Frames 26, 28, 40, 45, 54, 59 and 62 are from
 `session_20261116_024836_363_9d610db806794f3dba6885f2ef82a82a`. They cover
@@ -188,3 +360,9 @@ frame 28. Frame 324 is a wider, single-arrow bar from
 `session_20261116_022519_210_ed117f18e7da462a87a2d89bafe89e84`.
 Auto detection measured both the fish and the bar on every frame from 26
 through 59 of the last reel. Frames 23–25 and 60–64 did not report a live reel.
+
+`ruinous_hotbar.png` shows the equipped rod in the November 16 dragon session
+`session_20261116_170635_354_4faa9b2b8a7448f2a04a3502bd658c57`. It is the
+720 × 90 crop at (1360, 1279) in viewport coordinates from frame 744. The
+reference `Assets/ruinous_hotbar_label.png` is the 44 × 11 crop at
+(1423, 1335) from frame 735 of the same recording.

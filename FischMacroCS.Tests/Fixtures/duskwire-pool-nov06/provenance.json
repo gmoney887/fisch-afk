@@ -1,0 +1,26 @@
+{
+  "Session": "session_20261106_163043_380_b7282b2309f042b59f2b63895d55750f",
+  "Build": "1.0.30-nov06duskwire+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "SourceDirectory": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-nov06\\pool-failures-20261106-103452",
+  "Frames": [
+    {
+      "FrameId": 768,
+      "File": "frame_00000768.png",
+      "Timestamp": 907812541033,
+      "SHA256": "CF10A6EDD3A72824D772CB4C62D726626E963689B08713DAC63472E8D2FEDB5C"
+    },
+    {
+      "FrameId": 769,
+      "File": "frame_00000769.png",
+      "Timestamp": 907845364545,
+      "SHA256": "A91A0403DF3E96CB7EF9E58E2F9D689FEB24BDA43AD5F79838169EBC18E76537"
+    },
+    {
+      "FrameId": 770,
+      "File": "frame_00000770.png",
+      "Timestamp": 907868737895,
+      "SHA256": "373A7DE8790C53149E44394261B4ABAACC7C964E892ABC05B0BB67FBAFB39EAE"
+    }
+  ],
+  "Observation": "768/769 show70px control body and marker while installed macro remained Luring;770 no longer shows reel. These are raw full frames, not synthetic scaling. Pool first-attempt early reel frames were no longer retained; do not assert both failures have a separately proven identical cause."
+}

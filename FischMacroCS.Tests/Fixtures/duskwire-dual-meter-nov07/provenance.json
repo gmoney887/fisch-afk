@@ -1,0 +1,421 @@
+{
+  "Session": "session_20261108_033109_566_8388f3c806044dbf83263ffb69c4bbb6",
+  "Build": "1.0.30-nov07duskwirefix",
+  "UserReport": "Greater White Shark, -90% progress speed, two bars, good start then total reel drop",
+  "ReelEntryTimestamp": 2166346621990,
+  "StallTimestamp": 2166696684178,
+  "TimestampFrequency": 10000000,
+  "SecondsToStall": 35.0062188,
+  "OriginalsUnmodified": true,
+  "GeometryAnnotation": "Independent RGB inspection of the primary upper black fill at row1265, not detector-derived",
+  "Frames": [
+    {
+      "File": "frame_00000140.png",
+      "FrameId": 140,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000140.png",
+      "SHA256": "536B01954050CEAFAF71584A44B940B9480ECF50C8D377FBDE9E5FA41D103C4D",
+      "Timestamp": 2166377212388,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 170,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    },
+    {
+      "File": "frame_00000150.png",
+      "FrameId": 150,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000150.png",
+      "SHA256": "23008C06F2EED26A4B6E5CB8E51B971D359888674E0975D5A680C0604F931CAC",
+      "Timestamp": 2166387366927,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 179,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    },
+    {
+      "File": "frame_00000286.png",
+      "FrameId": 286,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000286.png",
+      "SHA256": "C31F8D41DF6CCC0507B6B7DB56CE666FE902DA0A29243CB3C5875677321DCD9B",
+      "Timestamp": 2166529136368,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 306,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    },
+    {
+      "File": "frame_00000335.png",
+      "FrameId": 335,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000335.png",
+      "SHA256": "CCF01BE91F597B704BEA99BE6DBADEA451696687C7C1518EF96341C280A30C28",
+      "Timestamp": 2166579743547,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 344,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    },
+    {
+      "File": "frame_00000412.png",
+      "FrameId": 412,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000412.png",
+      "SHA256": "71DA2AE11E6DA376C515AEA6E1E7E6FA6DEE9D298D8AED36074531797607AC49",
+      "Timestamp": 2166660985185,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 417,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    },
+    {
+      "File": "frame_00000442.png",
+      "FrameId": 442,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\duskwire-long-fight-nov07\\live-20261108T033145Z\\frame_00000442.png",
+      "SHA256": "EE82CEEF8F12E5802E7FF3E2797C15B8DB5C988137938E457FB5DE5D4A46EC09",
+      "Timestamp": 2166691291746,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "PrimaryBlackInterior": {
+        "Left": 1346,
+        "Width": 444,
+        "SampleRow": 1265
+      },
+      "PrimaryMeterRows": [
+        1263,
+        1277
+      ]
+    }
+  ]
+}

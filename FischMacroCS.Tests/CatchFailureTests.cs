@@ -54,11 +54,12 @@ public class CatchFailureTests
     [Fact]
     public void LingeringFailureCannotBeCountedAgainOnTheNextReel()
     {
-        var evidence = new FreshFailureEvidence();
+        var clock = new Clock();
+        var evidence = new FreshFailureEvidence(clock);
         Assert.False(evidence.Observe(true)); Assert.True(evidence.Observe(true));
         for (int i = 0; i < 20; i++) Assert.False(evidence.Observe(true));
         Assert.False(evidence.Observe(false)); Assert.False(evidence.Observe(true));
-        Assert.False(evidence.Observe(false)); Assert.False(evidence.Observe(false));
+        Assert.False(evidence.Observe(false)); clock.Timestamp+=500; Assert.False(evidence.Observe(false));
         Assert.False(evidence.Observe(true)); Assert.True(evidence.Observe(true));
     }
     [Fact]
@@ -73,6 +74,27 @@ public class CatchFailureTests
         public long Timestamp { get; set; }
         public double ElapsedMilliseconds(long start) => Timestamp - start;
         public void Delay(int ms, CancellationToken token) => Timestamp += ms;
+    }
+
+    [Theory]
+    [InlineData(20)]
+    [InlineData(100)]
+    public void DroppedHoldRetriesWhileBarKeepsAcceleratingLeft(int cadence)
+    {
+        var clock = new Clock(); var guard = new ReelHoldRecovery(clock);
+        var retries = new List<long>();
+        double previous = 0;
+        for (int ms = 0; ms <= 4000; ms += cadence)
+        {
+            clock.Timestamp = ms;
+            double seconds = ms / 1000.0, velocity = -400 * seconds;
+            if (guard.Observe(true, true, 5000 - 200 * seconds * seconds, 6000, 100, velocity, previous))
+                retries.Add(ms);
+            previous = velocity;
+        }
+        Assert.Equal(2, retries.Count);
+        Assert.InRange(retries[0], 450, 800);
+        Assert.True(retries[1] - retries[0] >= 1000);
     }
     [Fact]
     public void UnresponsiveHoldRecoveryIsBoundedAndNeedsVerifiedEvidence()
@@ -94,5 +116,20 @@ public class CatchFailureTests
         var clock = new Clock(); var guard = new ReelHoldRecovery(clock);
         for (int i = 0; i < 30; i++)
         { clock.Timestamp += 100; Assert.False(guard.Observe(true, true, 100 + i * 4, 1000, 80)); }
+    }
+
+    [Fact]
+    public void VelocityAwareHoldRecoverySuppressesDuringBrakingAndAcceleration()
+    {
+        var clock = new Clock(); var guard = new ReelHoldRecovery(clock);
+        // Bar is swinging left under momentum (-800 px/s) while holding right: must NOT trigger recovery
+        Assert.False(guard.Observe(true, true, 1800, 2040, 200, barVelocity: -800, prevBarVelocity: -1200));
+        clock.Timestamp = 500;
+        Assert.False(guard.Observe(true, true, 1400, 2040, 200, barVelocity: -200, prevBarVelocity: -500));
+        clock.Timestamp = 1000;
+        // Bar reverses and accelerates right (+150 px/s): must NOT trigger recovery
+        Assert.False(guard.Observe(true, true, 1450, 2040, 200, barVelocity: 150, prevBarVelocity: -50));
+        clock.Timestamp = 1500;
+        Assert.False(guard.Observe(true, true, 1600, 2040, 200, barVelocity: 300, prevBarVelocity: 150));
     }
 }

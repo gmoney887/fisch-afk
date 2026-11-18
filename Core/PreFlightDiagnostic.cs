@@ -417,7 +417,7 @@ public class PreFlightDiagnostic : IDisposable
         }
         else if (report.ReconnectAvailable)
         {
-            report.Summary = "Disconnected. Start Fishing will retry Reconnect and wait for gameplay.";
+            report.Summary = "Disconnected. Start Fishing will retry Reconnect/Retry and wait for gameplay.";
         }
         else if (report.ContinueAvailable)
         {

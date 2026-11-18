@@ -14,6 +14,8 @@ public enum MinigameTheme
     Glorp,
     Ruinous,
     Doomsekkar,
+    Duskwire,
+    Hammyshork,
     RandomRod = 10
 }
 
@@ -34,7 +36,7 @@ public class Settings
     public int CastHoldMs { get; set; } = 760; // Calibrated universal sweet spot for 100% PERFECT! cast
     public int PostCastDelayMs { get; set; } = 1000;
     public int PostCatchDelayMs { get; set; } = 1500; // 1500ms allows Roblox catch celebration & rod reset animation to complete
-    public int LureTimeoutMs { get; set; } = 25000;
+    public int LureTimeoutMs { get; set; } = 40000;
     public int ReelTimeoutMs { get; set; } = 35000;
 
     // Autonomous Self-Healing Watchdog
@@ -50,6 +52,9 @@ public class Settings
     public int HoverUpMs { get; set; } = 30;
 
     public string ToggleHotkey { get; set; } = "F6";
+    public string AppraisalItem { get; set; } = "Driftwood";
+    public string AppraisalMutation { get; set; } = "Poisoned";
+    public int AppraisalLimit { get; set; }
     public string ReEquipHotkey { get; set; } = "F7";
 
     public bool ShowVisionPreview { get; set; } = true;
@@ -102,8 +107,10 @@ public class Settings
             settings.ShakeMode = settings.EnableShakeClicks ? "Navigation" : "Disabled";
         if (string.IsNullOrEmpty(settings.RodProfile))
             settings.RodProfile = "Standard";
-        if (settings.LureTimeoutMs > 30000)
-            settings.LureTimeoutMs = 25000;
+        if (settings.LureTimeoutMs < 15000)
+            settings.LureTimeoutMs = 40000;
+        if (settings.LureTimeoutMs > 90000)
+            settings.LureTimeoutMs = 60000;
         if (settings.ReelTimeoutMs > 40000)
             settings.ReelTimeoutMs = 35000;
         if (settings.WatchdogStallTimeoutSeconds <= 0)

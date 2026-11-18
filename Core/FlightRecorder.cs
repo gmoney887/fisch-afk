@@ -45,7 +45,7 @@ public sealed class FlightRecorder : IDisposable
         StopSession();
         // Reserve the active session's worst-case frame/journal footprint before accepting it.
         EnforceRetentionPolicy(224L * 1024 * 1024);
-        if (Directory.Exists(_baseDir) && StoredBytes(_baseDir) > 800L * 1024 * 1024)
+        if (Directory.Exists(_baseDir) && StoredSessionBytes() > 800L * 1024 * 1024)
         {
             LastError = "Recording storage is full. Export or remove old reports before recording again.";
             return;
@@ -138,6 +138,8 @@ public sealed class FlightRecorder : IDisposable
     {
         try
         {
+            using var ownership = RecordingSessionOwnership.TryAcquire(directory)
+                ?? throw new IOException("Another writer owns this recording session.");
             Directory.CreateDirectory(directory);
             File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(manifest, Json));
             using var journal = new SessionEventJournal(directory);
@@ -273,24 +275,40 @@ public sealed class FlightRecorder : IDisposable
         ? Directory.EnumerateFiles(root, "*", new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = FileAttributes.ReparsePoint })
             .Sum(f => new FileInfo(f).Length) : 0;
 
+    private long StoredSessionBytes() => RecordingStorageBudget.SessionAndReportBytes(_baseDir);
+
     public void EnforceRetentionPolicy(long reserveBytes = 0)
     {
         try
         {
             if (!Directory.Exists(_baseDir)) return;
+            bool writersIdle;
+            string? activeDir;
+            lock (_gate)
+            {
+                _writers.RemoveAll(t => t.IsCompleted);
+                writersIdle = _writers.Count == 0 && _queue == null;
+                activeDir = _sessionDirectory;
+            }
+            // A crash leaves no summary. Keep that evidence under the same
+            // bounded retention policy as completed sessions, rather than
+            // deleting it simply because the app was restarted later.
             var sessions = Directory.GetDirectories(_baseDir, "session_*")
-                .Where(d => File.Exists(Path.Combine(d, "summary.txt")))
+                .Where(d => File.Exists(Path.Combine(d, "summary.txt")) ||
+                    (writersIdle && !string.Equals(d, activeDir, StringComparison.OrdinalIgnoreCase)))
                 .Select(d => new { Path = d, Date = Directory.GetCreationTimeUtc(d),
                     Size = Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories).Sum(f => new FileInfo(f).Length),
                     Marked = File.Exists(Path.Combine(d, "preserve.marker")) })
                 .OrderBy(d => d.Marked).ThenBy(d => d.Date).ToList();
             // Include active sessions and frozen report exports in the same storage budget.
-            long bytes = StoredBytes(_baseDir);
+            long bytes = StoredSessionBytes();
             int count = sessions.Count;
             foreach (var session in sessions)
             {
-                if (bytes + reserveBytes <= 1024L * 1024 * 1024 && count <= _maxRecordings &&
+                if (bytes + reserveBytes <= RecordingStorageBudget.SessionAndReportLimit && count <= _maxRecordings &&
                     (session.Marked || session.Date >= DateTime.UtcNow.AddDays(-7))) continue;
+                using var ownership = RecordingSessionOwnership.TryAcquire(session.Path);
+                if (ownership is null || !Directory.Exists(session.Path)) continue;
                 Directory.Delete(session.Path, true); bytes -= session.Size; count--;
             }
         }

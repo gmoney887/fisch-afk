@@ -63,7 +63,7 @@ public sealed class IncidentEvidenceArchive : IDisposable
                         }
                     }
                     if (directories.Length >= _limits.Incidents ||
-                        FlightRecorder.StoredBytes(_root) + reserved + _limits.IncidentBytes + 256 * 1024 > _limits.ArchiveBytes)
+                        RecordingStorageBudget.IncidentBytes(_root) + reserved + _limits.IncidentBytes + 256 * 1024 > _limits.ArchiveBytes)
                     {
                         Report("Incident archive is full; existing clips were preserved. Review/export clips in " + _root);
                         return;

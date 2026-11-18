@@ -1,0 +1,81 @@
+{
+  "Frames": [
+    {
+      "File": "frame_00226508.png",
+      "FrameId": 226508,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\ancient-hammerhead-support-nov06\\monitoring\\shared-aquarium-20261107-090953\\post-failure-journals\\frame_00226508.png",
+      "SHA256": "48F7A9CF4BA6B4B9DE6399AEA11947B2C559D93E787B5877CCCDF78AA9E269BD",
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SourceSession": "session_20261107_072720_094_1071090dc799401b9070439ad4b822b3"
+    },
+    {
+      "File": "frame_00226511.png",
+      "FrameId": 226511,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\ancient-hammerhead-support-nov06\\monitoring\\shared-aquarium-20261107-090953\\post-failure-journals\\frame_00226511.png",
+      "SHA256": "02E16B7D90511B27ABC489C9507800D1B924775A78344628B0977257C16A11BB",
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SourceSession": "session_20261107_072720_094_1071090dc799401b9070439ad4b822b3"
+    },
+    {
+      "File": "frame_00226524.png",
+      "FrameId": 226524,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\ancient-hammerhead-support-nov06\\monitoring\\shared-aquarium-20261107-090953\\post-failure-journals\\frame_00226524.png",
+      "SHA256": "26F9281DDC28F84F75A80E393562A6E31502F35C923A00F5DCB31F1A1F8F31E0",
+      "Region": {
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 356
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SourceSession": "session_20261107_072720_094_1071090dc799401b9070439ad4b822b3"
+    },
+    {
+      "File": "frame_00143238.png",
+      "FrameId": 143238,
+      "Source": "D:\\Dev\\fisch-afk\\artifacts\\ancient-hammerhead-support-nov06\\monitoring\\safe-check-20261107-160348\\frame_00143238.png",
+      "SHA256": "A82D9DDF277C04D460D828A8AAA89B76A949DF3FCF5995252DD8897AE4F30140",
+      "Region": {
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "Viewport": {
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SourceSession": "session_20261107_165231_436_30bef03474524087bdec3176b3daf55a"
+    }
+  ],
+  "UnmodifiedOriginals": true,
+  "Limits": "Failure images and controlled worker replay; not a new live Apex catch.",
+  "Review": {
+    "226511": "Current body x1616..1824, fish x1720, original 273px crop ends before the animated meter.",
+    "226508": "No current bar or needle, negative continuation evidence.",
+    "226524": "Current body x1616..1824, fish x1720 and visible meter in original 356px crop.",
+    "143238": "Current body x1144..1352, fish x1972: bar substantially left of fish during actual loss. Static replay tests response detection, not physical game input delivery."
+  },
+  "WorkerReplayLimits": "Original raw crops are replayed at their original offsets. Separate original full frame supplies full-context requests. The two-second clipped interval is deliberately placed at entry and after 20 seconds; this is controlled regression timing, not a continuous live catch."
+}

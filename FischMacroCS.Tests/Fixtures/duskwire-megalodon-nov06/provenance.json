@@ -1,0 +1,327 @@
+{
+  "Session": "session_20261106_164941_702_ca49fb7d1e8f41c99e499113dced1dac",
+  "Build": "1.0.30-nov06duskwire+4914a79d1b3715aab323f5859ba098d0265ccae2",
+  "Frames": [
+    {
+      "FrameId": 1507,
+      "File": "frame_00001507.png",
+      "Timestamp": 918971656704,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "82648145767113DA47713BB88AE26CE28B662F479BA4F6E625639AD701C9DC39"
+    },
+    {
+      "FrameId": 1536,
+      "File": "frame_00001536.png",
+      "Timestamp": 919001985427,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "7E3F8837DE24009648452C08D6AD8755969C9412482C5ECDACBDBB4623992D7C"
+    },
+    {
+      "FrameId": 1555,
+      "File": "frame_00001555.png",
+      "Timestamp": 919022105687,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "AB15DDAE46AD0CF39781CAD60933200AC66A40510765384AD39C43473A0239AD"
+    },
+    {
+      "FrameId": 1566,
+      "File": "frame_00001566.png",
+      "Timestamp": 919033298936,
+      "Region": {
+        "Top": 1013,
+        "Bottom": 1286,
+        "Left": 968,
+        "Right": 2472,
+        "Location": {
+          "X": 968,
+          "Y": 1013
+        },
+        "Size": {
+          "Width": 1504,
+          "Height": 273
+        },
+        "TopLeft": {
+          "X": 968,
+          "Y": 1013
+        },
+        "BottomRight": {
+          "X": 2472,
+          "Y": 1286
+        },
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 273
+      },
+      "SHA256": "BB9A82C5D5E46B1B4019913196CA7DF7BF7B7092BA8E5F46B5261C51F5B7FC1A"
+    },
+    {
+      "FrameId": 1574,
+      "File": "frame_00001574.png",
+      "Timestamp": 919047249498,
+      "Region": {
+        "Top": 1027,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 1027
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 342
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 1027
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 1027,
+        "Width": 3440,
+        "Height": 342
+      },
+      "SHA256": "E86326BEA8AF7E196B4545E9C4B8C38352FD0660BA14F92C61E9CC4888CA0F9C"
+    },
+    {
+      "FrameId": 1580,
+      "File": "frame_00001580.png",
+      "Timestamp": 919057147329,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "990AA2C39A4C533E805FA1C8AB9CF74943ED6D16A8A580AA73742C498CC29342"
+    },
+    {
+      "FrameId": 1597,
+      "File": "frame_00001597.png",
+      "Timestamp": 919077290492,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "BE419D1573194B0E53F5D4372A40B886CF49B4171A5B815CAD43926F88A1C8D6"
+    },
+    {
+      "FrameId": 1617,
+      "File": "frame_00001617.png",
+      "Timestamp": 919097502087,
+      "Region": {
+        "Top": 0,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 0
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 1369
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 0
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 0,
+        "Width": 3440,
+        "Height": 1369
+      },
+      "SHA256": "AD6F72B98048197C3AE494420846049C04D7D0F9DE720FAC3A428A21E6061B8B"
+    },
+    {
+      "FrameId": 1620,
+      "File": "frame_00001620.png",
+      "Timestamp": 919100212259,
+      "Region": {
+        "Top": 1013,
+        "Bottom": 1314,
+        "Left": 968,
+        "Right": 2472,
+        "Location": {
+          "X": 968,
+          "Y": 1013
+        },
+        "Size": {
+          "Width": 1504,
+          "Height": 301
+        },
+        "TopLeft": {
+          "X": 968,
+          "Y": 1013
+        },
+        "BottomRight": {
+          "X": 2472,
+          "Y": 1314
+        },
+        "X": 968,
+        "Y": 1013,
+        "Width": 1504,
+        "Height": 301
+      },
+      "SHA256": "5AF5EB7EC3BBF761C33A76415E7743F7BCD3408DE229803FF3EF85E2F531C5E0"
+    },
+    {
+      "FrameId": 1821,
+      "File": "frame_00001821.png",
+      "Timestamp": 919328692651,
+      "Region": {
+        "Top": 1027,
+        "Bottom": 1369,
+        "Left": 0,
+        "Right": 3440,
+        "Location": {
+          "X": 0,
+          "Y": 1027
+        },
+        "Size": {
+          "Width": 3440,
+          "Height": 342
+        },
+        "TopLeft": {
+          "X": 0,
+          "Y": 1027
+        },
+        "BottomRight": {
+          "X": 3440,
+          "Y": 1369
+        },
+        "X": 0,
+        "Y": 1027,
+        "Width": 3440,
+        "Height": 342
+      },
+      "SHA256": "92ECA19615EED0AF1D13E51D05133DD8510B84A7A799A7A7CE472E7AE8F5F470"
+    }
+  ],
+  "Notes": "Unmodified full and directly captured track/PostCatch frames. Pool overlays and tinted body;1821 is unavailable gameplay. Region offsets come from recorder events, not inferred from crop dimensions."
+}
