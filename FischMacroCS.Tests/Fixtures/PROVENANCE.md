@@ -366,3 +366,14 @@ through 59 of the last reel. Frames 23–25 and 60–64 did not report a live re
 720 × 90 crop at (1360, 1279) in viewport coordinates from frame 744. The
 reference `Assets/ruinous_hotbar_label.png` is the 44 × 11 crop at
 (1423, 1335) from frame 735 of the same recording.
+## Appraisal captures, November 16, 2026
+
+The appraisal PNGs are cropped from the user's local Moosewood Appraiser session, with permission to test paid re-appraisals. Small-window references use an 800 × 600 client. Maximized references use a 3440 × 1369 client.
+
+- appraisal-held and appraisal-choice record plain Driftwood and the repeat dialogue.
+- appraisal-hexed-held records the equipped Hexed item before a paid roll removed the mutation.
+- appraisal-cash and appraisal-cash-*-large record the cash counter around paid rolls.
+- appraisal-held-large and appraisal-choice-large record the maximized layout.
+- appraisal-poisoned-held records the winning Poisoned Driftwood under overlapping NPC dialogue.
+
+Assets/Workflows/appraise-*.png contains text crops from these observations. The Poisoned reference was captured again after closing the NPC dialogue. The full desktop images are excluded from the release source.
