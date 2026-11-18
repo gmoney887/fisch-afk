@@ -125,3 +125,15 @@ Original application crops copied byte-for-byte from session_20261024_221716_409
 |315|917,920|1607x382|7226789166739|1087..2199|1689|
 
 Frequency10000000. Body bounds were reviewed from the visible original shoulders/walls, target from the capsule axis; original raster/tilt permits the stated4px body/3px target test tolerance. No resizes, palette changes, padding or rotations. Frame158 and315 retained clear body, needle and meter despite app vision latency4889.66/3139.35ms. Original625 offline frame158 took5071.84ms without tracing. These three nonconsecutive observations test geometry/cost, not a chronological catch or Perfect award. Complete raw journals and additional surviving frames remain private in the main ignored artifacts directory. The independent flow recording lacks a completion summary after interruption; do not certify it as complete video. Tests: Seraphic625RecordingTests.OriginalSlowFramesKeepReviewedGeometryAndBoundedRepeatedCost.
+
+## Appraisal captures, November 16, 2026
+
+The appraisal PNGs are cropped from the user's local Moosewood Appraiser session, with permission to test paid re-appraisals. Small-window references use an 800 × 600 client. Maximized references use a 3440 × 1369 client.
+
+- appraisal-held and appraisal-choice record plain Driftwood and the repeat dialogue.
+- appraisal-hexed-held records the equipped Hexed item before a paid roll removed the mutation.
+- appraisal-cash and appraisal-cash-*-large record the cash counter around paid rolls.
+- appraisal-held-large and appraisal-choice-large record the maximized layout.
+- appraisal-poisoned-held records the winning Poisoned Driftwood under overlapping NPC dialogue.
+
+Assets/Workflows/appraise-*.png contains text crops from these observations. The Poisoned reference was captured again after closing the NPC dialogue. The full desktop images are excluded from the release source.

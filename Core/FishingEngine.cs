@@ -672,6 +672,31 @@ public class FishingEngine : IDisposable
             message => { SessionLogger.Instance.Log("CRATE-STEP", message); progress?.Invoke(message); }, _clock);
     }
 
+    public string ExecuteAppraisals(string item, string mutation, int limit, Action<string> progress, CancellationToken ct)
+    {
+        const string interrupted = "Appraisal stopped.";
+        if (IsRunning) return "Stop fishing before appraising.";
+        if (!_coordinator.IsOwner)
+            return RunQueued(() => ExecuteAppraisals(item, mutation, limit, progress, ct), interrupted, ct);
+        Mat CaptureRegion(Rect region)
+        {
+            ValidateGameplay();
+            return _capture.CaptureClientRegion(_activeWindow, region.X, region.Y, region.Width, region.Height)
+                ?? throw new GameplayInterruptedException("Appraisal capture unavailable.");
+        }
+        void Click(Point point)
+        {
+            ValidateGameplay();
+            if (!_desktop.SanitizeGameCoordinate(_activeWindow, point.X, point.Y, out _, out _, out int x, out int y))
+                throw new GameplayInterruptedException("Appraisal choice is outside the Roblox window.");
+            _input.SendHardwareClick(x, y, window: _activeWindow);
+        }
+        using var vision = new AppraisalVision(_activeGeometry.Width, _activeGeometry.Height, item, mutation,
+            CaptureRegion, _operationCancellation);
+        return AppraisalWorkflow.Run(vision.Held, vision.Balance, vision.Choice, Click, Delay, _clock,
+            _operationCancellation, limit, progress);
+    }
+
     public bool ExecuteAquariumClaim(bool recordReplication = true, CancellationToken ct = default)
     {
         if (!_coordinator.IsOwner)

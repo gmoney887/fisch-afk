@@ -449,6 +449,7 @@
 
                                         <Button x:Name="BtnOpenCrates" Click="BtnOpenCrates_Click" Content="Open crates" Margin="0,0,0,0" ToolTip="Requires NOT Fishing: Unequips rod, opens inventory ('g'), searches 'crate', unpacks all crates, and re-equips rod">
                                         </Button>
+                                        <Button x:Name="BtnAppraise" Click="BtnAppraise_Click" Content="Appraise…" Margin="4,0,0,0" ToolTip="Appraise the equipped item until it has your chosen mutation"/>
                                     </WrapPanel>
                                 </DockPanel>
                             </Border>

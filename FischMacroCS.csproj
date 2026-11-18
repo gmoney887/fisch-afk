@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -11,9 +11,9 @@
     <Product>Fat Dad's Fisch AFK Pro</Product>
     <Description>High-frequency computer vision auto-angler for Roblox Fisch</Description>
     <ApplicationIcon>Assets/angler.ico</ApplicationIcon>
-    <Version>1.0.30</Version>
-    <AssemblyVersion>1.0.30.0</AssemblyVersion>
-    <FileVersion>1.0.30.0</FileVersion>
+    <Version>1.0.31</Version>
+    <AssemblyVersion>1.0.31.0</AssemblyVersion>
+    <FileVersion>1.0.31.0</FileVersion>
     <DefaultItemExcludes>$(DefaultItemExcludes);FischMacroCS.Tests\**;artifacts\**;dist\**;publish*\**</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -47,6 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="FischMacroCS.Tests" />
     <PackageReference Include="OpenCvSharp4" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCvSharp4.runtime.win" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCvSharp4.WpfExtensions" Version="4.13.0.20260627" />

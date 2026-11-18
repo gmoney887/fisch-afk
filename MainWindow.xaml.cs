@@ -49,7 +49,7 @@ public partial class MainWindow : Window
 
             _keyboardHook = new GlobalKeyboardHook();
             _keyboardHook.OnToggle += () => Dispatcher.BeginInvoke(ToggleMacro);
-            _keyboardHook.OnReEquip += () => Dispatcher.BeginInvoke(new Action(() => { if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod(); }));
+            _keyboardHook.OnReEquip += () => Dispatcher.BeginInvoke(new Action(() => { if (!_isDiagnosticRunning && !_closing && _appraisalCts == null) _engine.ReEquipRod(); }));
             _keyboardHook.OnStop += EmergencyStop;
             System.IO.File.AppendAllText(logPath, $"[{DateTime.Now:HH:mm:ss.fff}] GlobalKeyboardHook OK\n");
 
@@ -138,7 +138,7 @@ public partial class MainWindow : Window
             }
             else if (id == HOTKEY_ID_REEQUIP)
             {
-                if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod();
+                if (!_isDiagnosticRunning && !_closing && _appraisalCts == null) _engine.ReEquipRod();
                 handled = true;
             }
             else if (id == HOTKEY_ID_END)
@@ -248,7 +248,7 @@ public partial class MainWindow : Window
     private bool _isObserving;
     private void Observe_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine.IsRunning || _closing || _isDiagnosticRunning || _aquariumCts != null || _crateCts != null) return;
+        if (_engine.IsRunning || _closing || _isDiagnosticRunning || _appraisalCts != null || _aquariumCts != null || _crateCts != null) return;
         _isObserving = true;
         _engine.Start(observeOnly: true);
         UpdateUIState(_engine.IsRunning);
@@ -265,8 +265,9 @@ public partial class MainWindow : Window
     {
         SessionLogger.Instance.Log("HOTKEY", $"Toggle received: running={_engine.IsRunning}, queued={_engine.IsStopQueued}");
         if (_closing || _isStopping || _isDiagnosticRunning) return; // Prevent double-clicks while shutting down or during pre-flight
-        if (_aquariumCts != null || _crateCts != null)
+        if (_appraisalCts != null || _aquariumCts != null || _crateCts != null)
         {
+            _appraisalCts?.Cancel();
             _aquariumCts?.Cancel();
             _crateCts?.Cancel();
             return;
@@ -393,6 +394,7 @@ public partial class MainWindow : Window
     private void SetIdleButtonsEnabled(bool enabled)
     {
         BtnObserve.IsEnabled = enabled;
+        BtnAppraise.IsEnabled = enabled;
         string tip = enabled
             ? ""
             : "Cannot run while actively fishing. Stop fishing first.";
@@ -606,7 +608,7 @@ public partial class MainWindow : Window
 
     private void BtnReEquip_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isDiagnosticRunning && !_closing) _engine.ReEquipRod();
+        if (!_isDiagnosticRunning && !_closing && _appraisalCts == null) _engine.ReEquipRod();
     }
 
     private void BtnOpenRecordings_Click(object sender, RoutedEventArgs e)
@@ -974,11 +976,60 @@ public partial class MainWindow : Window
 
 
 
+    private CancellationTokenSource? _appraisalCts;
+
+    private async void BtnAppraise_Click(object sender, RoutedEventArgs e)
+    {
+        if (_appraisalCts != null || _engine.IsRunning || _closing || _isDiagnosticRunning ||
+            _aquariumCts != null || _crateCts != null) return;
+        using var source = new CancellationTokenSource();
+        _appraisalCts = source;
+        var previousState = WindowState;
+        string lastProgress = "0 confirmed paid appraisals.";
+        string outcome = "";
+        try
+        {
+            var dialog = new AppraisalDialog(_settings) { Owner = this };
+            if (dialog.ShowDialog() != true || source.IsCancellationRequested) return;
+            _settings.AppraisalItem = dialog.ItemName;
+            _settings.AppraisalMutation = dialog.Mutation;
+            _settings.AppraisalLimit = dialog.Limit;
+            _settings.Save();
+            string item = dialog.ItemName, mutation = dialog.Mutation;
+            int limit = dialog.Limit;
+            SetIdleButtonsEnabled(false);
+            WindowState = WindowState.Minimized;
+            outcome = await Task.Run(() => _engine.ExecuteAppraisals(item, mutation, limit, message =>
+            {
+                lastProgress = message;
+                SessionLogger.Instance.Log("APPRAISAL", message);
+            }, source.Token));
+            outcome = _engine.PauseReason ?? outcome;
+            if (source.IsCancellationRequested) outcome = "Stopped. " + lastProgress;
+        }
+        catch (Exception ex) { outcome = "Appraisal stopped. " + ex.Message; }
+        finally
+        {
+            _appraisalCts = null;
+            if (!_closing)
+            {
+                WindowState = previousState;
+                SetIdleButtonsEnabled(!_engine.IsRunning);
+            }
+        }
+        if (!_closing)
+        {
+            TxtAction.Text = outcome;
+            SessionLogger.Instance.Log("APPRAISAL", outcome);
+            MessageBox.Show(this, outcome, "Appraisal", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+    }
+
     private CancellationTokenSource? _aquariumCts;
 
     private async void BtnClaimAquarium_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null || _isDiagnosticRunning || _closing || _crateCts != null) return;
+        if (_engine == null || _isDiagnosticRunning || _closing || _appraisalCts != null || _crateCts != null) return;
         if (_aquariumCts != null)
         {
             _aquariumCts.Cancel();
@@ -1053,6 +1104,7 @@ public partial class MainWindow : Window
     private Task<PreFlightReport>? _diagnosticTask;
     private void EmergencyStop()
     {
+        _appraisalCts?.Cancel();
         _aquariumCts?.Cancel();
         _crateCts?.Cancel();
         _diagnosticCts?.Cancel();
@@ -1086,7 +1138,7 @@ public partial class MainWindow : Window
 
     private async Task<bool> RunPreFlightDiagnosticAsync()
     {
-        if (_isDiagnosticRunning || _closing || _aquariumCts != null || _crateCts != null) return false;
+        if (_isDiagnosticRunning || _closing || _appraisalCts != null || _aquariumCts != null || _crateCts != null) return false;
         _isDiagnosticRunning = true;
         _hasPreFlightPassed = false;
         using var diagnosticCts = new CancellationTokenSource();
@@ -1336,7 +1388,7 @@ public partial class MainWindow : Window
 
     private async void BtnOpenCrates_Click(object sender, RoutedEventArgs e)
     {
-        if (_engine == null || _isDiagnosticRunning || _closing || _aquariumCts != null) return;
+        if (_engine == null || _isDiagnosticRunning || _closing || _appraisalCts != null || _aquariumCts != null) return;
         if (_engine.IsRunning)
         {
             MessageBox.Show("Fishing is currently running!\n\nPlease stop fishing [F6] before running standalone Crate unpack.", "Open Crates", MessageBoxButton.OK, MessageBoxImage.Information);

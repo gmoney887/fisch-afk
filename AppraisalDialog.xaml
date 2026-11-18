@@ -1,0 +1,21 @@
+<Window x:Class="FischMacroCS.AppraisalDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Appraise until mutation" SizeToContent="Height" Width="360"
+        ResizeMode="NoResize" WindowStartupLocation="CenterOwner"
+        Background="#101B2B" Foreground="#E2E8F0">
+    <StackPanel Margin="18">
+        <TextBlock TextWrapping="Wrap" Text="Equip the item, close the backpack, and open the Appraiser’s “Can you appraise it again?” choice. Each roll costs the C$ shown in Fisch."/>
+        <Label Foreground="#E2E8F0" Content="_Item" Target="{Binding ElementName=ItemBox}" Padding="0,10,0,3"/>
+        <TextBox x:Name="ItemBox" MaxLength="80" Padding="5"/>
+        <Label Foreground="#E2E8F0" Content="_Desired mutation" Target="{Binding ElementName=MutationBox}" Padding="0,8,0,3"/>
+        <TextBox x:Name="MutationBox" MaxLength="80" Padding="5"/>
+        <Label Foreground="#E2E8F0" Content="Maximum _rolls (0 for unlimited)" Target="{Binding ElementName=LimitBox}" Padding="0,8,0,3"/>
+        <TextBox x:Name="LimitBox" Padding="5"/>
+        <TextBlock x:Name="Help" Margin="0,10,0,0" TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="Cancel" IsCancel="True" Padding="10,4" Margin="0,0,6,0"/>
+            <Button Content="Start appraising" IsDefault="True" Click="Start_Click" Padding="10,4"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

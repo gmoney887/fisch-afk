@@ -18,6 +18,8 @@ Controls:
 - **End:** emergency stop.
 - **F7:** re-equip the selected rod.
 
+To reroll an item, equip it and open the Appraiser’s **Can you appraise it again?** dialogue. In the app, choose **Loot → Appraise…**, enter the item and desired mutation, and start. Each roll spends the fee shown in Fisch. The app checks the equipped item after each roll, including rolls that leave it plain. Set a maximum number of rolls or use **0** to continue until the target appears. F6 or End stops the run. Appraisal uses Windows’ English text recognition.
+
 Each PC keeps its own settings and local recordings under `%LOCALAPPDATA%\FischAFKPro`. Recordings may contain player names and chat; review them before sharing. The download does not include developer settings or recordings.
 
 ## Current behavior

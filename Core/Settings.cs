@@ -52,6 +52,9 @@ public class Settings
     public int EdgeSafetyMargin { get; set; } = 14;
     public int Deadzone { get; set; } = 10;
 
+    public string AppraisalItem { get; set; } = "Driftwood";
+    public string AppraisalMutation { get; set; } = "Poisoned";
+    public int AppraisalLimit { get; set; }
     public string ToggleHotkey { get; set; } = "F6";
     public string ReEquipHotkey { get; set; } = "F7";
 
